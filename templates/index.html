@@ -1,0 +1,1062 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Cluster Reviewer</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#f2f1ed;--surf:#fff;--surf2:#f0efe9;--surf3:#e8e7e0;
+  --border:rgba(0,0,0,.09);--border2:rgba(0,0,0,.16);
+  --text:#1a1a18;--muted:#78786f;
+  --green:#1f6b3a;--gbg:#eaf4ee;--gborder:#aed9be;
+  --red:#922020;--rbg:#faeaea;--rborder:#edb8b8;
+  --blue:#1756a0;--bbg:#e5eef9;--bborder:#aac5ed;
+  --amber:#784a08;--abg:#fef2d8;--aborder:#f3cc7a;
+  --purple:#4a1da0;--pbg:#f0ecff;--pborder:#c4b5f5;
+  --r:8px;--rl:12px;
+}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:var(--text);font-size:13px;line-height:1.5}
+.hdr{background:var(--surf);border-bottom:1px solid var(--border);height:50px;display:flex;align-items:center;padding:0 20px;gap:12px;position:sticky;top:0;z-index:200;box-shadow:0 1px 4px rgba(0,0,0,.05)}
+.hdr-title{font-size:14px;font-weight:700}
+.hdr-file{font-size:12px;color:var(--muted)}
+.hdr-right{margin-left:auto;display:flex;gap:8px;align-items:center}
+.pill{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;border:1px solid;cursor:default}
+.pill.loading{background:var(--abg);color:var(--amber);border-color:var(--aborder)}
+.pill.ready{background:var(--pbg);color:var(--purple);border-color:var(--pborder)}
+.pill.fallback{background:var(--surf2);color:var(--muted);border-color:var(--border2)}
+.pill.pg-ok{background:var(--gbg);color:var(--green);border-color:var(--gborder)}
+.pill.pg-err{background:var(--rbg);color:var(--red);border-color:var(--rborder)}
+.fb-bar{background:var(--pbg);border-bottom:1px solid var(--pborder);padding:5px 20px;display:flex;align-items:center;gap:14px;font-size:11px;color:var(--purple)}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:14px 20px 0;max-width:1400px;margin:0 auto}
+.stat{background:var(--surf);border:1px solid var(--border);border-radius:var(--r);padding:10px 14px}
+.stat-lbl{font-size:10px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.05em}
+.stat-val{font-size:21px;font-weight:700;margin-top:2px}
+.stat-val.g{color:var(--green)}.stat-val.r{color:var(--red)}
+.clusters{max-width:1400px;margin:0 auto;padding:12px 20px 60px}
+.cluster-wrap{background:var(--surf);border:1px solid var(--border);border-radius:var(--rl);margin-bottom:12px;overflow:hidden}
+.c-hdr{display:flex;align-items:center;gap:10px;padding:10px 16px;background:var(--surf2);border-bottom:1px solid var(--border);cursor:pointer;user-select:none}
+.c-hdr:hover{background:var(--surf3)}
+.c-id{font-family:monospace;font-size:12px;font-weight:700}
+.c-anchor{font-size:12px;color:var(--muted);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chev{font-size:10px;color:var(--muted);transition:transform .18s}
+.collapsed .chev{transform:rotate(-90deg)}
+.collapsed .c-body{display:none}
+.tbl-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{text-align:left;padding:6px 10px;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;background:var(--surf2);border-bottom:1px solid var(--border);white-space:nowrap;cursor:pointer;user-select:none}
+th:hover{background:var(--surf3)}
+td{padding:7px 10px;border-bottom:1px solid var(--border);vertical-align:middle}
+tr:last-child td{border-bottom:none}
+tr.row-anchor td{background:var(--abg)}
+tr.row-bad td{background:var(--rbg)}
+tr.row-ok td{background:var(--surf)}
+tr.row-mem td{background:#f0ecff}
+.cb-cell{width:30px;text-align:center}
+input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--red)}
+.anchor-badge{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:var(--abg);color:var(--amber);font-size:10px;font-weight:700;border:1.5px solid var(--aborder)}
+.mem-tag{font-size:9px;background:var(--pbg);color:var(--purple);border:1px solid var(--pborder);border-radius:3px;padding:1px 5px;margin-left:4px;font-weight:700;cursor:help}
+.toolbar{display:flex;align-items:center;gap:8px;padding:8px 14px;border-top:1px solid var(--border);background:var(--surf2);flex-wrap:wrap}
+.thr-info{font-size:10px;color:var(--purple);font-weight:600;margin-left:auto}
+.c-body-inner{display:flex}
+.col-table{flex:1;min-width:0}
+.col-bd{width:460px;flex-shrink:0;border-left:1px solid var(--border);background:#fafaf8;display:flex;flex-direction:column;overflow-y:auto}
+.bd-hdr{padding:8px 14px;border-bottom:1px solid var(--border);font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;display:flex;align-items:center;gap:8px;position:sticky;top:0;background:#fafaf8;z-index:2}
+.bd-upload{margin:8px 14px;border:1.5px dashed var(--border2);border-radius:var(--r);padding:10px;text-align:center;cursor:pointer;font-size:12px;color:var(--muted);transition:all .15s;display:block}
+.bd-upload:hover{border-color:var(--blue);color:var(--blue);background:var(--bbg)}
+.bd-upload input{display:none}
+.bdc-block{border:1px solid var(--border);border-radius:var(--r);margin-bottom:8px;overflow:hidden}
+.bdc-hdr{display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--surf2);border-bottom:1px solid var(--border)}
+.bdc-id{font-family:monospace;font-weight:700;font-size:11px}
+.clean-lbl{margin-left:auto;display:flex;align-items:center;gap:5px;cursor:pointer;font-size:11px;font-weight:600}
+.clean-lbl input{width:13px;height:13px;accent-color:var(--green)}
+.corr-section{padding:8px 14px;border-top:1px solid var(--border);background:var(--surf)}
+.corr-title{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px}
+.corr-chips{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:6px;min-height:4px}
+.corr-chip{display:inline-flex;align-items:center;gap:5px;background:var(--gbg);border:1px solid var(--gborder);color:var(--green);border-radius:5px;padding:3px 8px;font-size:11px;font-family:monospace}
+.corr-chip.new{background:var(--abg);border-color:var(--aborder);color:var(--amber)}
+.chip-x{cursor:pointer;opacity:.5}.chip-x:hover{opacity:1}
+.corr-row{display:flex;gap:6px;flex-wrap:wrap}
+.corr-input{flex:1;min-width:140px;padding:5px 8px;font-family:monospace;font-size:12px;border:1px solid var(--border2);border-radius:var(--r);background:var(--surf);color:var(--text)}
+.corr-input:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 2px var(--bbg)}
+.btn{display:inline-flex;align-items:center;gap:5px;padding:6px 12px;font-size:12px;font-weight:600;border:1px solid var(--border2);border-radius:var(--r);background:var(--surf);color:var(--text);cursor:pointer;transition:background .12s;white-space:nowrap}
+.btn:hover{background:var(--surf2)}
+.btn.primary{background:var(--text);color:#fff;border-color:transparent}
+.btn.primary:hover{opacity:.85}
+.btn.green{background:var(--gbg);color:var(--green);border-color:var(--gborder)}
+.btn.blue{background:var(--bbg);color:var(--blue);border-color:var(--bborder)}
+.btn.red{background:var(--rbg);color:var(--red);border-color:var(--rborder)}
+.btn.sm{padding:4px 10px;font-size:11px}
+.badge{font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;white-space:nowrap}
+.badge.ok{background:var(--gbg);color:var(--green);border:1px solid var(--gborder)}
+.badge.bad{background:var(--rbg);color:var(--red);border:1px solid var(--rborder)}
+.badge.n{background:var(--surf2);color:var(--muted);border:1px solid var(--border)}
+.sg-block{border:1px solid var(--border);border-radius:var(--r);margin:8px 14px}
+.sg-hdr{background:var(--rbg);border-bottom:1px solid var(--rborder);padding:8px 10px;border-radius:var(--r) var(--r) 0 0}
+.sg-hdr-top{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+.sg-pills{display:flex;flex-wrap:wrap;gap:3px}
+.sg-pill{font-family:monospace;font-size:10px;background:var(--surf2);border:1px solid var(--border);border-radius:4px;padding:2px 7px;cursor:move;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sg-pill.dragging{opacity:.4}
+.sg-pill.drag-over-sg{outline:2px dashed var(--blue)}
+.sg-sql{position:relative;background:#1e1e1e;border-radius:6px;padding:8px 10px 8px 10px;font-family:monospace;font-size:10px;color:#ccc;white-space:pre-wrap;line-height:1.6;max-height:80px;overflow-y:auto;margin:8px 10px 0}
+.sg-copy-btn{position:absolute;top:5px;right:5px;padding:2px 7px;font-size:10px;background:#333;color:#aaa;border:1px solid #555;border-radius:4px;cursor:pointer}
+.drop-zone-target{border:2px dashed transparent;border-radius:var(--r);padding:4px;transition:border-color .15s}
+.drop-zone-target.drag-active{border-color:var(--blue);background:var(--bbg)}
+.upload-screen{max-width:520px;margin:80px auto;padding:0 20px}
+.drop-zone{border:2px dashed var(--border2);border-radius:var(--rl);padding:52px 32px;text-align:center;cursor:pointer;background:var(--surf);transition:all .15s}
+.drop-zone:hover,.drop-zone.over{border-color:var(--blue);background:var(--bbg)}
+.drop-zone input{display:none}
+.drop-title{font-size:16px;font-weight:700;margin-bottom:6px}
+.drop-sub{font-size:12px;color:var(--muted);margin-bottom:20px}
+.spinner{display:inline-block;width:13px;height:13px;border:2px solid var(--border2);border-top-color:var(--blue);border-radius:50%;animation:spin .7s linear infinite;vertical-align:middle}
+@keyframes spin{to{transform:rotate(360deg)}}
+.toast{position:fixed;bottom:22px;right:22px;background:var(--text);color:#fff;padding:9px 16px;border-radius:var(--r);font-size:13px;font-weight:500;box-shadow:0 4px 14px rgba(0,0,0,.18);z-index:9998;opacity:0;transform:translateY(6px);transition:all .2s;pointer-events:none}
+.toast.show{opacity:1;transform:translateY(0)}
+.hidden{display:none!important}
+
+/* Modal memoria */
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:none;align-items:center;justify-content:center;padding:20px}
+.modal-bg.open{display:flex}
+.modal-box{background:var(--surf);border-radius:var(--rl);width:100%;max-width:700px;max-height:80vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 12px 50px rgba(0,0,0,.3)}
+.modal-hdr{display:flex;align-items:center;padding:14px 18px;border-bottom:1px solid var(--border);gap:10px}
+.modal-hdr h2{font-size:14px;font-weight:700;flex:1}
+.modal-body{padding:16px 18px;overflow-y:auto;flex:1}
+.mem-row{padding:8px 0;border-bottom:1px solid var(--border);font-size:12px}
+.mem-row:last-child{border-bottom:none}
+</style>
+</head>
+<body>
+
+<header class="hdr">
+  <div class="hdr-title">Cluster Reviewer</div>
+  <div class="hdr-file" id="hdrFile"></div>
+  <div id="modelPill" class="pill loading"><span class="spinner"></span> Cargando modelo…</div>
+  <div id="pgPill" class="pill loading"><span class="spinner"></span> BD…</div>
+  <div class="hdr-right">
+    <button class="btn sm" id="btnMemory" onclick="openMemory()" style="display:none">🧠 Memoria</button>
+    <button class="btn sm" id="btnProgress" onclick="openProgress()" style="display:none">📊 Progreso</button>
+    <button class="btn" id="btnReset" onclick="resetApp()" style="display:none">Nueva revisión</button>
+    <button class="btn primary" id="btnExport" onclick="exportFile()" style="display:none">⬇ Descargar</button>
+  </div>
+</header>
+
+<div id="fbBar" class="fb-bar hidden">
+  <span>🧠 Aprendizaje</span>
+  <span id="fbTotal" style="font-weight:600"></span>
+  <span id="fbThreshold" style="background:var(--surf);border:1px solid var(--pborder);border-radius:20px;padding:2px 8px;font-size:10px;font-weight:700"></span>
+  <span id="fbAdj" style="color:var(--muted)"></span>
+  <button class="btn sm" style="margin-left:auto" onclick="resetFeedback()">Reiniciar feedback</button>
+</div>
+
+<div id="uploadScreen">
+  <div class="upload-screen">
+    <div class="drop-zone" id="dropZone" onclick="document.getElementById('mainFile').click()">
+      <input type="file" id="mainFile" accept=".xlsx,.csv">
+      <div class="drop-title">Arrastra tu archivo de revisión</div>
+      <div class="drop-sub">Excel (.xlsx) o CSV</div>
+      <button class="btn primary" onclick="event.stopPropagation();document.getElementById('mainFile').click()">Seleccionar archivo</button>
+    </div>
+  </div>
+</div>
+
+<div id="mainScreen" class="hidden">
+  <div class="stats" id="statsBar"></div>
+  <div class="clusters" id="clusterList"></div>
+</div>
+
+<!-- Modal corrección externa -->
+<div class="modal-bg" id="extCorrModal" onclick="if(event.target===this)closeExtCorr()">
+  <div class="modal-box" style="max-width:560px">
+    <div class="modal-hdr">
+      <h2>+ Corrección externa</h2>
+      <button class="btn sm" onclick="closeExtCorr()">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:12px;color:var(--muted);margin-bottom:14px">
+        Este store no está en el archivo de revisión pero identificaste que necesita corrección.
+        Se guardará en una hoja separada del Excel final.
+      </p>
+      <div id="extCorrInfo" style="background:var(--surf2);border-radius:var(--r);padding:10px 12px;font-size:12px;margin-bottom:12px"></div>
+      <div style="margin-bottom:8px">
+        <label style="font-size:11px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">Corrección (cluster_index destino)</label>
+        <input id="extCorrInput" class="corr-input" style="width:100%" placeholder="cluster_index correcto · vacío = crear nuevo">
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn green" onclick="saveExtCorr()">✓ Guardar corrección externa</button>
+        <button class="btn" onclick="closeExtCorr()">Cancelar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal progreso -->
+<div class="modal-bg" id="progressModal" onclick="if(event.target===this)closeProgress()">
+  <div class="modal-box" style="max-width:780px">
+    <div class="modal-hdr">
+      <h2>📊 Progreso de revisión</h2>
+      <div style="display:flex;gap:8px;margin-left:auto;align-items:center">
+        <select id="progressTable" onchange="loadProgress()" style="font-size:12px;padding:4px 8px;border:1px solid var(--border2);border-radius:var(--r);background:var(--surf)">
+          <option value="sales_opportunity.dim_maestra">dim_maestra</option>
+          <option value="sales_opportunity.dim_maestra_retail">dim_maestra_retail</option>
+        </select>
+        <button class="btn sm" onclick="closeProgress()">✕</button>
+      </div>
+    </div>
+    <div class="modal-body">
+      <div id="progressContent" style="text-align:center;padding:20px;color:var(--muted)">
+        <span class="spinner"></span> Cargando…
+      </div>
+    </div>
+  </div>
+</div>
+<div class="modal-bg" id="memModal" onclick="if(event.target===this)closeMemory()">
+  <div class="modal-box">
+    <div class="modal-hdr">
+      <h2>Memoria interna</h2>
+      <span id="memStats" style="font-size:12px;color:var(--muted)"></span>
+      <button class="btn sm red" onclick="if(confirm('¿Borrar toda la memoria?'))resetMemory()">Borrar todo</button>
+      <button class="btn sm" onclick="closeMemory()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="display:flex;gap:8px;margin-bottom:12px">
+        <input id="memSearchIn" class="corr-input" placeholder="Buscar por nombre, item_index o corrección…" oninput="searchMemory(this.value)" style="flex:1">
+      </div>
+      <div id="memResults"></div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+let CLUSTERS   = [];
+let COUNTRY    = 'mx';
+let SUBGROUPS  = {};
+const SORT_ST  = {};
+let PG_READY   = false;
+
+const esc = s => String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+function toast(msg,ms=2400){const el=document.getElementById("toast");el.textContent=msg;el.classList.add("show");setTimeout(()=>el.classList.remove("show"),ms)}
+async function api(url,body){const opts=body?{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}:{method:"GET"};return fetch(url,opts).then(r=>r.json())}
+
+// ── polling ───────────────────────────────────────────────────────────────────
+function pollModel(){
+  fetch("/model_status").then(r=>r.json()).then(d=>{
+    const p=document.getElementById("modelPill");
+    if(d.ready){p.className="pill ready";p.innerHTML="⬡ Semántico"}
+    else{p.className="pill fallback";p.innerHTML="≈ Jaccard";p.title=d.error||""}
+    // No reintentar — si no está listo, queda en Jaccard
+  }).catch(()=>{
+    const p=document.getElementById("modelPill");
+    if(p){p.className="pill fallback";p.innerHTML="≈ Jaccard";}
+  });
+}
+function checkPg(){
+  const p=document.getElementById("pgPill");
+  // Timeout de 5 segundos — si la BD no responde, marcar como sin conectar
+  const timer = setTimeout(()=>{
+    p.className="pill pg-err";p.innerHTML="🗄 BD sin conectar";p.title="Timeout";PG_READY=false;
+  }, 5000);
+  fetch("/pg_status").then(r=>r.json()).then(d=>{
+    clearTimeout(timer);
+    if(d.ok){p.className="pill pg-ok";p.innerHTML="🗄 BD conectada";PG_READY=true}
+    else{p.className="pill pg-err";p.innerHTML="🗄 BD sin conectar";p.title=d.error;PG_READY=false}
+  }).catch(()=>{
+    clearTimeout(timer);
+    p.className="pill pg-err";p.innerHTML="🗄 BD sin conectar";PG_READY=false;
+  });
+}
+pollModel(); checkPg();
+
+function updateFbBar(fb,thr,adj){
+  if(!fb)return;
+  document.getElementById("fbBar").classList.remove("hidden");
+  document.getElementById("fbTotal").textContent=`${fb.total} correcc.`;
+  document.getElementById("fbThreshold").textContent=`umbral: ${thr}`;
+  const a=document.getElementById("fbAdj");
+  a.textContent=adj>0.01?`↑ (+${adj.toFixed(3)})`:adj<-0.01?`↓ (${adj.toFixed(3)})`:"";
+}
+async function resetFeedback(){if(!confirm("¿Reiniciar feedback?"))return;await api("/reset_feedback",{});document.getElementById("fbBar").classList.add("hidden");toast("Feedback reiniciado")}
+
+// ── upload ────────────────────────────────────────────────────────────────────
+const dz=document.getElementById("dropZone");
+dz.addEventListener("dragover",e=>{e.preventDefault();dz.classList.add("over")});
+dz.addEventListener("dragleave",()=>dz.classList.remove("over"));
+dz.addEventListener("drop",e=>{e.preventDefault();dz.classList.remove("over");doUpload(e.dataTransfer.files[0])});
+document.getElementById("mainFile").addEventListener("change",e=>doUpload(e.target.files[0]));
+
+async function doUpload(file){
+  if(!file)return;
+  dz.innerHTML='<span class="spinner"></span> Procesando…';
+  const fd=new FormData();fd.append("file",file);
+  try{
+    const d=await fetch("/upload",{method:"POST",body:fd}).then(r=>r.json());
+    if(d.error){toast("Error: "+d.error);return}
+    CLUSTERS=d.clusters;COUNTRY=d.country||"mx";SUBGROUPS={};FILTER="all";
+    renderStats(d.stats);
+    renderFilterBar();
+    renderAll();
+    document.getElementById("uploadScreen").classList.add("hidden");
+    document.getElementById("mainScreen").classList.remove("hidden");
+    document.getElementById("hdrFile").textContent=file.name;
+    document.getElementById("btnReset").style.display="";
+    document.getElementById("btnExport").style.display="";
+    document.getElementById("btnMemory").style.display="";
+    document.getElementById("btnProgress").style.display="";
+    if(d.meta)updateFbBar(d.meta.fb_stats,d.meta.threshold,0);
+  }catch(e){toast("Error: "+e.message)}
+}
+
+function renderStats(s){
+  document.getElementById("statsBar").innerHTML=`
+    <div class="stat"><div class="stat-lbl">Clusters</div><div class="stat-val">${s.total_clusters}</div></div>
+    <div class="stat"><div class="stat-lbl">Stores</div><div class="stat-val">${s.total_rows}</div></div>
+    <div class="stat"><div class="stat-lbl">Correctos</div><div class="stat-val g">${s.total_ok}</div></div>
+    <div class="stat"><div class="stat-lbl">Incorrectos</div><div class="stat-val r">${s.total_bad}</div></div>`;
+}
+function refreshStats(){
+  let rows=0,ok=0,bad=0;
+  CLUSTERS.forEach(cl=>cl.members.forEach(m=>{rows++;m.revision===1?ok++:bad++}));
+  renderStats({total_clusters:CLUSTERS.length,total_rows:rows,total_ok:ok,total_bad:bad});
+}
+
+// ── sorting ───────────────────────────────────────────────────────────────────
+function sortedMembers(cl){
+  const s=SORT_ST[cl.cluster_id];
+  const anchor=cl.members.find(m=>m.is_anchor);
+  const rest=cl.members.filter(m=>!m.is_anchor);
+  if(s){rest.sort((a,b)=>{
+    if(s.col==="score"){const va=a.score??-1,vb=b.score??-1;return s.dir==="asc"?va-vb:vb-va}
+    const va=String(a[s.col]||"").toLowerCase(),vb=String(b[s.col]||"").toLowerCase();
+    if(va<vb)return s.dir==="asc"?-1:1;if(va>vb)return s.dir==="asc"?1:-1;return 0;
+  })}
+  return anchor?[anchor,...rest]:rest;
+}
+function toggleSort(cid,col){
+  const cur=SORT_ST[cid];
+  SORT_ST[cid]=(cur&&cur.col===col)?{col,dir:cur.dir==="asc"?"desc":"asc"}:{col,dir:"asc"};
+  const cl=getCl(cid);if(!cl)return;
+  const wrap=document.querySelector(`#card_${CSS.escape(cid)} .tbl-wrap`);
+  if(wrap){const tmp=document.createElement("div");tmp.innerHTML=buildTable(cl);wrap.replaceWith(tmp.firstElementChild)}
+}
+function sortIcon(cid,col){
+  const s=SORT_ST[cid];
+  if(!s||s.col!==col)return`<span style="opacity:.25;font-size:9px;margin-left:2px">↕</span>`;
+  return`<span style="font-size:9px;margin-left:2px">${s.dir==="asc"?"↑":"↓"}</span>`;
+}
+
+// ── render ────────────────────────────────────────────────────────────────────
+let FILTER = "all"; // "all" | "pending" | "done"
+
+function clusterProgress(cl) {
+  // Un cluster está "done" si no tiene incorrectos, O si todos sus incorrectos tienen corrección
+  const sgs = SUBGROUPS[cl.cluster_id] || [];
+  const bad  = cl.members.filter(m => m.revision === 0).length;
+  if (bad === 0) return { done: true, bad: 0, corrected: 0, total: 0 };
+  if (!sgs.length) return { done: false, bad, corrected: 0, total: 0 };
+  const corrected = sgs.filter(sg => sg.correction).length;
+  return { done: corrected === sgs.length, bad, corrected, total: sgs.length };
+}
+
+function renderFilterBar() {
+  const all     = CLUSTERS.length;
+  const pending = CLUSTERS.filter(cl => !clusterProgress(cl).done).length;
+  const done    = CLUSTERS.filter(cl =>  clusterProgress(cl).done).length;
+
+  const btn = (label, val, count) => {
+    const active = FILTER === val;
+    return `<button onclick="setFilter('${val}')" style="
+      padding:6px 14px;font-size:12px;font-weight:${active?'700':'500'};
+      border:1px solid ${active?'var(--text)':'var(--border2)'};
+      border-radius:var(--r);background:${active?'var(--text)':'var(--surf)'};
+      color:${active?'#fff':'var(--text)'};cursor:pointer;transition:all .12s">
+      ${label} <span style="font-size:11px;opacity:.7">${count}</span>
+    </button>`;
+  };
+
+  const existing = document.getElementById("filterBar");
+  const html = `<div id="filterBar" style="display:flex;align-items:center;gap:8px;padding:12px 20px 0;max-width:1400px;margin:0 auto;flex-wrap:wrap">
+    ${btn("Todos", "all", all)}
+    ${btn("⏳ Pendientes", "pending", pending)}
+    ${btn("✓ Completados", "done", done)}
+    <span style="margin-left:auto;font-size:12px;color:var(--muted)">${done}/${all} clusters listos</span>
+  </div>`;
+
+  if (existing) {
+    existing.outerHTML = html;
+  } else {
+    const cl = document.getElementById("clusterList");
+    cl.insertAdjacentHTML("beforebegin", html);
+  }
+}
+
+function setFilter(val) {
+  FILTER = val;
+  renderFilterBar();
+  renderAll();
+}
+
+function renderAll() {
+  const list = document.getElementById("clusterList");
+  list.innerHTML = "";
+  const filtered = CLUSTERS.filter(cl => {
+    if (FILTER === "all")     return true;
+    if (FILTER === "pending") return !clusterProgress(cl).done;
+    if (FILTER === "done")    return  clusterProgress(cl).done;
+    return true;
+  });
+  if (!filtered.length) {
+    list.innerHTML = `<div style="text-align:center;padding:40px;color:var(--muted);font-size:13px">
+      No hay clusters en esta categoría
+    </div>`;
+    return;
+  }
+  filtered.forEach(cl => list.appendChild(buildCard(cl)));
+}
+function getCl(id){return CLUSTERS.find(c=>c.cluster_id===id)}
+
+function buildCard(cl){
+  const wrap=document.createElement("div");
+  wrap.className="cluster-wrap";wrap.id="card_"+CSS.escape(cl.cluster_id);
+  const bad=cl.members.filter(m=>m.revision===0).length;
+  const prog = clusterProgress(cl);
+
+  let statusBadge;
+  if (bad === 0) {
+    statusBadge = `<span class="badge ok">✓ Sin incorrectos</span>`;
+  } else if (prog.done) {
+    statusBadge = `<span class="badge ok">✓ ${prog.corrected}/${prog.total} corregidos</span>`;
+  } else if (prog.total > 0) {
+    statusBadge = `<span class="badge bad">${prog.corrected}/${prog.total} corregidos</span>`;
+  } else {
+    statusBadge = `<span class="badge bad">${bad} incorrecto${bad>1?"s":""}</span>`;
+  }
+
+  wrap.innerHTML=`
+    <div class="c-hdr" onclick="toggleCard(this)">
+      <span class="c-id">${esc(cl.cluster_id)}</span>
+      <span class="c-anchor">${esc(cl.anchor_name)}</span>
+      <span class="badge n">${cl.count} stores</span>
+      ${statusBadge}
+      <span class="chev">▼</span>
+    </div>
+    <div class="c-body">
+      <div class="c-body-inner">
+        <div class="col-table">${buildTable(cl)}${buildToolbar(cl)}</div>
+        ${buildBdPanel(cl)}
+      </div>
+    </div>`;
+  return wrap;
+}
+
+function buildTable(cl){
+  const members=sortedMembers(cl);const cid=cl.cluster_id;let rows="";
+  members.forEach(m=>{
+    const isAnchor=m.is_anchor;
+    const hasMem=m.mem_hit&&m.mem_hit.correction;
+    const rowCls=isAnchor?"row-anchor":hasMem&&m.revision===0?"row-mem":m.revision===0?"row-bad":"row-ok";
+    const cbCell=isAnchor
+      ?`<td class="cb-cell"><span class="anchor-badge">A</span></td>`
+      :`<td class="cb-cell"><input type="checkbox" ${m.revision===0?"checked":""}
+          onchange="onCheck('${esc(cid)}','${esc(m.item_index)}',this.checked)"></td>`;
+    let scoreHtml="";
+    if(m.score!=null){
+      const pct=Math.round(m.score*100);
+      const color=pct>=70?"var(--green)":pct>=50?"var(--amber)":"var(--red)";
+      scoreHtml=`<span style="font-size:11px;font-weight:600;color:${color}">${pct}%</span>`;
+    }else if(isAnchor)scoreHtml=`<span style="font-size:10px;color:var(--muted)">—</span>`;
+    const memTag=hasMem?`<span class="mem-tag" title="En memoria: ${esc(m.mem_hit.correction)}">MEM</span>`:"";
+    rows+=`<tr class="${rowCls}" data-ii="${esc(m.item_index)}">
+      ${cbCell}
+      <td style="font-family:monospace;font-size:10px;white-space:nowrap">${esc(m.new_cluster)}</td>
+      <td style="font-family:monospace;font-size:10px;white-space:nowrap">${esc(m.item_index)}</td>
+      <td style="font-family:monospace;font-size:10px;color:var(--muted);white-space:nowrap">${esc(m.cluster_index)}</td>
+      <td>${esc(m.app_name)}${memTag}</td>
+      <td style="color:var(--muted)">${esc(m.app_address)}</td>
+      <td style="text-align:right;white-space:nowrap">${scoreHtml}</td>
+    </tr>`;
+  });
+  const th=(label,col,w="")=>`<th style="${w}" onclick="toggleSort('${esc(cid)}','${col}')">${label}${sortIcon(cid,col)}</th>`;
+  const bad=cl.members.filter(m=>m.revision===0).length;
+  const tableId="tblWrap_"+CSS.escape(cid);
+  return`
+    <div style="display:flex;align-items:center;gap:8px;padding:7px 12px;background:var(--surf2);border-bottom:1px solid var(--border)">
+      <span style="font-size:11px;color:var(--muted)">${cl.count} stores · <span style="color:var(--red);font-weight:600">${bad}</span> incorrecto${bad!==1?"s":""}</span>
+      <button class="btn sm" style="margin-left:auto;font-size:11px" onclick="toggleTbl(this)">▼ Ver tabla</button>
+    </div>
+    <div class="tbl-wrap" id="${tableId}" style="display:none"><table>
+      <thead><tr>
+        <th class="cb-cell" style="cursor:default">Rev</th>
+        ${th("new_cluster","new_cluster")}${th("item_index","item_index")}
+        ${th("cluster_index","cluster_index")}${th("app_name","app_name")}
+        ${th("app_address","app_address")}${th("%","score","width:50px;text-align:right")}
+      </tr></thead><tbody>${rows}</tbody>
+    </table></div>`;
+}
+
+function buildToolbar(cl){
+  const bad=cl.members.filter(m=>m.revision===0).length;
+  return`<div class="toolbar" id="tb_${CSS.escape(cl.cluster_id)}">
+    <span style="font-size:11px;color:var(--muted)" id="tbInfo_${CSS.escape(cl.cluster_id)}">${bad} marcado${bad!==1?"s":""} como incorrecto${bad!==1?"s":""}</span>
+    <button class="btn blue sm" onclick="genSql('${esc(cl.cluster_id)}')">⚡ Generar subgrupos</button>
+    <button class="btn sm" onclick="markAll('${esc(cl.cluster_id)}',0)">Marcar todos ✕</button>
+    <button class="btn sm" onclick="markAll('${esc(cl.cluster_id)}',1)">Desmarcar todos</button>
+    <span class="thr-info">umbral: ${cl.threshold_used||0.95}</span>
+  </div>`;
+}
+
+// ── panel BD con subgrupos ────────────────────────────────────────────────────
+function buildBdPanel(cl){
+  const cid=cl.cluster_id;
+  const sgs=SUBGROUPS[cid]||[];
+  if(!sgs.length){
+    return`<div class="col-bd" id="bdPanel_${CSS.escape(cid)}" data-cid="${esc(cid)}">
+      <div class="bd-hdr"><span>Subgrupos y correcciones</span></div>
+      <div style="padding:24px 14px;font-size:12px;color:var(--muted);text-align:center;line-height:2">
+        Marca incorrectos y haz clic<br><strong>⚡ Generar subgrupos</strong>
+      </div>
+    </div>`;
+  }
+
+  const corrCount=sgs.filter(sg=>sg.correction).length;
+  const sgBlocks=sgs.map((sg,sgi)=>buildSgBlock(cl,sg,sgi)).join("");
+
+  return`<div class="col-bd" id="bdPanel_${CSS.escape(cid)}" data-cid="${esc(cid)}">
+    <div class="bd-hdr">
+      <span>${sgs.length} subgrupo${sgs.length!==1?"s":""}</span>
+      <span style="margin-left:auto;color:${corrCount===sgs.length?"var(--green)":"var(--muted)"};font-size:10px;font-weight:700">${corrCount}/${sgs.length} corregidos</span>
+    </div>
+    ${sgBlocks}
+  </div>`;
+}
+
+function buildSgBlock(cl,sg,sgi){
+  const cid=cl.cluster_id;
+  const sgKey=CSS.escape(cid)+"_sg"+sgi;
+
+  // Pills de miembros — mostrar app_name + dirección, item_index en tooltip
+  const clMembers = getCl(cid)?.members || [];
+  const pills = sg.members.map(ii => {
+    const m = clMembers.find(m => m.item_index === ii);
+    const label = m
+      ? `${m.app_name.slice(0,28)}${m.app_name.length>28?'…':''}`
+      : ii.slice(-14);
+    const addr  = m ? m.app_address.slice(0,35) : '';
+    return `<span class="sg-pill" draggable="true"
+      data-ii="${esc(ii)}" data-from-sg="${sgi}" data-cid="${esc(cid)}"
+      ondragstart="onPillDragStart(event)"
+      ondragend="onPillDragEnd(event)"
+      title="${esc(ii)}&#10;${esc(addr)}">${esc(label)}</span>`;
+  }).join("");
+
+  // Resultados BD
+  let bdHtml="";
+  if(sg.bd_results&&sg.bd_results.length){
+    bdHtml=sg.bd_results.map((bdc,bi)=>{
+      // Los miembros que matchearon la query original se resaltan
+      const sgNames = new Set(
+        (getCl(cid)?.members||[])
+          .filter(m => sg.members.includes(m.item_index))
+          .map(m => m.app_name.toLowerCase().trim())
+      );
+
+      const rowsHtml = bdc.members.map(m => {
+        const nameNorm = (m.app_name||"").toLowerCase().trim();
+        const isMatch  = [...sgNames].some(sn =>
+          nameNorm.includes(sn.split(" ").filter(w=>w.length>3)[0]||"__") ||
+          sn.includes((nameNorm.split(" ").filter(w=>w.length>3)[0])||"__")
+        );
+        const bg = isMatch ? "background:#eaf4ee" : "";
+        const extBtn = `<td style="padding:2px 4px;text-align:center">
+          <button class="btn sm" style="padding:2px 5px;font-size:9px;white-space:nowrap;background:var(--abg);color:var(--amber);border-color:var(--aborder)"
+            onclick="openExtCorr('${esc(m.store_id||"")}','${esc(m.app_name||"")}','${esc(m.app_address||"")}','${esc(bdc.cluster_index)}','${esc(m.cluster_name||"")}','${esc(m.cluster_address||"")}')">
+            ✎
+          </button>
+        </td>`;
+        return `<tr style="${bg}">
+          <td style="padding:3px 8px;font-family:monospace;font-size:10px;color:var(--muted);white-space:nowrap">${esc(m.store_id||"")}</td>
+          <td style="padding:3px 8px;font-weight:${isMatch?'600':'400'}">${esc(m.app_name||"")}${isMatch?` <span style="font-size:9px;color:var(--green);font-weight:700">✓</span>`:''}</td>
+          <td style="padding:3px 8px;color:var(--muted);font-size:11px">${esc((m.app_address||"").slice(0,42))}</td>
+          ${extBtn}
+        </tr>`;
+      }).join("");
+
+      return `<div class="bdc-block">
+        <div class="bdc-hdr">
+          <div>
+            <div class="bdc-id">${esc(bdc.cluster_index)}</div>
+            <div style="font-size:10px;color:var(--muted)">${bdc.members.length} store${bdc.members.length!==1?"s":""} en BD</div>
+          </div>
+          <label class="clean-lbl"><input type="checkbox" ${bdc.is_clean?"checked":""}
+            onchange="setSgClean('${esc(cid)}',${sgi},${bi},this.checked)">limpio</label>
+        </div>
+        <table style="width:100%;border-collapse:collapse;font-size:11px">
+          <thead><tr style="background:var(--surf2)">
+            <th style="padding:3px 8px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border);width:80px;cursor:default">store_id</th>
+            <th style="padding:3px 8px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border);cursor:default">app_name</th>
+            <th style="padding:3px 8px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border);cursor:default">app_address</th>
+            <th style="padding:3px 8px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border);cursor:default;width:70px">acción</th>
+          </tr></thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+      </div>`;
+    }).join("");
+    bdHtml+=`<button class="btn green sm" style="margin:4px 10px 8px" onclick="assignSgClean('${esc(cid)}',${sgi})">★ Usar limpios</button>`;
+  }
+
+  // Corrección asignada
+  const corrHtml=sg.correction
+    ?`<div class="corr-chip ${sg.is_new?"new":""}">
+        <span>${esc(sg.correction)}</span>
+        <span class="chip-x" onclick="clearSgCorr('${esc(cid)}',${sgi})">✕</span>
+      </div>`
+    :`<span style="font-size:11px;color:var(--muted)">Sin asignar</span>`;
+
+  const isCorr = !!sg.correction;
+  // Colapsado por default si ya tiene corrección, expandido si no
+  const bodyDisplay = isCorr ? "none" : "block";
+  const chevRot     = isCorr ? "rotate(-90deg)" : "";
+
+  return`<div class="sg-block drop-zone-target" id="sg_${sgKey}"
+    ondragover="onSgDragOver(event,'${esc(cid)}',${sgi})"
+    ondragleave="onSgDragLeave(event)"
+    ondrop="onSgDrop(event,'${esc(cid)}',${sgi})">
+    <div class="sg-hdr" style="cursor:pointer;display:flex;align-items:center;gap:8px" onclick="toggleSgBlock(this.querySelector('.sg-chev'))">
+      <span class="badge ${isCorr?'ok':'bad'}">${isCorr?'✓ '+(sgi+1):'Grupo '+(sgi+1)}</span>
+      <span style="font-weight:600;font-size:12px;flex:1">${esc(sg.rep_name)}</span>
+      <span style="font-size:10px;color:var(--muted)">${sg.members.length} store${sg.members.length!==1?"s":""}</span>
+      ${isCorr?`<span style="font-family:monospace;font-size:10px;color:var(--green);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:140px">${esc(sg.correction)}</span>`:''}
+      <span class="sg-chev" style="font-size:10px;color:var(--muted);transition:transform .15s;flex-shrink:0;transform:${chevRot}">▼</span>
+    </div>
+    <div class="sg-body" style="display:${bodyDisplay}">
+      <div style="padding:6px 10px;border-bottom:1px solid var(--border);background:var(--surf)">
+        <div style="font-size:10px;color:var(--muted);margin-bottom:4px">Arrastra para reagrupar:</div>
+        <div class="sg-pills" id="sgPills_${sgKey}">${pills}</div>
+      </div>
+      <div style="padding:6px 10px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--border)">
+        <span style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em">BD</span>
+        ${PG_READY
+          ?`<button class="btn blue sm" onclick="runSgQuery('${esc(cid)}',${sgi});event.stopPropagation()">▶ Ejecutar</button>`
+          :`<label class="btn sm" style="cursor:pointer"><input type="file" accept=".csv,.xlsx" onchange="uploadSgBd(this,'${esc(cid)}',${sgi})" style="display:none">↑ CSV</label>`
+        }
+        <button class="btn sm" onclick="toggleSgSql(this);event.stopPropagation()">Ver SQL</button>
+        <button class="btn sm" onclick="copySgSqlFromBlock(this);event.stopPropagation()">Copiar SQL</button>
+      </div>
+      <div class="sg-sql" style="display:none;position:relative;background:#1e1e1e;border-radius:6px;padding:8px 10px;font-family:monospace;font-size:10px;color:#ccc;white-space:pre-wrap;line-height:1.6;max-height:100px;overflow-y:auto;margin:6px 10px" id="sgSql_${sgKey}">${esc(sg.sql)}</div>
+      <div id="sgBd_${sgKey}" style="padding:0 10px">${bdHtml}</div>
+      <div style="padding:8px 10px;background:var(--surf2);border-top:1px solid var(--border)">
+        <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px">Corrección</div>
+        <div id="sgCorrChip_${sgKey}" style="margin-bottom:5px">${corrHtml}</div>
+        <div style="display:flex;gap:5px;flex-wrap:wrap">
+          <input id="sgCorrIn_${sgKey}" class="corr-input" placeholder="cluster_index · vacío=nuevo" style="font-size:11px;padding:5px 8px">
+          <button class="btn green sm" onclick="assignSgInput('${esc(cid)}',${sgi},'${sgKey}')">✓</button>
+          <button class="btn sm" onclick="createSgNew('${esc(cid)}',${sgi})">+ Nuevo</button>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function toggleTbl(btn){
+  const wrap=btn.closest(".col-table");
+  if(!wrap)return;
+  const tbl=wrap.querySelector(".tbl-wrap");
+  if(!tbl)return;
+  const hidden=tbl.style.display==="none";
+  tbl.style.display=hidden?"block":"none";
+  btn.textContent=hidden?"▲ Ocultar tabla":"▼ Ver tabla";
+}
+function toggleSgBlock(el){
+  const block=el.closest(".sg-block");
+  if(!block)return;
+  const body=block.querySelector(".sg-body");
+  if(!body)return;
+  const collapsed=body.style.display==="none";
+  body.style.display=collapsed?"block":"none";
+  el.style.transform=collapsed?"":"rotate(-90deg)";
+}
+function toggleSgSql(el){
+  const block=el.closest(".sg-block");
+  if(!block)return;
+  const sql=block.querySelector(".sg-sql");
+  if(sql)sql.style.display=sql.style.display==="none"?"block":"none";
+}
+// ── drag & drop reagrupación ──────────────────────────────────────────────────
+let _dragData=null;
+function onPillDragStart(e){
+  _dragData={ii:e.target.dataset.ii,fromSg:parseInt(e.target.dataset.fromSg),cid:e.target.dataset.cid};
+  e.target.classList.add("dragging");
+}
+function onPillDragEnd(e){e.target.classList.remove("dragging")}
+function onSgDragOver(e,cid,toSgi){e.preventDefault();document.getElementById("sg_"+CSS.escape(cid)+"_sg"+toSgi)?.classList.add("drag-active")}
+function onSgDragLeave(e){e.currentTarget.classList.remove("drag-active")}
+function onSgDrop(e,cid,toSgi){
+  e.preventDefault();e.currentTarget.classList.remove("drag-active");
+  if(!_dragData||_dragData.cid!==cid||_dragData.fromSg===toSgi){_dragData=null;return}
+  const sgs=SUBGROUPS[cid]; if(!sgs)return;
+  const {ii,fromSg}=_dragData; _dragData=null;
+  // Mover ii de fromSg a toSgi
+  sgs[fromSg].members=sgs[fromSg].members.filter(m=>m!==ii);
+  if(!sgs[toSgi].members.includes(ii))sgs[toSgi].members.push(ii);
+  // Eliminar subgrupo si quedó vacío
+  SUBGROUPS[cid]=sgs.filter(sg=>sg.members.length>0);
+  rebuildBdPanel(cid);
+  toast("Store movido al grupo "+(toSgi+1));
+}
+
+// ── ejecutar en BD ────────────────────────────────────────────────────────────
+async function runSgQuery(cid, sgi){
+  const sgs = SUBGROUPS[cid];
+  if (!sgs || !sgs[sgi]) {
+    toast("Sin subgrupos — haz clic en ⚡ Generar subgrupos primero");
+    return;
+  }
+  const sql = sgs[sgi].sql;
+  if (!sql) { toast("Sin SQL — genera los subgrupos primero"); return; }
+
+  // Buscar panel por data-cid para evitar problemas con CSS.escape
+  const panel = document.querySelector(`.col-bd[data-cid="${cid}"]`);
+  const allBlocks = panel ? panel.querySelectorAll(".sg-block") : [];
+  const btn = allBlocks[sgi] ? allBlocks[sgi].querySelector(".btn.blue.sm") : null;
+  if (btn) { btn.innerHTML = '<span class="spinner"></span> Consultando…'; btn.disabled = true; }
+
+  try {
+    const d = await api("/pg_query", {sql});
+    if (d.error) {
+      toast("Error BD: " + d.error, 4000);
+      if (btn) { btn.innerHTML = "▶ Ejecutar"; btn.disabled = false; }
+      return;
+    }
+    sgs[sgi].bd_results = d.clusters_found || [];
+    const block = allBlocks[sgi];
+    if (block) {
+      const cl = getCl(cid);
+      if (cl) { const tmp=document.createElement("div"); tmp.innerHTML=buildSgBlock(cl,sgs[sgi],sgi); block.replaceWith(tmp.firstElementChild); }
+    }
+    if (d.clusters_found && d.clusters_found.length > 0)
+      toast(`${d.clusters_found.length} cluster(s) encontrados`);
+    else
+      toast("La query no devolvió resultados");
+  } catch(e) {
+    toast("Error: " + e.message);
+    if (btn) { btn.innerHTML = "▶ Ejecutar"; btn.disabled = false; }
+  }
+}
+
+// ── acciones tabla ────────────────────────────────────────────────────────────
+function toggleCard(hdr){hdr.closest(".cluster-wrap").classList.toggle("collapsed")}
+
+async function onCheck(cid,ii,checked){
+  const newRev=checked?0:1;
+  const cl=getCl(cid);if(!cl)return;
+  const m=cl.members.find(m=>m.item_index===ii);if(!m)return;
+  m.revision=newRev;
+  // Buscar fila por data-ii dentro de la tarjeta del cluster
+  const card=document.getElementById("card_"+CSS.escape(cid));
+  const row=card?card.querySelector(`tr[data-ii="${ii}"]`):null;
+  if(row) row.className=newRev===0?"row-bad":"row-ok";
+  const bad=cl.members.filter(m=>m.revision===0).length;
+  const info=document.getElementById("tbInfo_"+CSS.escape(cid));
+  if(info)info.textContent=`${bad} marcado${bad!==1?"s":""} como incorrecto${bad!==1?"s":""}`;
+  refreshStats();
+  delete SUBGROUPS[cid];
+  rebuildBdPanel(cid);
+  const d=await api("/update_revisions",{cluster_id:cid,revisions:{[ii]:newRev},record_feedback:true});
+  if(d.fb_stats)updateFbBar(d.fb_stats,d.threshold,0);
+}
+
+async function markAll(cid,rev){
+  const cl=getCl(cid);if(!cl)return;
+  const revMap={};
+  cl.members.forEach(m=>{if(!m.is_anchor){m.revision=rev;revMap[m.item_index]=rev}});
+  delete SUBGROUPS[cid];
+  const card=document.getElementById("card_"+CSS.escape(cid));
+  if(card)card.replaceWith(buildCard(cl));
+  refreshStats();
+  const d=await api("/update_revisions",{cluster_id:cid,revisions:revMap,record_feedback:true});
+  if(d.fb_stats)updateFbBar(d.fb_stats,d.threshold,0);
+}
+
+async function genSql(cid){
+  const cl=getCl(cid);if(!cl)return;
+  const card=document.getElementById("card_"+CSS.escape(cid));if(!card)return;
+  const checkboxes=Array.from(card.querySelectorAll("tbody input[type=checkbox]"));
+  const nonAnchors=sortedMembers(cl).filter(m=>!m.is_anchor);
+  const badMembers=[];
+  checkboxes.forEach((cb,i)=>{
+    if(i<nonAnchors.length){nonAnchors[i].revision=cb.checked?0:1;
+      if(cb.checked)badMembers.push({item_index:nonAnchors[i].item_index,app_name:nonAnchors[i].app_name,app_address:nonAnchors[i].app_address})}
+  });
+  if(!badMembers.length){toast("No hay stores marcados como incorrectos");return}
+  const btn=card.querySelector(".btn.blue.sm");
+  if(btn)btn.innerHTML='<span class="spinner"></span>';
+  const d=await api("/get_subgroups",{cluster_id:cid,members_data:badMembers,country:COUNTRY});
+  if(btn)btn.innerHTML="⚡ Generar subgrupos";
+  if(!d.subgroups?.length){toast("No se pudieron generar subgrupos");return}
+  SUBGROUPS[cid]=d.subgroups.map(sg=>({...sg,bd_results:[],correction:"",is_new:false}));
+  rebuildBdPanel(cid);
+  toast(`${d.subgroups.length} subgrupo${d.subgroups.length!==1?"s":""} ✓`);
+}
+
+// ── subgrupos ─────────────────────────────────────────────────────────────────
+function copySgSqlFromBlock(btn){
+  const sql = btn.closest(".sg-block")?.querySelector(".sg-sql");
+  if (!sql) return;
+  navigator.clipboard.writeText(sql.textContent.trim()).then(() => toast("SQL copiada ✓"));
+}
+function copySgSql(sgKey){
+  const el = document.getElementById("sgSql_" + sgKey);
+  if (!el) return;
+  navigator.clipboard.writeText(el.textContent.trim()).then(() => toast("SQL copiada ✓"));
+}
+async function uploadSgBd(input,cid,sgi){
+  const file=input.files[0];if(!file)return;
+  const label=input.closest("label");if(label)label.innerHTML='<span class="spinner"></span>';
+  const fd=new FormData();fd.append("file",file);fd.append("cluster_id",cid);fd.append("sg_idx",sgi);
+  try{
+    const d=await fetch("/upload_bd",{method:"POST",body:fd}).then(r=>r.json());
+    if(d.error){toast("Error: "+d.error);return}
+    const sgs=SUBGROUPS[cid];if(sgs&&sgs[sgi])sgs[sgi].bd_results=d.clusters_found;
+    rebuildBdPanel(cid);toast(`BD grupo ${sgi+1}: ${d.clusters_found.length} cluster(s)`);
+  }catch(e){toast("Error: "+e.message)}
+}
+function setSgClean(cid,sgi,bi,is_clean){
+  const sgs=SUBGROUPS[cid];if(sgs&&sgs[sgi]&&sgs[sgi].bd_results[bi])sgs[sgi].bd_results[bi].is_clean=is_clean;
+  const bdc=sgs[sgi].bd_results[bi];if(bdc)api("/set_clean",{cluster_id:cid,bd_cluster_index:bdc.cluster_index,is_clean});
+}
+async function assignSgClean(cid,sgi){
+  const sgs=SUBGROUPS[cid];if(!sgs||!sgs[sgi])return;
+  const cleans=(sgs[sgi].bd_results||[]).filter(b=>b.is_clean).map(b=>b.cluster_index);
+  if(!cleans.length){toast("Marca al menos un cluster como limpio");return}
+  const corr=cleans.length===1?cleans[0]:'("'+cleans.join('","')+'")';
+  await saveSgCorr(cid,sgi,corr,false);
+}
+async function assignSgInput(cid,sgi,sgKey){
+  const inp=document.getElementById("sgCorrIn_"+sgKey);
+  const val=(inp?.value||"").trim();if(!val){toast("Escribe el cluster_index");return}
+  await saveSgCorr(cid,sgi,val,false);if(inp)inp.value="";
+}
+async function createSgNew(cid,sgi){
+  const sgs=SUBGROUPS[cid];if(!sgs||!sgs[sgi])return;
+  const minItem=sgs[sgi].members.slice().sort()[0];
+  await saveSgCorr(cid,sgi,"NUEVO:"+minItem,true);
+}
+async function saveSgCorr(cid,sgi,correction,is_new){
+  const sgs=SUBGROUPS[cid];if(!sgs||!sgs[sgi])return;
+  sgs[sgi].correction=correction;sgs[sgi].is_new=is_new;
+  await api("/set_correction",{cluster_id:cid,item_indexes:sgs[sgi].members,correction});
+
+  // Solo actualizar el sg-block afectado, sin reconstruir todo el panel
+  const panel=document.querySelector(`.col-bd[data-cid="${cid}"]`);
+  const allBlocks=panel?panel.querySelectorAll(".sg-block"):[];
+  const block=allBlocks[sgi];
+  if(block){
+    const cl=getCl(cid);
+    if(cl){
+      const tmp=document.createElement("div");
+      tmp.innerHTML=buildSgBlock(cl,sgs[sgi],sgi);
+      block.replaceWith(tmp.firstElementChild);
+    }
+  }
+  // Actualizar contador global del panel
+  const hdrRight=document.querySelector(`.col-bd[data-cid="${cid}"] .bd-hdr span:last-child`);
+  if(hdrRight){
+    const total=sgs.length;const corrected=sgs.filter(s=>s.correction).length;
+    hdrRight.textContent=`${corrected}/${total} corregidos`;
+    hdrRight.style.color=corrected===total?"var(--green)":"var(--muted)";
+  }
+  refreshClusterBadge(cid);
+  renderFilterBar();
+  toast("Corrección guardada ✓");
+}
+function clearSgCorr(cid,sgi){
+  const sgs=SUBGROUPS[cid];if(sgs&&sgs[sgi]){sgs[sgi].correction="";sgs[sgi].is_new=false}
+  api("/set_correction",{cluster_id:cid,item_indexes:sgs[sgi].members,correction:""});
+  rebuildBdPanel(cid);
+  refreshClusterBadge(cid);
+  renderFilterBar();
+}
+function refreshClusterBadge(cid) {
+  const cl  = getCl(cid); if (!cl) return;
+  const card = document.getElementById("card_"+CSS.escape(cid)); if (!card) return;
+  const prog = clusterProgress(cl);
+  const bad  = cl.members.filter(m=>m.revision===0).length;
+  let html;
+  if (bad === 0)       html = `<span class="badge ok">✓ Sin incorrectos</span>`;
+  else if (prog.done)  html = `<span class="badge ok">✓ ${prog.corrected}/${prog.total} corregidos</span>`;
+  else if (prog.total) html = `<span class="badge bad">${prog.corrected}/${prog.total} corregidos</span>`;
+  else                 html = `<span class="badge bad">${bad} incorrecto${bad>1?"s":""}</span>`;
+  // Reemplazar solo el badge de estado (último antes del chev)
+  const hdr = card.querySelector(".c-hdr");
+  if (!hdr) return;
+  const badges = hdr.querySelectorAll(".badge:not(.n)");
+  if (badges.length) { const tmp=document.createElement("span"); tmp.innerHTML=html; badges[badges.length-1].replaceWith(tmp.firstElementChild); }
+}
+
+function rebuildBdPanel(cid){
+  const cl=getCl(cid);
+  if(!cl)return;
+  const panel=document.querySelector(`.col-bd[data-cid="${cid}"]`);
+  if(panel){const tmp=document.createElement("div");tmp.innerHTML=buildBdPanel(cl);panel.replaceWith(tmp.firstElementChild)}
+}
+
+// ── upload_bd (para compatibilidad si PG no está) ─────────────────────────────
+// (usado por uploadSgBd arriba, ruta ya existe en el servidor)
+
+// ── corrección externa ────────────────────────────────────────────────────────
+let _extCorrData = null;
+
+function openExtCorr(store_id, app_name, app_address, cluster_index, cluster_name, cluster_address) {
+  _extCorrData = {store_id, app_name, app_address, cluster_index, cluster_name, cluster_address};
+  document.getElementById("extCorrInfo").innerHTML = `
+    <div style="margin-bottom:4px"><strong>${esc(app_name)}</strong></div>
+    <div style="color:var(--muted);font-size:11px">${esc(app_address)}</div>
+    <div style="margin-top:6px;font-size:10px;color:var(--muted)">
+      Cluster actual: <code>${esc(cluster_index)}</code>
+      ${cluster_name ? `· ${esc(cluster_name)}` : ""}
+    </div>`;
+  document.getElementById("extCorrInput").value = "";
+  document.getElementById("extCorrModal").classList.add("open");
+}
+function closeExtCorr() {
+  document.getElementById("extCorrModal").classList.remove("open");
+  _extCorrData = null;
+}
+async function saveExtCorr() {
+  if (!_extCorrData) return;
+  const correction = document.getElementById("extCorrInput").value.trim();
+  const finalCorr  = correction || "NUEVO:" + _extCorrData.store_id;
+  const item_index = _extCorrData.cluster_index.split("_")[0] + "_" + _extCorrData.store_id;
+
+  const d = await api("/ext_correction/add", {
+    ..._extCorrData,
+    item_index,
+    correction: finalCorr,
+  });
+  closeExtCorr();
+  toast(`Corrección externa guardada (${d.count} total)`);
+}
+
+// ── progreso ──────────────────────────────────────────────────────────────────
+function openProgress() {
+  document.getElementById("progressModal").classList.add("open");
+  loadProgress();
+}
+function closeProgress() {
+  document.getElementById("progressModal").classList.remove("open");
+}
+async function loadProgress() {
+  const table   = document.getElementById("progressTable").value;
+  const country = COUNTRY || "mx";
+  const content = document.getElementById("progressContent");
+  content.innerHTML = '<span class="spinner"></span> Consultando BD…';
+  try {
+    const d = await api(`/progress?table=${encodeURIComponent(table)}&country=${country}`);
+    if (d.error) { content.innerHTML = `<div style="color:var(--red)">${esc(d.error)}</div>`; return; }
+    const pct = d.pct;
+    const barColor = pct < 30 ? "var(--red)" : pct < 70 ? "var(--amber)" : "var(--green)";
+    content.innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:20px">
+        <div class="stat"><div class="stat-lbl">Total en BD</div><div class="stat-val">${d.total_bd.toLocaleString()}</div></div>
+        <div class="stat"><div class="stat-lbl">Revisados</div><div class="stat-val g">${d.reviewed.toLocaleString()}</div></div>
+        <div class="stat"><div class="stat-lbl">Con correcciones</div><div class="stat-val r">${d.corrected.toLocaleString()}</div></div>
+        <div class="stat"><div class="stat-lbl">Pendientes</div><div class="stat-val">${d.pending.toLocaleString()}</div></div>
+      </div>
+      <div style="margin-bottom:16px">
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px">
+          <span>Progreso general</span><span style="font-weight:700">${pct}%</span>
+        </div>
+        <div style="height:8px;background:var(--surf2);border-radius:4px;overflow:hidden">
+          <div style="height:100%;width:${pct}%;background:${barColor};border-radius:4px;transition:width .3s"></div>
+        </div>
+      </div>
+      ${d.recent.length ? `
+        <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Últimos revisados</div>
+        <table style="width:100%;border-collapse:collapse;font-size:11px">
+          <thead><tr style="background:var(--surf2)">
+            <th style="padding:5px 8px;text-align:left;border-bottom:1px solid var(--border)">cluster_index</th>
+            <th style="padding:5px 8px;text-align:left;border-bottom:1px solid var(--border)">nombre</th>
+            <th style="padding:5px 8px;text-align:center;border-bottom:1px solid var(--border)">estado</th>
+            <th style="padding:5px 8px;text-align:left;border-bottom:1px solid var(--border)">archivo</th>
+          </tr></thead>
+          <tbody>
+            ${d.recent.map(r=>`<tr>
+              <td style="padding:4px 8px;font-family:monospace;font-size:10px">${esc(r.cluster_index)}</td>
+              <td style="padding:4px 8px">${esc(r.cluster_name||"")}</td>
+              <td style="padding:4px 8px;text-align:center">
+                ${r.corrections_count>0
+                  ?`<span class="badge bad">${r.corrections_count} correc.</span>`
+                  :`<span class="badge ok">✓ ok</span>`}
+              </td>
+              <td style="padding:4px 8px;color:var(--muted);font-size:10px">${esc(r.file_name||"")}</td>
+            </tr>`).join("")}
+          </tbody>
+        </table>` : '<div style="color:var(--muted);font-size:12px">Aún no hay clusters revisados en la memoria.</div>'}
+    `;
+  } catch(e) {
+    content.innerHTML = `<div style="color:var(--red)">Error: ${esc(e.message)}</div>`;
+  }
+}
+
+// ── memoria ───────────────────────────────────────────────────────────────────
+async function openMemory(){
+  document.getElementById("memModal").classList.add("open");
+  const s=await api("/memory/stats");
+  document.getElementById("memStats").textContent=`${s.unique_items} items · ${s.total} entradas`;
+  const res=document.getElementById("memResults");
+  if(s.recent&&s.recent.length){
+    res.innerHTML="<div style='font-size:11px;color:var(--muted);margin-bottom:8px;font-weight:700'>REVISIONES RECIENTES</div>"+
+      s.recent.map(r=>`<div class="mem-row">
+        <span style="font-family:monospace;font-size:10px;color:var(--muted)">${esc(r.item_index)}</span>
+        <span style="font-weight:500;margin:0 8px">${esc(r.app_name)}</span>
+        <span style="font-family:monospace;color:var(--green);font-size:11px">${esc(r.correction)}</span>
+      </div>`).join("");
+  }else{res.innerHTML="<div style='color:var(--muted);font-size:12px;padding:16px 0'>La memoria está vacía. Se llena automáticamente al descargar archivos revisados.</div>"}
+}
+function closeMemory(){document.getElementById("memModal").classList.remove("open")}
+async function searchMemory(q){
+  if(!q.trim()){openMemory();return}
+  const d=await api("/memory/search?q="+encodeURIComponent(q));
+  const res=document.getElementById("memResults");
+  if(!d.results.length){res.innerHTML="<div style='color:var(--muted);font-size:12px'>Sin resultados</div>";return}
+  res.innerHTML=d.results.map(r=>`<div class="mem-row">
+    <div style="font-family:monospace;font-size:10px;color:var(--muted)">${esc(r.item_index)}</div>
+    <div style="font-weight:500">${esc(r.app_name)}</div>
+    <div style="color:var(--muted);font-size:11px">${esc(r.app_address)}</div>
+    <div style="font-family:monospace;color:var(--green);font-size:11px;margin-top:2px">→ ${esc(r.correction)}</div>
+  </div>`).join("");
+}
+async function resetMemory(){await api("/memory/reset",{});closeMemory();toast("Memoria borrada")}
+
+// ── export ────────────────────────────────────────────────────────────────────
+async function exportFile(){
+  const btn=document.getElementById("btnExport");btn.innerHTML='<span class="spinner"></span>';
+  try{
+    const r=await fetch("/export");
+    if(!r.ok){const d=await r.json();toast("Error: "+d.error);btn.innerHTML="⬇ Descargar";return}
+    const blob=await r.blob();const a=document.createElement("a");
+    a.href=URL.createObjectURL(blob);a.download="clusters_revisados.xlsx";a.click();
+    toast("Descargado ✓ · correcciones guardadas en memoria");
+  }catch(e){toast("Error: "+e.message)}
+  btn.innerHTML="⬇ Descargar";
+}
+
+function resetApp(){
+  CLUSTERS=[];COUNTRY="mx";SUBGROUPS={};
+  document.getElementById("uploadScreen").classList.remove("hidden");
+  document.getElementById("mainScreen").classList.add("hidden");
+  document.getElementById("fbBar").classList.add("hidden");
+  ["btnReset","btnExport","btnMemory","btnProgress"].forEach(id=>document.getElementById(id).style.display="none");
+  document.getElementById("hdrFile").textContent="";
+  document.getElementById("clusterList").innerHTML="";
+  document.getElementById("mainFile").value="";
+  document.getElementById("dropZone").innerHTML=`
+    <input type="file" id="mainFile" accept=".xlsx,.csv">
+    <div class="drop-title">Arrastra tu archivo de revisión</div>
+    <div class="drop-sub">Excel (.xlsx) o CSV</div>
+    <button class="btn primary" onclick="event.stopPropagation();document.getElementById('mainFile').click()">Seleccionar archivo</button>`;
+  document.getElementById("mainFile").addEventListener("change",e=>doUpload(e.target.files[0]));
+}
+</script>
+</body>
+</html>

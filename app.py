@@ -1,0 +1,938 @@
+"""
+Cluster Reviewer v4
+- Conexión directa a PostgreSQL (credenciales en .env)
+- Memoria interna SQLite (correcciones pasadas)
+- Subgrupos reagrupables
+- Feedback / aprendizaje activo
+
+Correr: python app.py
+Abrir:  http://localhost:5000
+"""
+
+import re, unicodedata, json, time, sqlite3, os
+from pathlib import Path
+from flask import Flask, render_template, request, jsonify, send_file, session
+import pandas as pd
+
+# Cargar .env si existe
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
+app = Flask(__name__)
+app.secret_key = "cluster_reviewer_2024"
+
+# Sesiones en filesystem (evita límite de 4KB de cookies)
+try:
+    from flask_session import Session
+    app.config["SESSION_TYPE"]           = "filesystem"
+    app.config["SESSION_FILE_DIR"]       = "flask_sessions"
+    app.config["SESSION_PERMANENT"]      = False
+    app.config["SESSION_USE_SIGNER"]     = True
+    Path("flask_sessions").mkdir(exist_ok=True)
+    Session(app)
+except ImportError:
+    pass  # fallback a cookie session
+
+UPLOAD_FOLDER = Path("uploads"); UPLOAD_FOLDER.mkdir(exist_ok=True)
+FEEDBACK_FILE = Path("feedback.json")
+DB_FILE       = Path("memory.db")
+MODEL_NAME    = "paraphrase-multilingual-MiniLM-L12-v2"
+
+# ── PostgreSQL ────────────────────────────────────────────────────────────────
+
+def get_pg_config():
+    return {
+        "host":     os.getenv("PG_HOST",     ""),
+        "database": os.getenv("PG_DATABASE", ""),
+        "user":     os.getenv("PG_USER",     ""),
+        "password": os.getenv("PG_PASSWORD", ""),
+        "port":     int(os.getenv("PG_PORT", "5432")),
+    }
+
+def pg_is_configured():
+    cfg = get_pg_config()
+    return bool(cfg["host"] and cfg["database"] and cfg["user"])
+
+def pg_query(sql, timeout_ms=15000):
+    """Ejecuta una query y retorna filas como lista de dicts."""
+    import psycopg2
+    import psycopg2.extras
+    cfg = get_pg_config()
+    conn = psycopg2.connect(**cfg, connect_timeout=10,
+                             options=f"-c statement_timeout={timeout_ms}")
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(sql)
+            rows = [dict(r) for r in cur.fetchall()]
+        return rows, None
+    except Exception as e:
+        return None, str(e)
+    finally:
+        conn.close()
+
+# ── SQLite memoria interna ────────────────────────────────────────────────────
+
+def init_db():
+    conn = sqlite3.connect(DB_FILE)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS corrections (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            item_index    TEXT NOT NULL,
+            cluster_id    TEXT,
+            app_name      TEXT,
+            app_address   TEXT,
+            anchor_name   TEXT,
+            correction    TEXT,
+            is_new        INTEGER DEFAULT 0,
+            reviewed_at   REAL,
+            file_name     TEXT
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_item ON corrections(item_index)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_appname ON corrections(app_name)")
+    # Tabla de correcciones externas (stores no en el archivo pero identificados de paso)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS external_corrections (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            store_id         TEXT NOT NULL,
+            item_index       TEXT NOT NULL,
+            cluster_index    TEXT,
+            cluster_name     TEXT,
+            cluster_address  TEXT,
+            app_name         TEXT,
+            app_address      TEXT,
+            correction       TEXT NOT NULL,
+            added_at         REAL,
+            file_name        TEXT
+        )
+    """)
+    # Tabla de progreso: clusters revisados
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS reviewed_clusters (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            cluster_index   TEXT NOT NULL,
+            cluster_name    TEXT,
+            had_errors      INTEGER DEFAULT 0,
+            corrections_count INTEGER DEFAULT 0,
+            reviewed_at     REAL,
+            file_name       TEXT
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_ci ON reviewed_clusters(cluster_index)")
+    conn.commit()
+    conn.close()
+
+init_db()
+
+def mem_save(records):
+    """Guarda correcciones en la memoria interna."""
+    conn = sqlite3.connect(DB_FILE)
+    for r in records:
+        conn.execute("""
+            INSERT INTO corrections
+              (item_index, cluster_id, app_name, app_address, anchor_name,
+               correction, is_new, reviewed_at, file_name)
+            VALUES (?,?,?,?,?,?,?,?,?)
+        """, (
+            r.get("item_index",""), r.get("cluster_id",""),
+            r.get("app_name",""),   r.get("app_address",""),
+            r.get("anchor_name",""),r.get("correction",""),
+            1 if r.get("is_new") else 0,
+            time.time(), r.get("file_name","")
+        ))
+    conn.commit(); conn.close()
+
+def mem_lookup_item(item_index):
+    """Busca un item_index exacto en memoria."""
+    conn = sqlite3.connect(DB_FILE)
+    row = conn.execute(
+        "SELECT * FROM corrections WHERE item_index=? ORDER BY reviewed_at DESC LIMIT 1",
+        (item_index,)
+    ).fetchone()
+    conn.close()
+    if row:
+        cols = ["id","item_index","cluster_id","app_name","app_address",
+                "anchor_name","correction","is_new","reviewed_at","file_name"]
+        return dict(zip(cols, row))
+    return None
+
+def mem_lookup_similar(app_name, anchor_name, threshold=0.75):
+    """Busca correcciones previas con nombre similar."""
+    conn = sqlite3.connect(DB_FILE)
+    rows = conn.execute(
+        "SELECT * FROM corrections WHERE correction != '' ORDER BY reviewed_at DESC LIMIT 500"
+    ).fetchall()
+    conn.close()
+    cols = ["id","item_index","cluster_id","app_name","app_address",
+            "anchor_name","correction","is_new","reviewed_at","file_name"]
+    best, best_sim = None, 0
+    for row in rows:
+        r = dict(zip(cols, row))
+        sim_name   = jaccard_sim(r["app_name"],   app_name)
+        sim_anchor = jaccard_sim(r["anchor_name"], anchor_name)
+        combined   = sim_name * 0.7 + sim_anchor * 0.3
+        if combined > best_sim and combined >= threshold:
+            best_sim = combined; best = r
+    return best, best_sim
+
+def mem_stats():
+    conn = sqlite3.connect(DB_FILE)
+    total   = conn.execute("SELECT COUNT(*) FROM corrections").fetchone()[0]
+    unique  = conn.execute("SELECT COUNT(DISTINCT item_index) FROM corrections").fetchone()[0]
+    recent  = conn.execute(
+        "SELECT item_index, app_name, correction, reviewed_at FROM corrections ORDER BY reviewed_at DESC LIMIT 5"
+    ).fetchall()
+    conn.close()
+    return {"total": total, "unique_items": unique, "recent": recent}
+
+def mem_search(query, limit=50):
+    conn = sqlite3.connect(DB_FILE)
+    rows = conn.execute("""
+        SELECT DISTINCT item_index, app_name, app_address, correction, reviewed_at
+        FROM corrections
+        WHERE app_name LIKE ? OR item_index LIKE ? OR correction LIKE ?
+        ORDER BY reviewed_at DESC LIMIT ?
+    """, (f"%{query}%", f"%{query}%", f"%{query}%", limit)).fetchall()
+    conn.close()
+    cols = ["item_index","app_name","app_address","correction","reviewed_at"]
+    return [dict(zip(cols, r)) for r in rows]
+
+# ── modelo semántico ──────────────────────────────────────────────────────────
+
+_model = None; _model_ready = False; _model_error = None
+
+def get_model():
+    global _model, _model_ready, _model_error
+    if _model_ready or _model_error: return _model
+    try:
+        from sentence_transformers import SentenceTransformer
+        _model = SentenceTransformer(MODEL_NAME)
+        _model_ready = True
+    except Exception as e:
+        _model_error = str(e)
+    return _model
+
+def batch_semantic_sim(anchor_name, anchor_addr, members):
+    m = get_model()
+    if m is None:
+        return [jaccard_sim(mem.get("app_name",""), anchor_name)*0.85 +
+                jaccard_sim(mem.get("app_address",""), anchor_addr)*0.15
+                for mem in members]
+    from sentence_transformers import util
+    ea_n = m.encode(anchor_name, convert_to_tensor=True, show_progress_bar=False)
+    ea_a = m.encode(anchor_addr, convert_to_tensor=True, show_progress_bar=False)
+    names = [mem.get("app_name","") for mem in members]
+    addrs = [mem.get("app_address","") for mem in members]
+    en = m.encode(names, convert_to_tensor=True, show_progress_bar=False)
+    ea = m.encode(addrs, convert_to_tensor=True, show_progress_bar=False)
+    return [round(float(util.cos_sim(ea_n,en[i]))*0.85 + float(util.cos_sim(ea_a,ea[i]))*0.15, 3)
+            for i in range(len(members))]
+
+# ── helpers ───────────────────────────────────────────────────────────────────
+
+def norm(s):
+    if not isinstance(s, str): return ""
+    s = unicodedata.normalize("NFKD", s).encode("ascii","ignore").decode()
+    return re.sub(r"\s+", " ", re.sub(r"[^\w\s]", " ", s.lower())).strip()
+
+def jaccard_sim(a, b):
+    wa = set(w for w in norm(a).split() if len(w) > 2)
+    wb = set(w for w in norm(b).split() if len(w) > 2)
+    if not wa or not wb: return 0.0
+    return len(wa & wb) / len(wa | wb)
+
+def load_file(path):
+    path = str(path)
+    if path.endswith(".csv"):
+        for enc in ["utf-8","latin-1"]:
+            try: df = pd.read_csv(path, dtype=str, encoding=enc); break
+            except: continue
+    else:
+        df = pd.read_excel(path, dtype=str)
+    df = df.fillna(""); df.columns = [c.strip() for c in df.columns]
+    return df
+
+def effective_cluster(row):
+    nc = row.get("new_cluster","")
+    if isinstance(nc,str) and nc.strip(): return nc.strip()
+    ci = row.get("cluster_index","")
+    return ci.strip() if isinstance(ci,str) else ""
+
+def detect_country(df):
+    if "country" in df.columns:
+        vals = df["country"].dropna().str.strip().str.lower()
+        vals = vals[vals != ""]
+        if len(vals): return vals.mode()[0]
+    return "mx"
+
+def get_threshold():
+    return 0.95
+
+# ── feedback ──────────────────────────────────────────────────────────────────
+
+def load_feedback():
+    if FEEDBACK_FILE.exists():
+        try: return json.loads(FEEDBACK_FILE.read_text())
+        except: pass
+    return {"pairs":[], "threshold_adj":0.0, "stats":{"total":0,"overrides_to_1":0,"overrides_to_0":0}}
+
+def save_feedback(fb): FEEDBACK_FILE.write_text(json.dumps(fb, ensure_ascii=False, indent=2))
+
+def record_feedback(anchor_name, anchor_addr, member_name, member_addr, model_score, model_rev, human_rev):
+    if model_rev == human_rev: return
+    fb = load_feedback()
+    fb["pairs"].append({"anchor_name":anchor_name,"anchor_addr":anchor_addr,
+                         "member_name":member_name,"member_addr":member_addr,
+                         "model_score":model_score,"model_rev":model_rev,
+                         "human_rev":human_rev,"ts":time.time()})
+    fb["stats"]["total"] += 1
+    if human_rev==1: fb["stats"]["overrides_to_1"] += 1
+    else:            fb["stats"]["overrides_to_0"] += 1
+    save_feedback(fb)
+
+# ── subgrupos ─────────────────────────────────────────────────────────────────
+
+GEO_STOP = {
+    "reforma","serdan","serdán","canek","manuel","moreno","loza","morelos",
+    "monica","mónica","hidalgo","centro","local","plaza","paseo","calle",
+    "avenida","sur","norte","oriente","poniente","col","colonia","zona",
+}
+
+def brand_words(name):
+    """
+    Extrae palabras de marca ignorando sufijos geográficos.
+    Para nombres genéricos de 1 sola palabra (burger, pizza...) busca más contexto.
+    """
+    func = {"la","el","los","las","de","del","en","al","por","con","san","santa","que"}
+    generic = {"burger","pizza","tacos","taco","tortas","torta","pollo","wings",
+               "alitas","sushi","coffee","cafe","grill","cocina","comida"}
+
+    # Todas las palabras sin stopwords geo, longitud > 1
+    words = [w for w in norm(name).split() if len(w) > 1 and w not in GEO_STOP]
+
+    # Eliminar artículos iniciales
+    while words and words[0] in func:
+        words = words[1:]
+
+    result = words[:3]
+
+    # Si solo queda 1 palabra genérica, incluir también artículo + siguiente si hay
+    if len(result) == 1 and result[0] in generic:
+        all_words = norm(name).split()
+        idx = next((i for i,w in enumerate(all_words) if w == result[0]), -1)
+        if idx > 0:
+            # incluir la palabra anterior (probablemente "a la", "chubby", etc.)
+            prev = [w for w in all_words[max(0,idx-2):idx] if w not in GEO_STOP]
+            result = prev + result
+
+    return result[:3]
+
+def build_subgroups(bad_members):
+    if not bad_members: return []
+    used = [False]*len(bad_members)
+    subgroups = []
+    for i, a in enumerate(bad_members):
+        if used[i]: continue
+        wa = set(brand_words(a.get("app_name","")))
+        grp = [a]; used[i] = True
+        for j, b in enumerate(bad_members):
+            if used[j] or i==j: continue
+            wb = set(brand_words(b.get("app_name","")))
+            if not wa or not wb: continue
+            union = wa|wb; inter = wa&wb
+            if union and len(inter)/len(union) >= 0.60:
+                grp.append(b); used[j] = True
+        grp.sort(key=lambda m: m.get("item_index",""))
+        subgroups.append({
+            "rep_name":   grp[0].get("app_name",""),
+            "rep_addr":   grp[0].get("app_address",""),
+            "members":    [m.get("item_index","") for m in grp],
+            "correction": "", "is_new": False,
+        })
+    return subgroups
+
+def extract_addr_keys(addr):
+    """
+    Extrae claves de dirección: número de calle + primera palabra larga no geográfica.
+    Ej: 'Calle 4 Sur 302 Local C, La Libertad' → ['302', 'libertad']
+    """
+    addr_geo_stop = {
+        "calle","avenida","av","blvd","boulevard","carretera","carr",
+        "sur","norte","oriente","poniente","ote","pte","col","colonia",
+        "fracc","fraccionamiento","local","plaza","paseo","zona","barrio",
+        "mexico","latam","cp","sin","nombre","entre",
+    }
+    words = re.split(r"[,\s]+", norm(addr))
+    keys = []
+    for w in words:
+        wc = re.sub(r"[^\w]", "", w)
+        if wc.isdigit() and 2 <= len(wc) <= 5:
+            keys.append(wc)
+        elif len(wc) > 4 and wc.isalpha() and wc not in addr_geo_stop:
+            keys.append(wc)
+        if len(keys) >= 2:
+            break
+    return keys
+
+ACCENT_MAP = [
+    ("a", "á"), ("e", "é"), ("i", "í"), ("o", "ó"), ("u", "ú"), ("n", "ñ"),
+]
+
+def accent_variants(word):
+    """
+    Genera variantes de una palabra con y sin tildes.
+    'burreria' → ['burreria', 'burrería']
+    'burrerıa'  → ['burrería', 'burreria']
+    """
+    variants = {word}
+    for plain, accented in ACCENT_MAP:
+        if plain in word:
+            variants.add(word.replace(plain, accented, 1))
+        if accented in word:
+            variants.add(word.replace(accented, plain, 1))
+    return list(variants)
+
+def word_ilike(field, word):
+    """Genera condición ilike con variantes de tilde."""
+    variants = accent_variants(word)
+    if len(variants) == 1:
+        return f"{field} ilike '%{word}%'"
+    conditions = " or ".join(f"{field} ilike '%{v}%'" for v in sorted(variants))
+    return f"({conditions})"
+
+def generate_unified_sql(bad_members, country="mx"):
+    """
+    Genera SQL usando:
+    - brand_words(name): palabras de marca sin sufijos geográficos
+    - extract_addr_keys(addr): número de calle + palabra distintiva de dirección
+    - accent_variants: maneja palabras con/sin tilde automáticamente
+    """
+    if not bad_members: return ""
+    seen, blocks = set(), []
+
+    for m in bad_members:
+        name = m.get("app_name","")
+        addr = m.get("app_address","")
+
+        bwords = brand_words(name)
+        if len(bwords) < 1:
+            bwords = [w for w in norm(name).split() if len(w) > 3][:2]
+
+        key = "_".join(bwords)
+        if key in seen or not bwords: continue
+        seen.add(key)
+
+        sql_bwords = [w for w in bwords if len(w) > 2] or bwords
+
+        # Condición de nombre con variantes de tilde
+        name_cond = " and ".join(word_ilike("app_name", w) for w in sql_bwords)
+
+        # Condición de dirección
+        akeys = extract_addr_keys(addr)
+        if akeys:
+            addr_cond = " and ".join(f"app_address ilike '%{w}%'" for w in akeys)
+            blocks.append(f"    ({name_cond}\n     and {addr_cond})")
+        else:
+            blocks.append(f"    ({name_cond})")
+
+    if not blocks: return ""
+
+    comment = "; ".join(m.get("app_name","")[:35] for m in bad_members[:5])
+    if len(bad_members) > 5: comment += "..."
+
+    return (
+        f"-- {len(bad_members)} store(s): {comment}\n"
+        f"select\n  cluster_index, store_id, cluster_name, main_chain,\n"
+        f"  app_name, app_address, app_longitude, app_latitude\n"
+        f"from sales_opportunity.dim_maestra\n"
+        f"where country = '{country}'\n"
+        f"  and (\n" + "\n    or\n".join(blocks) + "\n  )\n"
+        f"order by cluster_index;"
+    )
+
+
+# ── build clusters ────────────────────────────────────────────────────────────
+
+def build_clusters(df, filename=""):
+    grouped = {}
+    for _, row in df.iterrows():
+        r = {k:("" if pd.isna(v) else str(v)) for k,v in row.items()}
+        cf = effective_cluster(r)
+        if cf: grouped.setdefault(cf,[]).append(r)
+
+    clusters = []; threshold = get_threshold()
+    fb = load_feedback()
+
+    for cf, members in grouped.items():
+        anchor = next((m for m in members if m.get("item_index","").strip()==cf), None)
+        if anchor is None:
+            anchor = sorted(members, key=lambda m: m.get("item_index",""))[0]
+        rest = sorted([m for m in members if m is not anchor],
+                      key=lambda m: norm(m.get("app_name","")))
+        anchor_name = anchor.get("app_name","")
+        anchor_addr = anchor.get("app_address","")
+        scores = batch_semantic_sim(anchor_name, anchor_addr, rest)
+
+        members_out = [{
+            "item_index": anchor.get("item_index","").strip(),
+            "new_cluster": anchor.get("new_cluster",cf),
+            "cluster_index": anchor.get("cluster_index",""),
+            "app_name": anchor_name, "app_address": anchor_addr,
+            "store_id": anchor.get("store_id",""),
+            "scraper_source": anchor.get("scraper_source",""),
+            "is_anchor": True, "revision": 1, "score": None,
+            "mem_hit": None,
+            **{k: anchor.get(k,"") for k in ["cluster_name","main_chain","country",
+               "cluster_latitude","cluster_longitude","app_latitude","app_longitude",
+               "cluster_ciudad","cluster_estado","app_phone_1","app_phone_2","app_phone_3"]}
+        }]
+
+        for i, m in enumerate(rest):
+            ii    = m.get("item_index","").strip()
+            score = scores[i]
+            rev   = 1 if score >= threshold else 0
+
+            # Consultar memoria interna
+            mem_hit = mem_lookup_item(ii)
+            if not mem_hit:
+                mem_hit, _ = mem_lookup_similar(m.get("app_name",""), anchor_name)
+
+            members_out.append({
+                "item_index": ii,
+                "new_cluster": m.get("new_cluster",cf),
+                "cluster_index": m.get("cluster_index",""),
+                "app_name": m.get("app_name",""),
+                "app_address": m.get("app_address",""),
+                "store_id": m.get("store_id",""),
+                "scraper_source": m.get("scraper_source",""),
+                "is_anchor": False, "revision": rev, "score": score,
+                "mem_hit": mem_hit,
+                **{k: m.get(k,"") for k in ["cluster_name","main_chain","country",
+                   "cluster_latitude","cluster_longitude","app_latitude","app_longitude",
+                   "cluster_ciudad","cluster_estado","app_phone_1","app_phone_2","app_phone_3"]}
+            })
+
+        clusters.append({
+            "cluster_id": cf, "anchor_name": anchor_name, "anchor_addr": anchor_addr,
+            "count": len(members_out),
+            "ok_count": sum(1 for m in members_out if m["revision"]==1),
+            "bad_count": sum(1 for m in members_out if m["revision"]==0),
+            "members": members_out, "sql": "", "bd_results": [],
+            "corrections": {}, "threshold_used": threshold,
+        })
+
+    clusters.sort(key=lambda c: c["cluster_id"])
+    return clusters, {"threshold": threshold, "fb_stats": fb["stats"],
+                      "model_ready": _model_ready, "pg_ready": pg_is_configured()}
+
+
+def ext_corr_add(record):
+    """Agrega una corrección externa (store no en el archivo)."""
+    conn = sqlite3.connect(DB_FILE)
+    conn.execute("""
+        INSERT INTO external_corrections
+          (store_id, item_index, cluster_index, cluster_name, cluster_address,
+           app_name, app_address, correction, added_at, file_name)
+        VALUES (?,?,?,?,?,?,?,?,?,?)
+    """, (
+        record.get("store_id",""),   record.get("item_index",""),
+        record.get("cluster_index",""), record.get("cluster_name",""),
+        record.get("cluster_address",""), record.get("app_name",""),
+        record.get("app_address",""), record.get("correction",""),
+        time.time(), record.get("file_name","")
+    ))
+    conn.commit(); conn.close()
+
+def ext_corr_list():
+    conn = sqlite3.connect(DB_FILE)
+    rows = conn.execute(
+        "SELECT * FROM external_corrections ORDER BY added_at DESC"
+    ).fetchall()
+    conn.close()
+    cols = ["id","store_id","item_index","cluster_index","cluster_name",
+            "cluster_address","app_name","app_address","correction","added_at","file_name"]
+    return [dict(zip(cols,r)) for r in rows]
+
+def ext_corr_delete(rec_id):
+    conn = sqlite3.connect(DB_FILE)
+    conn.execute("DELETE FROM external_corrections WHERE id=?", (rec_id,))
+    conn.commit(); conn.close()
+
+def save_reviewed_clusters(clusters, filename):
+    """Guarda qué clusters pasaron por revisión al exportar."""
+    conn = sqlite3.connect(DB_FILE)
+    for cl in clusters:
+        had_errors = cl.get("bad_count",0) > 0
+        corr_count = len(cl.get("corrections",{}))
+        conn.execute("""
+            INSERT INTO reviewed_clusters
+              (cluster_index, cluster_name, had_errors, corrections_count, reviewed_at, file_name)
+            VALUES (?,?,?,?,?,?)
+        """, (
+            cl["cluster_id"],
+            cl.get("anchor_name",""),
+            1 if had_errors else 0,
+            corr_count,
+            time.time(),
+            filename
+        ))
+    conn.commit(); conn.close()
+
+def progress_stats(table="sales_opportunity.dim_maestra", country="mx"):
+    """Cruza la memoria con la BD para calcular progreso."""
+    if not pg_is_configured():
+        return None, "BD no configurada"
+    # Clusters únicos en BD
+    sql = f"""
+        SELECT COUNT(DISTINCT cluster_index) as total
+        FROM {table}
+        WHERE country = '{country}'
+    """
+    rows, err = pg_query(sql, timeout_ms=10000)
+    if err: return None, err
+    total_bd = rows[0]["total"] if rows else 0
+
+    # Clusters revisados en memoria
+    conn = sqlite3.connect(DB_FILE)
+    reviewed = conn.execute(
+        "SELECT COUNT(DISTINCT cluster_index) FROM reviewed_clusters"
+    ).fetchone()[0]
+    corrected = conn.execute(
+        "SELECT COUNT(DISTINCT cluster_index) FROM reviewed_clusters WHERE corrections_count > 0"
+    ).fetchone()[0]
+    recent = conn.execute("""
+        SELECT cluster_index, cluster_name, had_errors, corrections_count, reviewed_at, file_name
+        FROM reviewed_clusters
+        ORDER BY reviewed_at DESC LIMIT 20
+    """).fetchall()
+    conn.close()
+
+    return {
+        "table": table,
+        "total_bd": int(total_bd),
+        "reviewed": reviewed,
+        "corrected": corrected,
+        "pending": max(0, int(total_bd) - reviewed),
+        "pct": round(reviewed / int(total_bd) * 100, 1) if total_bd else 0,
+        "recent": [
+            {"cluster_index":r[0],"cluster_name":r[1],"had_errors":bool(r[2]),
+             "corrections_count":r[3],"reviewed_at":r[4],"file_name":r[5]}
+            for r in recent
+        ]
+    }, None
+
+# ── rutas ─────────────────────────────────────────────────────────────────────
+
+@app.route("/")
+def index(): return render_template("index.html")
+
+@app.route("/model_status")
+def model_status():
+    get_model()
+    return jsonify({"ready":_model_ready,"error":_model_error,"model":MODEL_NAME})
+
+@app.route("/pg_status")
+def pg_status():
+    if not pg_is_configured():
+        return jsonify({"ok":False,"error":"No configurado (.env)"})
+    try:
+        import psycopg2
+        cfg = get_pg_config()
+        conn = psycopg2.connect(**cfg, connect_timeout=3)  # 3 segundos máximo
+        conn.close()
+        return jsonify({"ok":True})
+    except Exception as e:
+        return jsonify({"ok":False,"error":str(e)})
+
+@app.route("/pg_query", methods=["POST"])
+def run_pg_query():
+    """
+    Ejecuta la SQL de búsqueda, obtiene los cluster_index que matchean,
+    luego trae TODOS los miembros de esos clusters para poder evaluar si están limpios.
+    """
+    data = request.json
+    sql  = data.get("sql","").strip()
+    if not sql: return jsonify({"error":"SQL vacía"}), 400
+    if not pg_is_configured():
+        return jsonify({"error":"BD no configurada. Revisa el archivo .env"}), 400
+
+    # 1. Query original — encontrar clusters que matchean
+    rows, err = pg_query(sql)
+    if err: return jsonify({"error": err}), 400
+
+    # Obtener cluster_indexes únicos encontrados
+    matched_clusters = list({str(r.get("cluster_index","")) for r in rows if r.get("cluster_index")})
+
+    if not matched_clusters:
+        return jsonify({"clusters_found": [], "row_count": 0})
+
+    # 2. Segunda query — traer TODOS los miembros de esos clusters
+    ci_list = ", ".join(f"'{ci}'" for ci in matched_clusters)
+    # Detectar country de la primera query
+    country = "mx"
+    for line in sql.lower().split("\n"):
+        if "country" in line and "=" in line:
+            m = re.search(r"country\s*=\s*'(\w+)'", line)
+            if m: country = m.group(1); break
+
+    full_sql = f"""select
+  cluster_index, store_id, cluster_name, main_chain,
+  app_name, app_address, app_longitude, app_latitude
+from sales_opportunity.dim_maestra
+where country = '{country}'
+  and cluster_index in ({ci_list})
+order by cluster_index, store_id"""
+
+    all_rows, err2 = pg_query(full_sql)
+    if err2:
+        # Fallback: usar los resultados originales si la segunda query falla
+        all_rows = rows
+
+    # Agrupar por cluster_index mostrando todos los miembros
+    by_cluster = {}
+    for row in all_rows:
+        ci = str(row.get("cluster_index",""))
+        by_cluster.setdefault(ci, []).append(
+            {k: str(v) if v is not None else "" for k, v in row.items()}
+        )
+
+    clusters_found = [
+        {
+            "cluster_index": ci,
+            "members": mems,
+            "is_clean": False,
+            "matched": ci in set(matched_clusters),  # indicar cuáles matchearon la query
+        }
+        for ci, mems in by_cluster.items()
+    ]
+
+    return jsonify({"clusters_found": clusters_found, "row_count": len(all_rows)})
+
+@app.route("/upload", methods=["POST"])
+def upload():
+    f = request.files.get("file")
+    if not f: return jsonify({"error":"Sin archivo"}), 400
+    ext  = Path(f.filename).suffix.lower()
+    path = UPLOAD_FOLDER / f"review{ext}"
+    f.save(path)
+    try: df = load_file(path)
+    except Exception as e: return jsonify({"error":str(e)}), 400
+    clusters, meta = build_clusters(df, filename=f.filename)
+    country = detect_country(df)
+    session["review_path"] = str(path)
+    session["clusters"]    = clusters
+    session["country"]     = country
+    session["filename"]    = f.filename
+    return jsonify({"clusters":clusters, "meta":meta, "country":country,
+                    "stats":{"total_rows":len(df),"total_clusters":len(clusters),
+                             "total_ok":sum(c["ok_count"] for c in clusters),
+                             "total_bad":sum(c["bad_count"] for c in clusters)}})
+
+@app.route("/update_revisions", methods=["POST"])
+def update_revisions():
+    data=request.json; cid=data["cluster_id"]; revisions=data["revisions"]
+    record_fb=data.get("record_feedback",True)
+    clusters=session.get("clusters",[])
+    sql,bad=("",0)
+    for cl in clusters:
+        if cl["cluster_id"]!=cid: continue
+        anchor=next((m for m in cl["members"] if m["is_anchor"]),None)
+        for m in cl["members"]:
+            ii=m["item_index"]
+            if ii not in revisions: continue
+            new_rev=revisions[ii]
+            if record_fb and not m["is_anchor"] and new_rev!=m["revision"]:
+                record_feedback(anchor["app_name"] if anchor else "",
+                                anchor["app_address"] if anchor else "",
+                                m["app_name"],m["app_address"],
+                                m.get("score"),m["revision"],new_rev)
+            m["revision"]=new_rev
+        cl["ok_count"]=sum(1 for m in cl["members"] if m["revision"]==1)
+        cl["bad_count"]=sum(1 for m in cl["members"] if m["revision"]==0)
+        bads=[m for m in cl["members"] if m["revision"]==0]
+        cl["sql"]=generate_unified_sql(bads)
+        sql,bad=cl["sql"],cl["bad_count"]
+        break
+    session["clusters"]=clusters; session.modified=True
+    fb=load_feedback()
+    return jsonify({"sql":sql,"bad_count":bad,"threshold":get_threshold(),"fb_stats":fb["stats"]})
+
+@app.route("/get_subgroups", methods=["POST"])
+def get_subgroups():
+    data=request.json; cid=data["cluster_id"]
+    members_data=data["members_data"]; country=data.get("country") or session.get("country","mx")
+    subgroups=build_subgroups(members_data)
+    for sg in subgroups:
+        sg_members=[m for m in members_data if m["item_index"] in sg["members"]]
+        sg["sql"]=generate_unified_sql(sg_members,country=country)
+    return jsonify({"subgroups":subgroups,"cluster_id":cid})
+
+@app.route("/set_clean", methods=["POST"])
+def set_clean():
+    data=request.json; cid=data["cluster_id"]
+    clusters=session.get("clusters",[])
+    for cl in clusters:
+        if cl["cluster_id"]!=cid: continue
+        for bdc in cl.get("bd_results",[]):
+            if bdc["cluster_index"]==data["bd_cluster_index"]: bdc["is_clean"]=data["is_clean"]
+        break
+    session["clusters"]=clusters; session.modified=True
+    return jsonify({"ok":True})
+
+@app.route("/set_correction", methods=["POST"])
+def set_correction():
+    data=request.json; cid=data["cluster_id"]
+    items=data["item_indexes"]; corr=data["correction"]
+    clusters=session.get("clusters",[])
+    for cl in clusters:
+        if cl["cluster_id"]!=cid: continue
+        for ii in items:
+            if corr: cl["corrections"][ii]=corr
+            else:    cl["corrections"].pop(ii,None)
+        break
+    session["clusters"]=clusters; session.modified=True
+    return jsonify({"ok":True})
+
+@app.route("/memory/search")
+def memory_search():
+    q=request.args.get("q","").strip()
+    if not q: return jsonify({"results":[]})
+    return jsonify({"results": mem_search(q)})
+
+@app.route("/memory/stats")
+def memory_stats_route():
+    s=mem_stats()
+    return jsonify({"total":s["total"],"unique_items":s["unique_items"],
+                    "recent":[{"item_index":r[0],"app_name":r[1],
+                               "correction":r[2],"reviewed_at":r[3]} for r in s["recent"]]})
+
+@app.route("/feedback_stats")
+def feedback_stats():
+    fb=load_feedback()
+    return jsonify({"stats":fb["stats"],"threshold":get_threshold(),
+                    "threshold_adj":fb.get("threshold_adj",0.0),"pairs_count":len(fb["pairs"])})
+
+@app.route("/reset_feedback", methods=["POST"])
+def reset_feedback():
+    if FEEDBACK_FILE.exists(): FEEDBACK_FILE.unlink()
+    return jsonify({"ok":True})
+
+@app.route("/export")
+def export():
+    review_path=session.get("review_path")
+    clusters=session.get("clusters",[])
+    filename=session.get("filename","archivo")
+    if not review_path: return jsonify({"error":"Sin sesión"}),400
+    df=load_file(review_path)
+    rev_map,corr_map={},{}
+    mem_records=[]
+    for cl in clusters:
+        anchor=next((m for m in cl["members"] if m["is_anchor"]),None)
+        for m in cl["members"]:
+            ii=m["item_index"]
+            rev_map[ii]=m["revision"]
+            corr=cl["corrections"].get(ii,"")
+            corr_map[ii]=corr
+            # Guardar en memoria si tiene corrección
+            if corr:
+                mem_records.append({
+                    "item_index":ii,"cluster_id":cl["cluster_id"],
+                    "app_name":m["app_name"],"app_address":m["app_address"],
+                    "anchor_name":anchor["app_name"] if anchor else "",
+                    "correction":corr,"is_new":"NUEVO:" in corr,
+                    "file_name":filename,
+                })
+    if mem_records: mem_save(mem_records)
+    # Guardar progreso de revisión
+    save_reviewed_clusters(clusters, filename)
+
+    df["item_index"]=df["item_index"].astype(str).str.strip()
+    df["revision"]=df["item_index"].map(rev_map).fillna(1).astype(int)
+    df["correccion"]=df["item_index"].map(corr_map).fillna("")
+
+    # Hoja 2: correcciones externas acumuladas
+    ext_records = ext_corr_list()
+    df_ext = pd.DataFrame(ext_records if ext_records else [], columns=[
+        "id","store_id","item_index","cluster_index","cluster_name",
+        "cluster_address","app_name","app_address","correction","added_at","file_name"
+    ])
+    # Columnas ordenadas como pidió el usuario
+    ext_cols = ["cluster_index","cluster_name","cluster_address",
+                "app_name","app_address","item_index","correction"]
+    df_ext_out = df_ext[ext_cols] if not df_ext.empty else pd.DataFrame(columns=ext_cols)
+    df_ext_out.insert(ext_cols.index("correction")+1, "revision", 0)
+
+    out = UPLOAD_FOLDER/"revisado_final.xlsx"
+    with pd.ExcelWriter(out, engine="openpyxl") as writer:
+        df.to_excel(writer, sheet_name="Revisión", index=False)
+        if not df_ext_out.empty:
+            df_ext_out.to_excel(writer, sheet_name="Correcciones externas", index=False)
+
+    return send_file(out, as_attachment=True, download_name="clusters_revisados.xlsx",
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+@app.route("/upload_bd", methods=["POST"])
+def upload_bd():
+    """Fallback: recibe CSV de BD cuando no hay conexión directa."""
+    f          = request.files.get("file")
+    cluster_id = request.form.get("cluster_id","")
+    if not f: return jsonify({"error":"Sin archivo"}), 400
+    ext  = Path(f.filename).suffix.lower()
+    path = UPLOAD_FOLDER / f"bd_{re.sub(r'[^a-z0-9]','_',cluster_id.lower())}{ext}"
+    f.save(path)
+    try: df = load_file(path)
+    except Exception as e: return jsonify({"error":str(e)}), 400
+    from flask import jsonify as _j
+    rows = [{k:("" if pd.isna(v) else str(v)) for k,v in row.items()} for _,row in df.iterrows()]
+    by_cluster = {}
+    for row in rows:
+        ci = row.get("cluster_index","")
+        by_cluster.setdefault(ci,[]).append(row)
+    clusters_found = [{"cluster_index":ci,"members":mems,"is_clean":False} for ci,mems in by_cluster.items()]
+    return jsonify({"cluster_id":cluster_id,"clusters_found":clusters_found})
+
+
+@app.route("/ext_correction/add", methods=["POST"])
+def ext_correction_add():
+    data = request.json
+    data["file_name"] = session.get("filename","")
+    ext_corr_add(data)
+    return jsonify({"ok": True, "count": len(ext_corr_list())})
+
+@app.route("/ext_correction/list")
+def ext_correction_list():
+    return jsonify({"records": ext_corr_list()})
+
+@app.route("/ext_correction/delete", methods=["POST"])
+def ext_correction_delete():
+    ext_corr_delete(request.json.get("id"))
+    return jsonify({"ok": True})
+
+@app.route("/progress")
+def progress():
+    table   = request.args.get("table", "sales_opportunity.dim_maestra")
+    country = request.args.get("country", session.get("country","mx"))
+    stats, err = progress_stats(table=table, country=country)
+    if err: return jsonify({"error": err}), 400
+    return jsonify(stats)
+
+@app.route("/memory/reset", methods=["POST"])
+def memory_reset():
+    conn=sqlite3.connect(DB_FILE)
+    conn.execute("DELETE FROM corrections"); conn.commit(); conn.close()
+    return jsonify({"ok":True})
+
+
+if __name__=="__main__":
+    print("\n"+"="*54)
+    print("  Cluster Reviewer v4")
+    print(f"  PostgreSQL: {'✓ configurado' if pg_is_configured() else '✗ falta .env'}")
+    print(f"  Memoria:    {DB_FILE}")
+    print("  http://localhost:5000")
+    print("="*54+"\n")
+    import threading
+    threading.Thread(target=get_model,daemon=True).start()
+    app.run(debug=False,port=5000)
