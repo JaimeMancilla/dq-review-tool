@@ -674,6 +674,58 @@ def progress_stats(table="sales_opportunity.dim_maestra", country="mx"):
         ]
     }, None
 
+# ── dishes ────────────────────────────────────────────────────────────────────
+
+def pairwise_sim(names, descs):
+    texts = [f"{n} {d}" for n, d in zip(names, descs)]
+    if len(texts) < 2: return 1.0
+    m = get_model()
+    if m:
+        from sentence_transformers import util
+        embs = m.encode(texts, convert_to_tensor=True, show_progress_bar=False)
+        sims = []
+        for i in range(len(texts)):
+            for j in range(i+1, len(texts)):
+                sims.append(float(util.cos_sim(embs[i], embs[j])))
+        return round(sum(sims)/len(sims), 3)
+    else:
+        sims = []
+        for i in range(len(texts)):
+            for j in range(i+1, len(texts)):
+                sims.append(jaccard_sim(texts[i], texts[j]))
+        return round(sum(sims)/len(sims), 3) if sims else 1.0
+
+def build_dish_groups(df, filename="", threshold=0.75):
+    df = df.fillna("")
+    groups = {}
+    for _, row in df.iterrows():
+        r = {k: str(v) for k, v in row.items()}
+        gid = r.get("grupo_pn9_max","").strip()
+        if not gid: continue
+        groups.setdefault(gid, []).append(r)
+    result = []
+    for gid, members in groups.items():
+        names = [m.get("product_name","") for m in members]
+        descs = [m.get("product_description","") for m in members]
+        score = pairwise_sim(names, descs)
+        revision = 1 if score >= threshold else 0
+        result.append({
+            "group_id": gid, "score": score, "revision": revision,
+            "count": len(members),
+            "members": [{"product_id": m.get("product_id",""),
+                         "scraper_source": m.get("scraper_source",""),
+                         "product_name": m.get("product_name",""),
+                         "product_description": m.get("product_description",""),
+                         "price": m.get("price",""),
+                         "cluster_index": m.get("cluster_index","")}
+                        for m in members]
+        })
+    result.sort(key=lambda g: g["group_id"])
+    ok  = sum(1 for g in result if g["revision"]==1)
+    bad = sum(1 for g in result if g["revision"]==0)
+    return result, {"total_groups": len(result), "ok": ok, "bad": bad,
+                    "threshold": threshold, "model_ready": _model_ready}
+
 # ── rutas ─────────────────────────────────────────────────────────────────────
 
 @app.route("/")
@@ -937,6 +989,79 @@ def export():
             df_ext_out.to_excel(writer, sheet_name="Correcciones externas", index=False)
 
     return send_file(out, as_attachment=True, download_name="clusters_revisados.xlsx",
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+@app.route("/dishes/upload", methods=["POST"])
+def dishes_upload():
+    f = request.files.get("file")
+    if not f: return jsonify({"error":"Sin archivo"}), 400
+    ext  = Path(f.filename).suffix.lower()
+    path = UPLOAD_FOLDER / f"dishes{ext}"
+    f.save(path)
+    try: df = load_file(path)
+    except Exception as e: return jsonify({"error":str(e)}), 400
+    groups, meta = build_dish_groups(df, filename=f.filename)
+    session["dishes_path"]     = str(path)
+    session["dishes_groups"]   = groups
+    session["dishes_filename"] = f.filename
+    saved_state, saved_at = load_session_state("dishes_"+f.filename)
+    restored = False
+    if saved_state:
+        rev_map = {s["group_id"]: s["revision"] for s in saved_state}
+        for g in groups:
+            if g["group_id"] in rev_map:
+                g["revision"] = rev_map[g["group_id"]]
+        restored = True
+        meta["saved_at"] = saved_at
+    session["dishes_groups"] = groups; session.modified = True
+    return jsonify({"groups": groups, "meta": meta,
+                    "filename": f.filename, "restored": restored})
+
+@app.route("/dishes/update", methods=["POST"])
+def dishes_update():
+    data     = request.json
+    group_id = data["group_id"]
+    revision = data["revision"]
+    groups   = session.get("dishes_groups", [])
+    for g in groups:
+        if g["group_id"] == group_id:
+            g["revision"] = revision
+            break
+    session["dishes_groups"] = groups; session.modified = True
+    state = [{"group_id": g["group_id"], "revision": g["revision"]} for g in groups]
+    filename = session.get("dishes_filename","")
+    conn = sqlite3.connect(DB_FILE)
+    conn.execute("""
+        INSERT OR REPLACE INTO session_state (file_name, state_json, saved_at)
+        VALUES (?,?,?)
+    """, ("dishes_"+filename, json.dumps(state), time.time()))
+    conn.commit(); conn.close()
+    ok  = sum(1 for g in groups if g["revision"]==1)
+    bad = sum(1 for g in groups if g["revision"]==0)
+    return jsonify({"ok": ok, "bad": bad})
+
+@app.route("/dishes/export")
+def dishes_export():
+    dishes_path = session.get("dishes_path")
+    groups      = session.get("dishes_groups", [])
+    filename    = session.get("dishes_filename","archivo")
+    if not dishes_path: return jsonify({"error":"Sin sesión"}), 400
+    df = load_file(dishes_path)
+    rev_map = {g["group_id"]: g["revision"] for g in groups}
+    df["grupo_pn9_max"] = df["grupo_pn9_max"].astype(str).str.strip()
+    df["revision"] = df["grupo_pn9_max"].map(rev_map).fillna(1).astype(int)
+    conn = sqlite3.connect(DB_FILE)
+    for g in groups:
+        conn.execute("""
+            INSERT INTO reviewed_clusters
+              (cluster_index, cluster_name, had_errors, corrections_count, reviewed_at, file_name)
+            VALUES (?,?,?,?,?,?)
+        """, (g["group_id"], "", 1 if g["revision"]==0 else 0, 0, time.time(), filename))
+    conn.commit(); conn.close()
+    out = UPLOAD_FOLDER/"dishes_revisado.xlsx"
+    df.to_excel(out, index=False)
+    return send_file(out, as_attachment=True,
+                     download_name="dishes_revisados.xlsx",
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 @app.route("/upload_bd", methods=["POST"])

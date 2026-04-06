@@ -123,6 +123,11 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
 .modal-body{padding:16px 18px;overflow-y:auto;flex:1}
 .mem-row{padding:8px 0;border-bottom:1px solid var(--border);font-size:12px}
 .mem-row:last-child{border-bottom:none}
+.type-card{border:2px solid var(--border2);border-radius:var(--rl);padding:28px 36px;cursor:pointer;background:var(--surf);transition:all .15s;min-width:180px}
+.type-card:hover{border-color:var(--blue);background:var(--bbg);transform:translateY(-2px);box-shadow:0 4px 16px rgba(0,0,0,.08)}
+.dish-card{background:var(--surf);border:1px solid var(--border);border-radius:var(--rl);margin-bottom:10px;overflow:hidden}
+.dish-hdr{display:flex;align-items:center;gap:10px;padding:10px 16px;background:var(--surf2);border-bottom:1px solid var(--border)}
+.dish-body{padding:0}
 </style>
 </head>
 <body>
@@ -149,12 +154,36 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
 </div>
 
 <div id="uploadScreen">
-  <div class="upload-screen">
-    <div class="drop-zone" id="dropZone" onclick="document.getElementById('mainFile').click()">
-      <input type="file" id="mainFile" accept=".xlsx,.csv">
-      <div class="drop-title">Arrastra tu archivo de revisión</div>
-      <div class="drop-sub">Excel (.xlsx) o CSV</div>
-      <button class="btn primary" onclick="event.stopPropagation();document.getElementById('mainFile').click()">Seleccionar archivo</button>
+  <div class="upload-screen" style="max-width:640px">
+    <!-- Paso 1: selección de tipo -->
+    <div id="typeSelect" style="text-align:center;padding:40px 0 24px">
+      <div style="font-size:22px;font-weight:700;margin-bottom:8px">Data Quality Review</div>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:32px">¿Qué tipo de revisión vas a realizar?</div>
+      <div style="display:flex;gap:16px;justify-content:center">
+        <div class="type-card" onclick="selectType('stores')">
+          <div style="font-size:28px;margin-bottom:10px">🏪</div>
+          <div style="font-weight:700;font-size:15px;margin-bottom:4px">Stores</div>
+          <div style="font-size:12px;color:var(--muted)">Clusterización de locales</div>
+        </div>
+        <div class="type-card" onclick="selectType('dishes')">
+          <div style="font-size:28px;margin-bottom:10px">🍽️</div>
+          <div style="font-weight:700;font-size:15px;margin-bottom:4px">Dishes</div>
+          <div style="font-size:12px;color:var(--muted)">Matching de platos</div>
+        </div>
+      </div>
+    </div>
+    <!-- Paso 2: carga de archivo -->
+    <div id="fileSelect" class="hidden">
+      <div style="text-align:center;margin-bottom:16px">
+        <span id="typeLabel" style="font-size:13px;color:var(--muted)"></span>
+        <button class="btn sm" style="margin-left:8px" onclick="backToTypeSelect()">← Cambiar</button>
+      </div>
+      <div class="drop-zone" id="dropZone" onclick="document.getElementById('mainFile').click()">
+        <input type="file" id="mainFile" accept=".xlsx,.csv">
+        <div class="drop-title">Arrastra tu archivo de revisión</div>
+        <div class="drop-sub">Excel (.xlsx) o CSV</div>
+        <button class="btn primary" onclick="event.stopPropagation();document.getElementById('mainFile').click()">Seleccionar archivo</button>
+      </div>
     </div>
   </div>
 </div>
@@ -163,6 +192,13 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
   <div class="stats" id="statsBar"></div>
   <div class="clusters" id="clusterList"></div>
 </div>
+
+<!-- Pantalla Dishes -->
+<div id="dishesScreen" class="hidden">
+  <div class="stats" id="dishesStatsBar"></div>
+  <div style="max-width:1000px;margin:12px auto;padding:0 20px 60px" id="dishesList"></div>
+</div>
+
 
 <!-- Modal corrección externa -->
 <div class="modal-bg" id="extCorrModal" onclick="if(event.target===this)closeExtCorr()">
@@ -234,8 +270,28 @@ let COUNTRY    = 'mx';
 let SUBGROUPS  = {};
 const SORT_ST  = {};
 let PG_READY   = false;
+let REVIEW_TYPE = null; // 'stores' | 'dishes'
+let DISH_GROUPS = [];
+
+// ── selección de tipo ────────────────────────────────────────────────────────
+function selectType(type) {
+  REVIEW_TYPE = type;
+  document.getElementById("typeSelect").classList.add("hidden");
+  document.getElementById("fileSelect").classList.remove("hidden");
+  document.getElementById("typeLabel").textContent =
+    type === "stores" ? "🏪 Revisión de Stores" : "🍽️ Revisión de Dishes";
+  // Reconectar listener del file input
+  const inp = document.getElementById("mainFile");
+  inp.onchange = e => doUpload(e.target.files[0]);
+}
+function backToTypeSelect() {
+  REVIEW_TYPE = null;
+  document.getElementById("typeSelect").classList.remove("hidden");
+  document.getElementById("fileSelect").classList.add("hidden");
+}
 
 const esc = s => String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+// Aviso al cerrar pestaña con trabajo en progreso
 window.addEventListener('beforeunload', e => {
   if(CLUSTERS.length){ e.preventDefault(); e.returnValue=''; }
 });
@@ -293,23 +349,38 @@ async function doUpload(file){
   dz.innerHTML='<span class="spinner"></span> Procesando…';
   const fd=new FormData();fd.append("file",file);
   try{
-    const d=await fetch("/upload",{method:"POST",body:fd}).then(r=>r.json());
-    if(d.error){toast("Error: "+d.error);return}
-    CLUSTERS=d.clusters;COUNTRY=d.country||"mx";SUBGROUPS={};FILTER="all";
-    renderStats(d.stats);
-    renderFilterBar();
-    renderAll();
-    document.getElementById("uploadScreen").classList.add("hidden");
-    document.getElementById("mainScreen").classList.remove("hidden");
-    document.getElementById("hdrFile").textContent=file.name;
-    document.getElementById("btnReset").style.display="";
-    document.getElementById("btnExport").style.display="";
-    document.getElementById("btnMemory").style.display="";
-    document.getElementById("btnProgress").style.display="";
-    if(d.meta)updateFbBar(d.meta.fb_stats,d.meta.threshold,0);
-    if(d.restored){
-      const dt = d.meta.saved_at ? new Date(d.meta.saved_at*1000).toLocaleString() : "";
-      toast(`✓ Estado restaurado (guardado: ${dt})`, 4000);
+    if(REVIEW_TYPE === 'dishes') {
+      const d=await fetch("/dishes/upload",{method:"POST",body:fd}).then(r=>r.json());
+      if(d.error){toast("Error: "+d.error);return}
+      DISH_GROUPS=d.groups;
+      renderDishes(d);
+      document.getElementById("uploadScreen").classList.add("hidden");
+      document.getElementById("dishesScreen").classList.remove("hidden");
+      document.getElementById("hdrFile").textContent=file.name;
+      document.getElementById("btnReset").style.display="";
+      document.getElementById("btnExport").style.display="";
+      document.getElementById("btnMemory").style.display="";
+      document.getElementById("btnProgress").style.display="";
+      if(d.restored) toast(`✓ Estado restaurado`, 3000);
+    } else {
+      const d=await fetch("/upload",{method:"POST",body:fd}).then(r=>r.json());
+      if(d.error){toast("Error: "+d.error);return}
+      CLUSTERS=d.clusters;COUNTRY=d.country||"mx";SUBGROUPS={};FILTER="all";
+      renderStats(d.stats);
+      renderFilterBar();
+      renderAll();
+      document.getElementById("uploadScreen").classList.add("hidden");
+      document.getElementById("mainScreen").classList.remove("hidden");
+      document.getElementById("hdrFile").textContent=file.name;
+      document.getElementById("btnReset").style.display="";
+      document.getElementById("btnExport").style.display="";
+      document.getElementById("btnMemory").style.display="";
+      document.getElementById("btnProgress").style.display="";
+      if(d.meta)updateFbBar(d.meta.fb_stats,d.meta.threshold,0);
+      if(d.restored){
+        const dt = d.meta.saved_at ? new Date(d.meta.saved_at*1000).toLocaleString() : "";
+        toast(`✓ Estado restaurado (guardado: ${dt})`, 4000);
+      }
     }
   }catch(e){toast("Error: "+e.message)}
 }
@@ -575,9 +646,9 @@ function buildSgBlock(cl,sg,sgi){
         );
         const bg = isMatch ? "background:#eaf4ee" : "";
         const extBtn = `<td style="padding:2px 4px;text-align:center">
-          <button class="btn sm" style="padding:2px 5px;font-size:9px;white-space:nowrap;background:var(--abg);color:var(--amber);border-color:var(--aborder)"
+          <button class="btn sm" style="padding:2px 6px;font-size:9px;white-space:nowrap"
             onclick="openExtCorr('${esc(m.store_id||"")}','${esc(m.app_name||"")}','${esc(m.app_address||"")}','${esc(bdc.cluster_index)}','${esc(m.cluster_name||"")}','${esc(m.cluster_address||"")}')">
-            ✎
+            + Anotar
           </button>
         </td>`;
         return `<tr style="${bg}">
@@ -602,7 +673,7 @@ function buildSgBlock(cl,sg,sgi){
             <th style="padding:3px 8px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border);width:80px;cursor:default">store_id</th>
             <th style="padding:3px 8px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border);cursor:default">app_name</th>
             <th style="padding:3px 8px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border);cursor:default">app_address</th>
-            <th style="padding:3px 8px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border);cursor:default;width:70px">acción</th>
+            <th style="padding:3px 8px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border);cursor:default;width:60px"></th>
           </tr></thead>
           <tbody>${rowsHtml}</tbody>
         </table>
@@ -1039,30 +1110,102 @@ async function resetMemory(){await api("/memory/reset",{});closeMemory();toast("
 async function exportFile(){
   const btn=document.getElementById("btnExport");btn.innerHTML='<span class="spinner"></span>';
   try{
-    const r=await fetch("/export");
+    const url  = REVIEW_TYPE==='dishes' ? "/dishes/export" : "/export";
+    const name = REVIEW_TYPE==='dishes' ? "dishes_revisados.xlsx" : "clusters_revisados.xlsx";
+    const r=await fetch(url);
     if(!r.ok){const d=await r.json();toast("Error: "+d.error);btn.innerHTML="⬇ Descargar";return}
     const blob=await r.blob();const a=document.createElement("a");
-    a.href=URL.createObjectURL(blob);a.download="clusters_revisados.xlsx";a.click();
-    toast("Descargado ✓ · correcciones guardadas en memoria");
+    a.href=URL.createObjectURL(blob);a.download=name;a.click();
+    toast("Descargado ✓");
   }catch(e){toast("Error: "+e.message)}
   btn.innerHTML="⬇ Descargar";
 }
 
 function resetApp(){
-  CLUSTERS=[];COUNTRY="mx";SUBGROUPS={};
+  CLUSTERS=[];COUNTRY="mx";SUBGROUPS={};DISH_GROUPS=[];REVIEW_TYPE=null;
   document.getElementById("uploadScreen").classList.remove("hidden");
   document.getElementById("mainScreen").classList.add("hidden");
+  document.getElementById("dishesScreen").classList.add("hidden");
+  document.getElementById("typeSelect").classList.remove("hidden");
+  document.getElementById("fileSelect").classList.add("hidden");
   document.getElementById("fbBar").classList.add("hidden");
   ["btnReset","btnExport","btnMemory","btnProgress"].forEach(id=>document.getElementById(id).style.display="none");
   document.getElementById("hdrFile").textContent="";
   document.getElementById("clusterList").innerHTML="";
+  document.getElementById("dishesList").innerHTML="";
   document.getElementById("mainFile").value="";
-  document.getElementById("dropZone").innerHTML=`
-    <input type="file" id="mainFile" accept=".xlsx,.csv">
+  // Resetear dropzone
+  const dz=document.getElementById("dropZone");
+  dz.innerHTML=`<input type="file" id="mainFile" accept=".xlsx,.csv">
     <div class="drop-title">Arrastra tu archivo de revisión</div>
     <div class="drop-sub">Excel (.xlsx) o CSV</div>
     <button class="btn primary" onclick="event.stopPropagation();document.getElementById('mainFile').click()">Seleccionar archivo</button>`;
   document.getElementById("mainFile").addEventListener("change",e=>doUpload(e.target.files[0]));
+}
+
+// ── dishes render ──────────────────────────────────────────────────────────────
+function renderDishes(d) {
+  DISH_GROUPS = d.groups;
+  const ok  = DISH_GROUPS.filter(g=>g.revision===1).length;
+  const bad = DISH_GROUPS.filter(g=>g.revision===0).length;
+  document.getElementById("dishesStatsBar").innerHTML=`
+    <div class="stats">
+      <div class="stat"><div class="stat-lbl">Grupos</div><div class="stat-val">${DISH_GROUPS.length}</div></div>
+      <div class="stat"><div class="stat-lbl">Correctos</div><div class="stat-val g">${ok}</div></div>
+      <div class="stat"><div class="stat-lbl">Incorrectos</div><div class="stat-val r">${bad}</div></div>
+      <div class="stat"><div class="stat-lbl">Umbral modelo</div><div class="stat-val" style="font-size:16px">${d.meta.threshold||0.75}</div></div>
+    </div>`;
+  document.getElementById("dishesList").innerHTML=DISH_GROUPS.map((g,gi)=>buildDishCard(g,gi)).join("");
+}
+
+function buildDishCard(g, gi) {
+  const pct = Math.round((g.score||0)*100);
+  const col = pct>=75?"var(--green)":pct>=50?"var(--amber)":"var(--red)";
+  const isOk = g.revision===1;
+  const hdrBg = isOk?"background:var(--gbg)":"background:var(--rbg)";
+  const rows = g.members.map(m=>`<tr>
+    <td style="padding:6px 12px;font-size:11px;color:var(--muted);white-space:nowrap">${esc(m.scraper_source)}</td>
+    <td style="padding:6px 12px;font-weight:500">${esc(m.product_name)}</td>
+    <td style="padding:6px 12px;color:var(--muted);font-size:11px">${esc((m.product_description||"").slice(0,80))}${(m.product_description||"").length>80?"…":""}</td>
+    <td style="padding:6px 12px;font-weight:600;text-align:right;white-space:nowrap">${esc(m.price)}</td>
+  </tr>`).join("");
+  return `<div class="dish-card" id="dish_${gi}">
+    <div class="dish-hdr" id="dishHdr_${gi}" style="${hdrBg}">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;flex:1">
+        <input type="checkbox" ${isOk?"checked":""} style="width:16px;height:16px;accent-color:var(--green);cursor:pointer"
+          onchange="onDishCheck(${gi},this.checked)">
+        <span class="badge ${isOk?"ok":"bad"}" id="dishBadge_${gi}">${isOk?"✓ Correcto":"✕ Incorrecto"}</span>
+        <span style="font-family:monospace;font-size:11px;color:var(--muted)">${esc(g.group_id)}</span>
+        <span style="font-size:11px;color:var(--muted)">${g.count} plato${g.count!==1?"s":""}</span>
+      </label>
+      <span style="font-size:12px;font-weight:700;color:${col}">${pct}%</span>
+    </div>
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr style="background:var(--surf2)">
+        <th style="padding:5px 12px;text-align:left;border-bottom:1px solid var(--border);font-size:10px;font-weight:700;color:var(--muted);width:100px">Fuente</th>
+        <th style="padding:5px 12px;text-align:left;border-bottom:1px solid var(--border);font-size:10px;font-weight:700;color:var(--muted)">Nombre</th>
+        <th style="padding:5px 12px;text-align:left;border-bottom:1px solid var(--border);font-size:10px;font-weight:700;color:var(--muted)">Descripción</th>
+        <th style="padding:5px 12px;text-align:right;border-bottom:1px solid var(--border);font-size:10px;font-weight:700;color:var(--muted);width:80px">Precio</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>`;
+}
+
+async function onDishCheck(gi, checked) {
+  const g = DISH_GROUPS[gi]; if(!g) return;
+  g.revision = checked ? 1 : 0;
+  const badge = document.getElementById("dishBadge_"+gi);
+  if(badge){ badge.className=`badge ${g.revision===1?"ok":"bad"}`; badge.textContent=g.revision===1?"✓ Correcto":"✕ Incorrecto"; }
+  const hdr = document.getElementById("dishHdr_"+gi);
+  if(hdr) hdr.style.background = g.revision===1 ? "var(--gbg)" : "var(--rbg)";
+  // Actualizar stats
+  const ok  = DISH_GROUPS.filter(g=>g.revision===1).length;
+  const bad = DISH_GROUPS.filter(g=>g.revision===0).length;
+  const vals = document.querySelectorAll("#dishesStatsBar .stat-val");
+  if(vals[1]) vals[1].textContent=ok;
+  if(vals[2]) vals[2].textContent=bad;
+  await api("/dishes/update", {group_id: g.group_id, revision: g.revision});
 }
 </script>
 </body>
