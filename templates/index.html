@@ -236,6 +236,9 @@ const SORT_ST  = {};
 let PG_READY   = false;
 
 const esc = s => String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+window.addEventListener('beforeunload', e => {
+  if(CLUSTERS.length){ e.preventDefault(); e.returnValue=''; }
+});
 function toast(msg,ms=2400){const el=document.getElementById("toast");el.textContent=msg;el.classList.add("show");setTimeout(()=>el.classList.remove("show"),ms)}
 async function api(url,body){const opts=body?{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}:{method:"GET"};return fetch(url,opts).then(r=>r.json())}
 
@@ -304,6 +307,10 @@ async function doUpload(file){
     document.getElementById("btnMemory").style.display="";
     document.getElementById("btnProgress").style.display="";
     if(d.meta)updateFbBar(d.meta.fb_stats,d.meta.threshold,0);
+    if(d.restored){
+      const dt = d.meta.saved_at ? new Date(d.meta.saved_at*1000).toLocaleString() : "";
+      toast(`✓ Estado restaurado (guardado: ${dt})`, 4000);
+    }
   }catch(e){toast("Error: "+e.message)}
 }
 

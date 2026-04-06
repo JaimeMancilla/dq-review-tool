@@ -93,6 +93,13 @@ def init_db():
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_item ON corrections(item_index)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_appname ON corrections(app_name)")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS session_state (
+            file_name    TEXT PRIMARY KEY,
+            state_json   TEXT NOT NULL,
+            saved_at     REAL
+        )
+    """)
     # Tabla de correcciones externas (stores no en el archivo pero identificados de paso)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS external_corrections (
@@ -177,6 +184,49 @@ def mem_lookup_similar(app_name, anchor_name, threshold=0.75):
         if combined > best_sim and combined >= threshold:
             best_sim = combined; best = r
     return best, best_sim
+
+def save_session_state(filename, clusters):
+    state = []
+    for cl in clusters:
+        state.append({
+            "cluster_id":  cl["cluster_id"],
+            "corrections": cl.get("corrections", {}),
+            "members":     [
+                {"item_index": m["item_index"], "revision": m["revision"]}
+                for m in cl["members"] if not m["is_anchor"]
+            ]
+        })
+    conn = sqlite3.connect(DB_FILE)
+    conn.execute("""
+        INSERT OR REPLACE INTO session_state (file_name, state_json, saved_at)
+        VALUES (?, ?, ?)
+    """, (filename, json.dumps(state, ensure_ascii=False), time.time()))
+    conn.commit(); conn.close()
+
+def load_session_state(filename):
+    conn = sqlite3.connect(DB_FILE)
+    row = conn.execute(
+        "SELECT state_json, saved_at FROM session_state WHERE file_name=?",
+        (filename,)
+    ).fetchone()
+    conn.close()
+    if row:
+        return json.loads(row[0]), row[1]
+    return None, None
+
+def apply_session_state(clusters, state):
+    state_map = {s["cluster_id"]: s for s in state}
+    for cl in clusters:
+        saved = state_map.get(cl["cluster_id"])
+        if not saved: continue
+        rev_map = {m["item_index"]: m["revision"] for m in saved["members"]}
+        for m in cl["members"]:
+            if not m["is_anchor"] and m["item_index"] in rev_map:
+                m["revision"] = rev_map[m["item_index"]]
+        cl["corrections"] = saved.get("corrections", {})
+        cl["ok_count"]  = sum(1 for m in cl["members"] if m["revision"]==1)
+        cl["bad_count"] = sum(1 for m in cl["members"] if m["revision"]==0)
+    return clusters
 
 def mem_stats():
     conn = sqlite3.connect(DB_FILE)
@@ -726,7 +776,20 @@ def upload():
     session["clusters"]    = clusters
     session["country"]     = country
     session["filename"]    = f.filename
+    saved_state, saved_at = load_session_state(f.filename)
+    restored = False
+    if saved_state:
+        clusters = apply_session_state(clusters, saved_state)
+        restored = True
+        meta["restored"] = True
+        meta["saved_at"] = saved_at
+
+    session["review_path"] = str(path)
+    session["clusters"]    = clusters
+    session["country"]     = country
+    session["filename"]    = f.filename
     return jsonify({"clusters":clusters, "meta":meta, "country":country,
+                    "restored": restored,
                     "stats":{"total_rows":len(df),"total_clusters":len(clusters),
                              "total_ok":sum(c["ok_count"] for c in clusters),
                              "total_bad":sum(c["bad_count"] for c in clusters)}})
@@ -757,6 +820,7 @@ def update_revisions():
         sql,bad=cl["sql"],cl["bad_count"]
         break
     session["clusters"]=clusters; session.modified=True
+    save_session_state(session.get("filename",""), clusters)
     fb=load_feedback()
     return jsonify({"sql":sql,"bad_count":bad,"threshold":get_threshold(),"fb_stats":fb["stats"]})
 
@@ -794,6 +858,7 @@ def set_correction():
             else:    cl["corrections"].pop(ii,None)
         break
     session["clusters"]=clusters; session.modified=True
+    save_session_state(session.get("filename",""), clusters)
     return jsonify({"ok":True})
 
 @app.route("/memory/search")
