@@ -245,6 +245,19 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
     </div>
   </div>
 </div>
+<!-- Modal fusión dishes -->
+<div class="modal-bg" id="fusionModal" onclick="if(event.target===this)closeFusionModal()">
+  <div class="modal-box" style="max-width:560px">
+    <div class="modal-hdr">
+      <h2 id="fusionModalTitle">Fusionar grupo con…</h2>
+      <button class="btn sm" onclick="closeFusionModal()">✕</button>
+    </div>
+    <div class="modal-body" style="padding:0;max-height:60vh;overflow-y:auto">
+      <div id="fusionModalList"></div>
+    </div>
+  </div>
+</div>
+
 <div class="modal-bg" id="memModal" onclick="if(event.target===this)closeMemory()">
   <div class="modal-box">
     <div class="modal-hdr">
@@ -1146,23 +1159,47 @@ function resetApp(){
 // ── dishes render ──────────────────────────────────────────────────────────────
 function renderDishes(d) {
   DISH_GROUPS = d.groups;
+  updateDishStats();
+  document.getElementById("dishesList").innerHTML=DISH_GROUPS.map((g,gi)=>buildDishCard(g,gi)).join("");
+}
+
+function updateDishStats() {
   const ok  = DISH_GROUPS.filter(g=>g.revision===1).length;
   const bad = DISH_GROUPS.filter(g=>g.revision===0).length;
+  const inc = DISH_GROUPS.filter(g=>g.revision===2).length;
+  const cats = {};
+  DISH_GROUPS.filter(g=>g.revision===0).forEach(g=>(g.error_cats||[]).forEach(c=>cats[c]=(cats[c]||0)+1));
+  const catLabels = {"price":"💰 Precio","name":"🏷️ Nombre","description":"📝 Descripción","no_data":"❓ Sin datos"};
+  const catHtml = Object.entries(cats).map(([k,v])=>
+    `<span style="font-size:11px;background:var(--rbg);color:var(--red);border:1px solid var(--rborder);border-radius:20px;padding:2px 9px">${catLabels[k]||k}: ${v}</span>`
+  ).join(" ");
   document.getElementById("dishesStatsBar").innerHTML=`
     <div class="stats">
       <div class="stat"><div class="stat-lbl">Grupos</div><div class="stat-val">${DISH_GROUPS.length}</div></div>
       <div class="stat"><div class="stat-lbl">Correctos</div><div class="stat-val g">${ok}</div></div>
       <div class="stat"><div class="stat-lbl">Incorrectos</div><div class="stat-val r">${bad}</div></div>
-      <div class="stat"><div class="stat-lbl">Umbral modelo</div><div class="stat-val" style="font-size:16px">${d.meta.threshold||0.75}</div></div>
-    </div>`;
-  document.getElementById("dishesList").innerHTML=DISH_GROUPS.map((g,gi)=>buildDishCard(g,gi)).join("");
+      <div class="stat"><div class="stat-lbl">Incompletos</div><div class="stat-val" style="color:var(--amber)">${inc}</div></div>
+    </div>
+    ${catHtml?`<div style="padding:6px 20px;display:flex;gap:6px;flex-wrap:wrap">${catHtml}</div>`:""}`;
 }
 
 function buildDishCard(g, gi) {
-  const pct = Math.round((g.score||0)*100);
-  const col = pct>=75?"var(--green)":pct>=50?"var(--amber)":"var(--red)";
-  const isOk = g.revision===1;
-  const hdrBg = isOk?"background:var(--gbg)":"background:var(--rbg)";
+  const pct = g.score!=null ? Math.round(g.score*100) : null;
+  const pctHtml = pct!=null
+    ? `<span style="font-size:12px;font-weight:700;color:${pct>=75?"var(--green)":pct>=50?"var(--amber)":"var(--red)"}">${pct}%</span>`
+    : `<span style="font-size:11px;color:var(--muted)">—</span>`;
+  const rev = g.revision;
+  const hdrBg = rev===1?"background:var(--gbg)":rev===0?"background:var(--rbg)":"background:var(--abg)";
+  const badgeHtml = rev===1
+    ? `<span class="badge ok">✓ Correcto</span>`
+    : rev===0 ? `<span class="badge bad">✕ Incorrecto</span>`
+    : `<span class="badge" style="background:var(--abg);color:var(--amber);border:1px solid var(--aborder)">🔗 Incompleto</span>`;
+  const catLabels = {"price":"💰 Precio","name":"🏷️ Nombre","description":"📝 Descripción","no_data":"❓ Sin datos"};
+  const catsHtml = (g.error_cats||[]).map(c=>
+    `<span style="font-size:10px;background:var(--rbg);color:var(--red);border:1px solid var(--rborder);border-radius:20px;padding:1px 7px">${catLabels[c]||c}</span>`
+  ).join(" ");
+  const fusionHtml = g.fusion_with
+    ? `<span style="font-size:11px;font-family:monospace;color:var(--amber)">→ grupo ${esc(g.fusion_with)}</span>` : "";
   const rows = g.members.map(m=>`<tr>
     <td style="padding:6px 12px;font-size:11px;color:var(--muted);white-space:nowrap">${esc(m.scraper_source)}</td>
     <td style="padding:6px 12px;font-weight:500">${esc(m.product_name)}</td>
@@ -1171,14 +1208,22 @@ function buildDishCard(g, gi) {
   </tr>`).join("");
   return `<div class="dish-card" id="dish_${gi}">
     <div class="dish-hdr" id="dishHdr_${gi}" style="${hdrBg}">
-      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;flex:1">
-        <input type="checkbox" ${isOk?"checked":""} style="width:16px;height:16px;accent-color:var(--green);cursor:pointer"
-          onchange="onDishCheck(${gi},this.checked)">
-        <span class="badge ${isOk?"ok":"bad"}" id="dishBadge_${gi}">${isOk?"✓ Correcto":"✕ Incorrecto"}</span>
-        <span style="font-family:monospace;font-size:11px;color:var(--muted)">${esc(g.group_id)}</span>
-        <span style="font-size:11px;color:var(--muted)">${g.count} plato${g.count!==1?"s":""}</span>
-      </label>
-      <span style="font-size:12px;font-weight:700;color:${col}">${pct}%</span>
+      <div style="flex:1">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:${catsHtml||fusionHtml?"4px":"0"}">
+          <span id="dishBadge_${gi}">${badgeHtml}</span>
+          <span style="font-family:monospace;font-size:11px;color:var(--muted)">grupo ${esc(g.group_id)}</span>
+          <span style="font-size:11px;color:var(--muted)">${g.count} plato${g.count!==1?"s":""}</span>
+          ${fusionHtml}
+          <div style="margin-left:auto">${pctHtml}</div>
+        </div>
+        ${catsHtml?`<div style="display:flex;gap:4px;flex-wrap:wrap">${catsHtml}</div>`:""}
+      </div>
+    </div>
+    <div style="display:flex;gap:6px;padding:7px 12px;border-bottom:1px solid var(--border);background:var(--surf2);flex-wrap:wrap">
+      <button class="btn sm ${rev===1?"green":""}" onclick="setDishRev(${gi},1)">✓ Correcto</button>
+      <button class="btn sm ${rev===0?"red":""}" onclick="setDishRev(${gi},0)">✕ Incorrecto</button>
+      <button class="btn sm" style="${rev===2?"background:var(--abg);color:var(--amber);border-color:var(--aborder)":""}" onclick="openFusionModal(${gi})">🔗 Fusionar con…</button>
+      ${g.fusion_with?`<button class="btn sm" onclick="clearFusion(${gi})" style="font-size:10px">✕ quitar fusión</button>`:""}
     </div>
     <table style="width:100%;border-collapse:collapse;font-size:12px">
       <thead><tr style="background:var(--surf2)">
@@ -1192,20 +1237,67 @@ function buildDishCard(g, gi) {
   </div>`;
 }
 
-async function onDishCheck(gi, checked) {
+async function setDishRev(gi, rev) {
   const g = DISH_GROUPS[gi]; if(!g) return;
-  g.revision = checked ? 1 : 0;
-  const badge = document.getElementById("dishBadge_"+gi);
-  if(badge){ badge.className=`badge ${g.revision===1?"ok":"bad"}`; badge.textContent=g.revision===1?"✓ Correcto":"✕ Incorrecto"; }
-  const hdr = document.getElementById("dishHdr_"+gi);
-  if(hdr) hdr.style.background = g.revision===1 ? "var(--gbg)" : "var(--rbg)";
-  // Actualizar stats
-  const ok  = DISH_GROUPS.filter(g=>g.revision===1).length;
-  const bad = DISH_GROUPS.filter(g=>g.revision===0).length;
-  const vals = document.querySelectorAll("#dishesStatsBar .stat-val");
-  if(vals[1]) vals[1].textContent=ok;
-  if(vals[2]) vals[2].textContent=bad;
-  await api("/dishes/update", {group_id: g.group_id, revision: g.revision});
+  g.revision = rev;
+  if(rev !== 2) g.fusion_with = "";
+  const card = document.getElementById("dish_"+gi);
+  if(card){ const tmp=document.createElement("div"); tmp.innerHTML=buildDishCard(g,gi); card.replaceWith(tmp.firstElementChild); }
+  updateDishStats();
+  await api("/dishes/update", {group_id: g.group_id, revision: rev, fusion_with: g.fusion_with||""});
+}
+
+async function clearFusion(gi) {
+  const g = DISH_GROUPS[gi]; if(!g) return;
+  g.revision=2; g.fusion_with="";
+  const card=document.getElementById("dish_"+gi);
+  if(card){ const tmp=document.createElement("div"); tmp.innerHTML=buildDishCard(g,gi); card.replaceWith(tmp.firstElementChild); }
+  updateDishStats();
+  await api("/dishes/update", {group_id: g.group_id, revision: 2, fusion_with: ""});
+}
+
+// ── modal fusión ───────────────────────────────────────────────────────────────
+let _fusionGi = null;
+
+function openFusionModal(gi) {
+  _fusionGi = gi;
+  const g = DISH_GROUPS[gi];
+  const opts = DISH_GROUPS.filter((_,i)=>i!==gi).map(og=>
+    `<div onclick="selectFusion('${esc(og.group_id)}')"
+      style="padding:8px 12px;cursor:pointer;border-bottom:1px solid var(--border);transition:background .1s"
+      onmouseover="this.style.background='var(--bbg)'" onmouseout="this.style.background=''">
+      <span style="font-family:monospace;font-size:11px;color:var(--muted)">grupo ${esc(og.group_id)}</span>
+      <span style="font-weight:500;margin-left:8px">${esc(og.members[0]?.product_name||"")}</span>
+      <span style="font-size:11px;color:var(--muted);margin-left:6px">${og.count} plato${og.count!==1?"s":""}</span>
+    </div>`).join("");
+  document.getElementById("fusionModalTitle").textContent=`Fusionar grupo ${g.group_id} con…`;
+  document.getElementById("fusionModalList").innerHTML=opts||`<div style="color:var(--muted);padding:12px">Sin otros grupos</div>`;
+  document.getElementById("fusionModal").classList.add("open");
+}
+
+async function selectFusion(targetGroupId) {
+  const gi=_fusionGi; if(gi==null)return;
+  const ga=DISH_GROUPS[gi];
+  const gbi=DISH_GROUPS.findIndex(g=>g.group_id===targetGroupId);
+  const gb=DISH_GROUPS[gbi];
+  if(!ga||!gb)return;
+  document.getElementById("fusionModal").classList.remove("open");
+  const d=await api("/dishes/set_fusion",{group_a:ga.group_id,group_b:targetGroupId});
+  const dest=d.dest;
+  [ga,gb].forEach(g=>{g.revision=2;g.fusion_with=dest;g.error_cats=[];});
+  [gi,gbi].forEach(i=>{
+    if(i<0)return;
+    const card=document.getElementById("dish_"+i);
+    if(card){const tmp=document.createElement("div");tmp.innerHTML=buildDishCard(DISH_GROUPS[i],i);card.replaceWith(tmp.firstElementChild);}
+  });
+  updateDishStats();
+  toast(`Grupos ${ga.group_id} y ${gb.group_id} → fusionar en ${dest}`);
+  _fusionGi=null;
+}
+
+function closeFusionModal(){
+  document.getElementById("fusionModal").classList.remove("open");
+  _fusionGi=null;
 }
 </script>
 </body>

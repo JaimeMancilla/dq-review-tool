@@ -676,55 +676,127 @@ def progress_stats(table="sales_opportunity.dim_maestra", country="mx"):
 
 # ── dishes ────────────────────────────────────────────────────────────────────
 
-def pairwise_sim(names, descs):
-    texts = [f"{n} {d}" for n, d in zip(names, descs)]
-    if len(texts) < 2: return 1.0
+def pairwise_sim_semantic(names, descs):
+    """Similitud semántica promedio entre todos los pares. Sin fallback Jaccard."""
+    texts = [f"{n} {d}".strip() for n, d in zip(names, descs)]
+    if len(texts) < 2:
+        return None  # grupo de 1 → incompleto
     m = get_model()
-    if m:
-        from sentence_transformers import util
-        embs = m.encode(texts, convert_to_tensor=True, show_progress_bar=False)
-        sims = []
-        for i in range(len(texts)):
-            for j in range(i+1, len(texts)):
-                sims.append(float(util.cos_sim(embs[i], embs[j])))
-        return round(sum(sims)/len(sims), 3)
-    else:
-        sims = []
-        for i in range(len(texts)):
-            for j in range(i+1, len(texts)):
-                sims.append(jaccard_sim(texts[i], texts[j]))
-        return round(sum(sims)/len(sims), 3) if sims else 1.0
+    if not m:
+        return None  # sin modelo → no evaluar
+    from sentence_transformers import util
+    embs = m.encode(texts, convert_to_tensor=True, show_progress_bar=False)
+    sims = []
+    for i in range(len(texts)):
+        for j in range(i+1, len(texts)):
+            sims.append(float(util.cos_sim(embs[i], embs[j])))
+    return round(sum(sims)/len(sims), 3)
+
+def detect_error_categories(members):
+    """
+    Detecta categorías de error automáticamente.
+    Retorna lista de categorías: price, name, description, no_data
+    """
+    categories = []
+
+    # Error de precio: diferencia > 20% entre min y max
+    prices = []
+    for m in members:
+        try:
+            p = float(str(m.get("price","")).replace(",",".").strip())
+            if p > 0: prices.append(p)
+        except: pass
+    if len(prices) >= 2:
+        mn, mx = min(prices), max(prices)
+        if mx > 0 and (mx - mn) / mx > 0.20:
+            categories.append("price")
+
+    # Error de nombre: palabra clave distintiva en uno que no está en otros
+    names = [norm(m.get("product_name","")) for m in members]
+    all_words = [set(w for w in n.split() if len(w) > 3) for n in names]
+    for i, wi in enumerate(all_words):
+        for j, wj in enumerate(all_words):
+            if i == j: continue
+            exclusive = wi - wj  # palabras de i que no están en j
+            if exclusive:
+                categories.append("name")
+                break
+        if "name" in categories: break
+
+    # Error de descripción: baja similitud entre descripciones (si existen)
+    descs = [m.get("product_description","").strip() for m in members]
+    has_descs = [d for d in descs if d]
+    if len(has_descs) >= 2:
+        m_model = get_model()
+        if m_model:
+            from sentence_transformers import util
+            embs = m_model.encode(has_descs, convert_to_tensor=True, show_progress_bar=False)
+            sims = []
+            for i in range(len(has_descs)):
+                for j in range(i+1, len(has_descs)):
+                    sims.append(float(util.cos_sim(embs[i], embs[j])))
+            avg = sum(sims)/len(sims) if sims else 1.0
+            if avg < 0.70:
+                categories.append("description")
+        elif not has_descs:
+            categories.append("no_data")
+    elif not has_descs:
+        categories.append("no_data")
+
+    return list(set(categories))
 
 def build_dish_groups(df, filename="", threshold=0.75):
+    """Construye grupos de platos a partir del archivo de revisión."""
     df = df.fillna("")
     groups = {}
     for _, row in df.iterrows():
         r = {k: str(v) for k, v in row.items()}
-        gid = r.get("grupo_pn9_max","").strip()
+        gid = r.get("grupo_pn9_max", "").strip()
         if not gid: continue
         groups.setdefault(gid, []).append(r)
+
     result = []
     for gid, members in groups.items():
         names = [m.get("product_name","") for m in members]
         descs = [m.get("product_description","") for m in members]
-        score = pairwise_sim(names, descs)
-        revision = 1 if score >= threshold else 0
+        score = pairwise_sim_semantic(names, descs)
+
+        # revision: 2=incompleto (1 solo miembro o sin modelo), 1=correcto, 0=incorrecto
+        if score is None:
+            revision = 2  # incompleto — grupo de 1 o sin modelo
+        elif score >= threshold:
+            revision = 1
+        else:
+            revision = 0
+
+        # Categorías de error (solo para incorrectos)
+        error_cats = detect_error_categories(members) if revision == 0 else []
+
         result.append({
-            "group_id": gid, "score": score, "revision": revision,
-            "count": len(members),
-            "members": [{"product_id": m.get("product_id",""),
-                         "scraper_source": m.get("scraper_source",""),
-                         "product_name": m.get("product_name",""),
-                         "product_description": m.get("product_description",""),
-                         "price": m.get("price",""),
-                         "cluster_index": m.get("cluster_index","")}
-                        for m in members]
+            "group_id":    gid,
+            "score":       score,
+            "revision":    revision,
+            "count":       len(members),
+            "error_cats":  error_cats,
+            "fusion_with": "",  # grupo_pn9_max con el que fusionar (si revision==2)
+            "members": [{
+                "product_id":          m.get("product_id",""),
+                "scraper_source":      m.get("scraper_source",""),
+                "product_name":        m.get("product_name",""),
+                "product_description": m.get("product_description",""),
+                "price":               m.get("price",""),
+                "cluster_index":       m.get("cluster_index",""),
+            } for m in members]
         })
+
     result.sort(key=lambda g: g["group_id"])
-    ok  = sum(1 for g in result if g["revision"]==1)
-    bad = sum(1 for g in result if g["revision"]==0)
-    return result, {"total_groups": len(result), "ok": ok, "bad": bad,
-                    "threshold": threshold, "model_ready": _model_ready}
+    ok   = sum(1 for g in result if g["revision"]==1)
+    bad  = sum(1 for g in result if g["revision"]==0)
+    inc  = sum(1 for g in result if g["revision"]==2)
+    return result, {
+        "total_groups": len(result), "ok": ok, "bad": bad, "incomplete": inc,
+        "threshold": threshold, "model_ready": _model_ready
+    }
 
 # ── rutas ─────────────────────────────────────────────────────────────────────
 
@@ -1022,13 +1094,21 @@ def dishes_update():
     data     = request.json
     group_id = data["group_id"]
     revision = data["revision"]
+    fusion   = data.get("fusion_with","")
     groups   = session.get("dishes_groups", [])
     for g in groups:
         if g["group_id"] == group_id:
-            g["revision"] = revision
+            g["revision"]    = revision
+            g["fusion_with"] = fusion
+            # Si marca como 0, recalcular categorías de error
+            if revision == 0:
+                g["error_cats"] = detect_error_categories(g["members"])
+            else:
+                g["error_cats"] = []
             break
     session["dishes_groups"] = groups; session.modified = True
-    state = [{"group_id": g["group_id"], "revision": g["revision"]} for g in groups]
+    state = [{"group_id": g["group_id"], "revision": g["revision"],
+              "fusion_with": g.get("fusion_with","")} for g in groups]
     filename = session.get("dishes_filename","")
     conn = sqlite3.connect(DB_FILE)
     conn.execute("""
@@ -1038,7 +1118,36 @@ def dishes_update():
     conn.commit(); conn.close()
     ok  = sum(1 for g in groups if g["revision"]==1)
     bad = sum(1 for g in groups if g["revision"]==0)
-    return jsonify({"ok": ok, "bad": bad})
+    inc = sum(1 for g in groups if g["revision"]==2)
+    return jsonify({"ok": ok, "bad": bad, "incomplete": inc})
+
+@app.route("/dishes/set_fusion", methods=["POST"])
+def dishes_set_fusion():
+    """Marca dos grupos para fusionar (revision=2) con el menor ID como destino."""
+    data   = request.json
+    gid_a  = data["group_a"]
+    gid_b  = data["group_b"]
+    groups = session.get("dishes_groups",[])
+    # El destino es el menor group_id
+    try:
+        dest = str(min(int(gid_a), int(gid_b)))
+    except:
+        dest = min(gid_a, gid_b)
+    for g in groups:
+        if g["group_id"] in (gid_a, gid_b):
+            g["revision"]    = 2
+            g["fusion_with"] = dest
+            g["error_cats"]  = []
+    session["dishes_groups"] = groups; session.modified = True
+    # Guardar estado
+    state = [{"group_id": g["group_id"], "revision": g["revision"],
+              "fusion_with": g.get("fusion_with","")} for g in groups]
+    filename = session.get("dishes_filename","")
+    conn = sqlite3.connect(DB_FILE)
+    conn.execute("""INSERT OR REPLACE INTO session_state (file_name, state_json, saved_at)
+        VALUES (?,?,?)""", ("dishes_"+filename, json.dumps(state), time.time()))
+    conn.commit(); conn.close()
+    return jsonify({"ok": True, "dest": dest})
 
 @app.route("/dishes/export")
 def dishes_export():
@@ -1047,16 +1156,22 @@ def dishes_export():
     filename    = session.get("dishes_filename","archivo")
     if not dishes_path: return jsonify({"error":"Sin sesión"}), 400
     df = load_file(dishes_path)
-    rev_map = {g["group_id"]: g["revision"] for g in groups}
+    rev_map    = {g["group_id"]: g["revision"]           for g in groups}
+    fusion_map = {g["group_id"]: g.get("fusion_with","") for g in groups}
+    cats_map   = {g["group_id"]: ",".join(g.get("error_cats",[])) for g in groups}
     df["grupo_pn9_max"] = df["grupo_pn9_max"].astype(str).str.strip()
-    df["revision"] = df["grupo_pn9_max"].map(rev_map).fillna(1).astype(int)
+    df["revision"]      = df["grupo_pn9_max"].map(rev_map).fillna(1).astype(int)
+    df["fusion"]        = df["grupo_pn9_max"].map(fusion_map).fillna("")
+    df["error_cats"]    = df["grupo_pn9_max"].map(cats_map).fillna("")
+    # Guardar en memoria
     conn = sqlite3.connect(DB_FILE)
     for g in groups:
         conn.execute("""
             INSERT INTO reviewed_clusters
               (cluster_index, cluster_name, had_errors, corrections_count, reviewed_at, file_name)
             VALUES (?,?,?,?,?,?)
-        """, (g["group_id"], "", 1 if g["revision"]==0 else 0, 0, time.time(), filename))
+        """, (g["group_id"], "", 1 if g["revision"] in (0,2) else 0,
+              0, time.time(), filename))
     conn.commit(); conn.close()
     out = UPLOAD_FOLDER/"dishes_revisado.xlsx"
     df.to_excel(out, index=False)
