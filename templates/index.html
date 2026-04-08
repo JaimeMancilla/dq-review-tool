@@ -270,7 +270,12 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
       <h2 id="fusionModalTitle">Fusionar grupo con…</h2>
       <button class="btn sm" onclick="closeFusionModal()">✕</button>
     </div>
-    <div class="modal-body" style="padding:0;max-height:60vh;overflow-y:auto">
+    <div style="padding:10px 18px;border-bottom:1px solid var(--border)">
+      <input id="fusionSearch" class="corr-input" style="width:100%"
+        placeholder="Buscar por nombre o grupo…"
+        oninput="filterFusionList(this.value)">
+    </div>
+    <div class="modal-body" style="padding:0;max-height:55vh;overflow-y:auto">
       <div id="fusionModalList"></div>
     </div>
   </div>
@@ -1336,20 +1341,55 @@ async function clearFusion(gi) {
 
 // ── modal fusión ───────────────────────────────────────────────────────────────
 let _fusionGi = null;
+let _fusionOpts = []; // cache de grupos para filtrar
+
+function buildFusionOpts(groups, gi) {
+  return groups.filter((_,i)=>i!==gi).map(og=>{
+    const names = og.members.map(m=>m.product_name).join(" / ");
+    const desc  = og.members.map(m=>m.product_description).filter(Boolean).join(" | ");
+    const prices = og.members.map(m=>m.price).filter(Boolean).join(", ");
+    return {
+      group_id: og.group_id,
+      count:    og.count,
+      names,
+      desc,
+      prices,
+      searchText: `${og.group_id} ${names} ${desc}`.toLowerCase()
+    };
+  });
+}
+
+function renderFusionOpts(opts) {
+  if(!opts.length) return `<div style="color:var(--muted);padding:12px;font-size:12px">Sin resultados</div>`;
+  return opts.map(o=>`
+    <div onclick="selectFusion('${esc(o.group_id)}')"
+      style="padding:10px 14px;cursor:pointer;border-bottom:1px solid var(--border);transition:background .1s"
+      onmouseover="this.style.background='var(--bbg)'" onmouseout="this.style.background=''">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:${o.desc||o.prices?"4px":"0"}">
+        <span style="font-family:monospace;font-size:10px;color:var(--muted)">grupo ${esc(o.group_id)}</span>
+        <span style="font-weight:600;font-size:12px">${esc(o.names.slice(0,60))}${o.names.length>60?"…":""}</span>
+        <span style="font-size:11px;color:var(--muted);margin-left:auto">${o.count} plato${o.count!==1?"s":""}</span>
+      </div>
+      ${o.desc?`<div style="font-size:11px;color:var(--muted);margin-bottom:2px">${esc(o.desc.slice(0,80))}${o.desc.length>80?"…":""}</div>`:""}
+      ${o.prices?`<div style="font-size:11px;color:var(--muted)">💰 ${esc(o.prices)}</div>`:""}
+    </div>`).join("");
+}
+
+function filterFusionList(q) {
+  const filtered = q.trim()
+    ? _fusionOpts.filter(o=>o.searchText.includes(q.toLowerCase()))
+    : _fusionOpts;
+  document.getElementById("fusionModalList").innerHTML = renderFusionOpts(filtered);
+}
 
 function openFusionModal(gi) {
   _fusionGi = gi;
   const g = DISH_GROUPS[gi];
-  const opts = DISH_GROUPS.filter((_,i)=>i!==gi).map(og=>
-    `<div onclick="selectFusion('${esc(og.group_id)}')"
-      style="padding:8px 12px;cursor:pointer;border-bottom:1px solid var(--border);transition:background .1s"
-      onmouseover="this.style.background='var(--bbg)'" onmouseout="this.style.background=''">
-      <span style="font-family:monospace;font-size:11px;color:var(--muted)">grupo ${esc(og.group_id)}</span>
-      <span style="font-weight:500;margin-left:8px">${esc(og.members[0]?.product_name||"")}</span>
-      <span style="font-size:11px;color:var(--muted);margin-left:6px">${og.count} plato${og.count!==1?"s":""}</span>
-    </div>`).join("");
+  _fusionOpts = buildFusionOpts(DISH_GROUPS, gi);
   document.getElementById("fusionModalTitle").textContent=`Fusionar grupo ${g.group_id} con…`;
-  document.getElementById("fusionModalList").innerHTML=opts||`<div style="color:var(--muted);padding:12px">Sin otros grupos</div>`;
+  document.getElementById("fusionModalList").innerHTML=renderFusionOpts(_fusionOpts);
+  const searchInp = document.getElementById("fusionSearch");
+  if(searchInp){ searchInp.value=""; setTimeout(()=>searchInp.focus(), 100); }
   document.getElementById("fusionModal").classList.add("open");
 }
 
