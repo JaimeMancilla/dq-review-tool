@@ -112,11 +112,16 @@ def init_db():
             cluster_address  TEXT,
             app_name         TEXT,
             app_address      TEXT,
+            scraper_source   TEXT,
             correction       TEXT NOT NULL,
             added_at         REAL,
             file_name        TEXT
         )
     """)
+    # Migración: agregar scraper_source si no existe
+    try:
+        conn.execute("ALTER TABLE external_corrections ADD COLUMN scraper_source TEXT")
+    except: pass
     # Tabla de progreso: clusters revisados
     conn.execute("""
         CREATE TABLE IF NOT EXISTS reviewed_clusters (
@@ -135,6 +140,22 @@ def init_db():
     try:
         conn.execute("ALTER TABLE reviewed_clusters ADD COLUMN review_type TEXT DEFAULT 'stores_restaurant'")
     except: pass
+    # Pares etiquetados de stores para futuro fine-tuning
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS store_pairs (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            app_name_a      TEXT,
+            app_address_a   TEXT,
+            cluster_index_a TEXT,
+            app_name_b      TEXT,
+            app_address_b   TEXT,
+            cluster_index_b TEXT,
+            label           INTEGER,  -- 1=mismo local, 0=distinto
+            source          TEXT,     -- "correction" | "manual"
+            added_at        REAL,
+            file_name       TEXT
+        )
+    """)
     # Pares etiquetados de dishes para futuro fine-tuning
     conn.execute("""
         CREATE TABLE IF NOT EXISTS dish_pairs (
@@ -637,13 +658,14 @@ def ext_corr_add(record):
     conn.execute("""
         INSERT INTO external_corrections
           (store_id, item_index, cluster_index, cluster_name, cluster_address,
-           app_name, app_address, correction, added_at, file_name)
-        VALUES (?,?,?,?,?,?,?,?,?,?)
+           app_name, app_address, scraper_source, correction, added_at, file_name)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?)
     """, (
         record.get("store_id",""),   record.get("item_index",""),
         record.get("cluster_index",""), record.get("cluster_name",""),
         record.get("cluster_address",""), record.get("app_name",""),
-        record.get("app_address",""), record.get("correction",""),
+        record.get("app_address",""), record.get("scraper_source",""),
+        record.get("correction",""),
         time.time(), record.get("file_name","")
     ))
     conn.commit(); conn.close()
@@ -655,7 +677,7 @@ def ext_corr_list():
     ).fetchall()
     conn.close()
     cols = ["id","store_id","item_index","cluster_index","cluster_name",
-            "cluster_address","app_name","app_address","correction","added_at","file_name"]
+            "cluster_address","app_name","app_address","scraper_source","correction","added_at","file_name"]
     return [dict(zip(cols,r)) for r in rows]
 
 def ext_corr_delete(rec_id):
@@ -886,7 +908,7 @@ def build_dish_groups(df, filename="", threshold=0.75):
             revision = 0
 
         # Categorías de error (solo para incorrectos)
-        error_cats = detect_error_categories(members) if revision == 0 else []
+        error_cats = detect_error_categories(members) if revision in (0, 2) else []
 
         result.append({
             "group_id":    gid,
@@ -915,6 +937,24 @@ def build_dish_groups(df, filename="", threshold=0.75):
     }
 
 
+
+def save_store_pair(app_name_a, app_address_a, cluster_index_a,
+                    app_name_b, app_address_b, cluster_index_b,
+                    label=0, source="correction", file_name=""):
+    """Guarda un par etiquetado de stores para futuro fine-tuning del algoritmo de clusterización.
+    label=1: mismo local físico, label=0: locales distintos.
+    """
+    conn = sqlite3.connect(DB_FILE)
+    conn.execute("""
+        INSERT INTO store_pairs
+          (app_name_a, app_address_a, cluster_index_a,
+           app_name_b, app_address_b, cluster_index_b,
+           label, source, added_at, file_name)
+        VALUES (?,?,?,?,?,?,?,?,?,?)
+    """, (app_name_a, app_address_a, cluster_index_a,
+          app_name_b, app_address_b, cluster_index_b,
+          label, source, time.time(), file_name))
+    conn.commit(); conn.close()
 
 def save_dish_pair(name_a, desc_a, name_b, desc_b, label, source="revision", file_name=""):
     """Guarda un par etiquetado de dishes para futuro fine-tuning."""
@@ -1094,6 +1134,17 @@ def upload():
         meta["restored"] = True
         meta["saved_at"] = saved_at
 
+    # Marcar clusters ya revisados previamente
+    reviewed_set = set()
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        rows = conn.execute("SELECT DISTINCT cluster_index FROM reviewed_clusters").fetchall()
+        reviewed_set = {r[0] for r in rows}
+        conn.close()
+    except: pass
+    for cl in clusters:
+        cl["already_reviewed"] = cl["cluster_id"] in reviewed_set
+
     session["review_path"] = str(path)
     session["clusters"]    = clusters
     session["country"]     = country
@@ -1175,14 +1226,26 @@ def set_correction():
     data=request.json; cid=data["cluster_id"]
     items=data["item_indexes"]; corr=data["correction"]
     clusters=session.get("clusters",[])
+    filename=session.get("filename","")
     for cl in clusters:
         if cl["cluster_id"]!=cid: continue
+        anchor=next((m for m in cl["members"] if m["is_anchor"]),None)
         for ii in items:
-            if corr: cl["corrections"][ii]=corr
-            else:    cl["corrections"].pop(ii,None)
+            if corr:
+                cl["corrections"][ii]=corr
+                # Guardar par etiquetado: store incorrecto vs anchor del cluster
+                member=next((m for m in cl["members"] if m["item_index"]==ii),None)
+                if member and anchor and corr:
+                    # Par label=0: este store NO es el mismo local que el anchor
+                    save_store_pair(
+                        member.get("app_name",""), member.get("app_address",""), cid,
+                        anchor.get("app_name",""),  anchor.get("app_address",""),  cid,
+                        label=0, source="correction", file_name=filename
+                    )
+            else:
+                cl["corrections"].pop(ii,None)
         break
     session["clusters"]=clusters; session.modified=True
-    # Guardar estado en disco en tiempo real
     save_session_state(session.get("filename",""), clusters)
     return jsonify({"ok":True})
 
@@ -1314,10 +1377,11 @@ def dishes_update():
             g["revision"]    = revision
             g["fusion_with"] = fusion
             # Si marca como 0, recalcular categorías de error
-            if revision == 0:
+            if revision in (0, 2):
                 g["error_cats"] = detect_error_categories(g["members"])
             else:
                 g["error_cats"] = []
+            break
             break
     session["dishes_groups"] = groups; session.modified = True
     state = [{"group_id": g["group_id"], "revision": g["revision"],
@@ -1468,6 +1532,12 @@ def ext_correction_add():
     data = request.json
     data["file_name"] = session.get("filename","")
     ext_corr_add(data)
+    # Guardar par etiquetado: store externo es distinto al cluster donde estaba
+    save_store_pair(
+        data.get("app_name",""), data.get("app_address",""), data.get("cluster_index",""),
+        "", "", data.get("correction",""),
+        label=0, source="ext_correction", file_name=data["file_name"]
+    )
     return jsonify({"ok": True, "count": len(ext_corr_list())})
 
 @app.route("/ext_correction/list")
@@ -1562,6 +1632,106 @@ def dishes_suggestions():
                        "members": g["members"], "count": g["count"]})
     scored.sort(key=lambda x: x["sim"], reverse=True)
     return jsonify({"suggestions": scored[:3]})
+
+
+@app.route("/store_pairs/stats")
+def store_pairs_stats():
+    """Estadísticas de pares etiquetados de stores."""
+    conn = sqlite3.connect(DB_FILE)
+    total    = conn.execute("SELECT COUNT(*) FROM store_pairs").fetchone()[0]
+    by_src   = conn.execute("""
+        SELECT source, COUNT(*) FROM store_pairs GROUP BY source
+    """).fetchall()
+    conn.close()
+    return jsonify({
+        "total": total,
+        "by_source": {r[0]: r[1] for r in by_src}
+    })
+
+
+@app.route("/bd_update/preview", methods=["POST"])
+def bd_update_preview():
+    """Genera preview de los INSERTs que se harían en ctrl_restaurant_homologation."""
+    clusters   = session.get("clusters", [])
+    country    = session.get("country", "mx")
+    rt         = session.get("review_type", "stores_restaurant")
+    store_type = "retail" if rt == "stores_retail" else "restaurant"
+    rows = []
+
+    # Correcciones de subgrupos (vienen en corrections del cluster)
+    for cl in clusters:
+        for ii, corr in cl.get("corrections", {}).items():
+            if not corr: continue
+            member = next((m for m in cl["members"] if m["item_index"] == ii), None)
+            if not member: continue
+            rows.append({
+                "store_id":       member.get("store_id", ""),
+                "scraper_source": member.get("scraper_source", ""),
+                "old_cluster":    member.get("cluster_index", cl["cluster_id"]),
+                "new_cluster":    corr,
+                "country":        country,
+                "store_type":     store_type,
+                "source":         "file",
+            })
+
+    # Correcciones externas (Anotar) — scraper_source viene de la tabla BD
+    for rec in ext_corr_list():
+        if not rec.get("correction"): continue
+        rows.append({
+            "store_id":       rec.get("store_id", ""),
+            "scraper_source": rec.get("scraper_source", ""),
+            "old_cluster":    rec.get("cluster_index", ""),
+            "new_cluster":    rec.get("correction", ""),
+            "country":        country,
+            "store_type":     store_type,
+            "source":         "external",
+        })
+
+    return jsonify({"rows": rows, "total": len(rows),
+                    "store_type": store_type, "country": country})
+
+
+@app.route("/bd_update/execute", methods=["POST"])
+def bd_update_execute():
+    """Ejecuta los INSERTs en ctrl_restaurant_homologation."""
+    if not pg_is_configured():
+        return jsonify({"error": "BD no configurada"}), 400
+
+    rows     = request.json.get("rows", [])
+    inserted = 0
+    errors   = []
+
+    conn_str = (f"host={os.environ.get('PG_HOST')} "
+                f"port={os.environ.get('PG_PORT','5432')} "
+                f"dbname={os.environ.get('PG_DB')} "
+                f"user={os.environ.get('PG_USER')} "
+                f"password={os.environ.get('PG_PASS')}")
+    try:
+        import psycopg2
+        conn = psycopg2.connect(conn_str)
+        cur  = conn.cursor()
+        for r in rows:
+            try:
+                cur.execute("""
+                    INSERT INTO sales_opportunity.ctrl_restaurant_homologation
+                      (old_cluster, new_cluster, store_id, scraper_source,
+                       country, load_date, homologation_type, store_type, data_quality)
+                    VALUES (%s, %s, %s, %s, %s, NOW(), %s, %s, %s)
+                """, (
+                    r["old_cluster"], r["new_cluster"],
+                    r["store_id"],    r.get("scraper_source",""),
+                    r["country"],     "manual",
+                    r["store_type"],  True
+                ))
+                inserted += 1
+            except Exception as e:
+                errors.append(str(e))
+        conn.commit()
+        cur.close(); conn.close()
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+    return jsonify({"ok": True, "inserted": inserted, "errors": errors})
 
 
 if __name__=="__main__":

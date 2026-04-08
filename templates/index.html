@@ -142,6 +142,7 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
   <div id="pgPill" class="pill loading"><span class="spinner"></span> BD…</div>
   <div class="hdr-right">
     <button class="btn sm" id="btnMemory" onclick="openMemory()" style="display:none">🧠 Memoria</button>
+    <button class="btn sm" id="btnBdUpdate" onclick="openBdUpdate()" style="display:none">⬆ Actualizar BD</button>
     <button class="btn sm" id="btnDashboard" onclick="openDashboard()" style="display:none">📊 Dashboard</button>
     <button class="btn" id="btnReset" onclick="resetApp()">← Menú</button>
     <button class="btn sm" id="btnMarkReviewed" onclick="markAsReviewed()" style="display:none">✓ Marcar revisado</button>
@@ -309,6 +310,23 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
   </div>
 </div>
 
+<!-- Modal Actualizar BD -->
+<div class="modal-bg" id="bdUpdateModal" onclick="if(event.target===this)closeBdUpdate()">
+  <div class="modal-box" style="max-width:780px">
+    <div class="modal-hdr">
+      <h2>⬆ Actualizar BD — ctrl_restaurant_homologation</h2>
+      <button class="btn sm" onclick="closeBdUpdate()">✕</button>
+    </div>
+    <div class="modal-body" id="bdUpdateBody" style="padding:0">
+      <div style="padding:20px;text-align:center;color:var(--muted)"><span class="spinner"></span> Cargando preview…</div>
+    </div>
+    <div class="modal-footer" style="padding:10px 18px;display:flex;gap:8px;justify-content:flex-end;border-top:1px solid var(--border)">
+      <button class="btn sm" onclick="closeBdUpdate()">Cancelar</button>
+      <button class="btn green" id="btnConfirmBdUpdate" onclick="executeBdUpdate()" style="display:none">✓ Confirmar INSERT</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-bg" id="memModal" onclick="if(event.target===this)closeMemory()">
   <div class="modal-box">
     <div class="modal-hdr">
@@ -460,6 +478,7 @@ async function doUpload(file){
       document.getElementById("btnExport").style.display="";
       document.getElementById("btnMarkReviewed").style.display="";
       document.getElementById("btnMemory").style.display="";
+      document.getElementById("btnBdUpdate").style.display="";
       document.getElementById("btnDashboard").style.display="";
       if(d.meta)updateFbBar(d.meta.fb_stats,d.meta.threshold,0);
       if(d.restored){
@@ -602,6 +621,7 @@ function buildCard(cl){
       <span class="c-anchor">${esc(cl.anchor_name)}</span>
       <span class="badge n">${cl.count} stores</span>
       ${statusBadge}
+      ${cl.already_reviewed?`<span class="badge" style="background:var(--surf2);color:var(--muted);font-size:9px;border:1px solid var(--border2)">ya revisado</span>`:""}
       <span class="chev">▼</span>
     </div>
     <div class="c-body">
@@ -619,6 +639,7 @@ function buildTable(cl){
     const isAnchor=m.is_anchor;
     const hasMem=m.mem_hit&&m.mem_hit.correction;
     const rowCls=isAnchor?"row-anchor":hasMem&&m.revision===0?"row-mem":m.revision===0?"row-bad":"row-ok";
+    const stickyStyle=isAnchor?"position:sticky;top:0;z-index:2;box-shadow:0 1px 3px rgba(0,0,0,.08)":"";
     const cbCell=isAnchor
       ?`<td class="cb-cell"><span class="anchor-badge">A</span></td>`
       :`<td class="cb-cell"><input type="checkbox" ${m.revision===0?"checked":""}
@@ -630,7 +651,7 @@ function buildTable(cl){
       scoreHtml=`<span style="font-size:11px;font-weight:600;color:${color}">${pct}%</span>`;
     }else if(isAnchor)scoreHtml=`<span style="font-size:10px;color:var(--muted)">—</span>`;
     const memTag=hasMem?`<span class="mem-tag" title="En memoria: ${esc(m.mem_hit.correction)}">MEM</span>`:"";
-    rows+=`<tr class="${rowCls}" data-ii="${esc(m.item_index)}">
+    rows+=`<tr class="${rowCls}" data-ii="${esc(m.item_index)}" style="${stickyStyle}">
       ${cbCell}
       <td style="font-family:monospace;font-size:10px;white-space:nowrap">${esc(m.new_cluster)}</td>
       <td style="font-family:monospace;font-size:10px;white-space:nowrap">${esc(m.item_index)}</td>
@@ -648,7 +669,7 @@ function buildTable(cl){
       <span style="font-size:11px;color:var(--muted)">${cl.count} stores · <span style="color:var(--red);font-weight:600">${bad}</span> incorrecto${bad!==1?"s":""}</span>
       <button class="btn sm" style="margin-left:auto;font-size:11px" onclick="toggleTbl(this)">▼ Ver tabla</button>
     </div>
-    <div class="tbl-wrap" id="${tableId}" style="display:none"><table>
+    <div class="tbl-wrap" id="${tableId}" style="display:none;max-height:420px;overflow-y:auto"><table>
       <thead><tr>
         <th class="cb-cell" style="cursor:default">Rev</th>
         ${th("new_cluster","new_cluster")}${th("item_index","item_index")}
@@ -716,32 +737,36 @@ function buildSgBlock(cl,sg,sgi){
   // Resultados BD
   let bdHtml="";
   if(sg.bd_results&&sg.bd_results.length){
-    bdHtml=sg.bd_results.map((bdc,bi)=>{
-      // Los miembros que matchearon la query original se resaltan
-      const sgNames = new Set(
-        (getCl(cid)?.members||[])
-          .filter(m => sg.members.includes(m.item_index))
-          .map(m => m.app_name.toLowerCase().trim())
-      );
+    // IDs del subgrupo para highlight
+    const sgStoreIds = new Set(
+      sg.members.map(ii => { const idx=ii.indexOf("_"); return idx>=0?ii.slice(idx+1):ii; })
+    );
 
-      const rowsHtml = bdc.members.map(m => {
-        const nameNorm = (m.app_name||"").toLowerCase().trim();
-        const isMatch  = [...sgNames].some(sn =>
-          nameNorm.includes(sn.split(" ").filter(w=>w.length>3)[0]||"__") ||
-          sn.includes((nameNorm.split(" ").filter(w=>w.length>3)[0])||"__")
-        );
-        const bg = isMatch ? "background:#eaf4ee" : "";
-        const extBtn = `<td style="padding:2px 4px;text-align:center">
-          <button class="btn sm" style="padding:2px 6px;font-size:9px;white-space:nowrap"
-            onclick="openExtCorr('${esc(m.store_id||"")}','${esc(m.app_name||"")}','${esc(m.app_address||"")}','${esc(bdc.cluster_index)}','${esc(m.cluster_name||"")}','${esc(m.cluster_address||"")}')">
-            + Anotar
-          </button>
-        </td>`;
+    // Sugerencia de fusión automática
+    const uniqueClusters = new Set(sg.bd_results.map(b=>b.cluster_index));
+    const suggestedCluster = uniqueClusters.size > 1 ? calcNewCluster(sg.bd_results) : null;
+    const fusionBadge = suggestedCluster
+      ? `<div style="margin:6px 10px 4px;padding:7px 10px;background:var(--abg);border:1px solid var(--aborder);border-radius:var(--r);font-size:11px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <span>⚠️ <strong>${uniqueClusters.size} clusters distintos</strong> — fusionar en:</span>
+          <code style="font-size:10px;color:var(--amber)">${esc(suggestedCluster)}</code>
+          <button class="btn sm" style="font-size:10px;padding:2px 8px;margin-left:auto"
+            onclick="applySuggestedFusion('${esc(cid)}',${sgi},'${esc(suggestedCluster)}')">✓ Aplicar</button>
+        </div>` : "";
+
+    const blocksHtml = sg.bd_results.map((bdc,bi)=>{
+      const rowsHtml = bdc.members.map(m=>{
+        const isMatch = sgStoreIds.has(String(m.store_id||""));
+        const bg = isMatch ? "background:var(--gbg);border-left:3px solid var(--green)" : "border-left:3px solid transparent";
         return `<tr style="${bg}">
           <td style="padding:3px 8px;font-family:monospace;font-size:10px;color:var(--muted);white-space:nowrap">${esc(m.store_id||"")}</td>
           <td style="padding:3px 8px;font-weight:${isMatch?'600':'400'}">${esc(m.app_name||"")}${isMatch?` <span style="font-size:9px;color:var(--green);font-weight:700">✓</span>`:''}</td>
           <td style="padding:3px 8px;color:var(--muted);font-size:11px">${esc((m.app_address||"").slice(0,42))}</td>
-          ${extBtn}
+          <td style="padding:2px 8px;text-align:center;white-space:nowrap;width:70px">
+            <button class="btn sm" style="padding:2px 8px;font-size:10px;white-space:nowrap;width:100%"
+              onclick="openExtCorr('${esc(m.store_id||"")}','${esc(m.app_name||"")}','${esc(m.app_address||"")}','${esc(bdc.cluster_index)}','${esc(m.cluster_name||"")}','${esc(m.cluster_address||"")}','${esc(m.scraper_source||"")}')">
+              + Anotar
+            </button>
+          </td>
         </tr>`;
       }).join("");
 
@@ -759,13 +784,15 @@ function buildSgBlock(cl,sg,sgi){
             <th style="padding:3px 8px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border);width:80px;cursor:default">store_id</th>
             <th style="padding:3px 8px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border);cursor:default">app_name</th>
             <th style="padding:3px 8px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border);cursor:default">app_address</th>
-            <th style="padding:3px 8px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border);cursor:default;width:60px"></th>
+            <th style="padding:3px 8px;border-bottom:1px solid var(--border);width:70px;cursor:default"></th>
           </tr></thead>
           <tbody>${rowsHtml}</tbody>
         </table>
       </div>`;
     }).join("");
-    bdHtml+=`<button class="btn green sm" style="margin:4px 10px 8px" onclick="assignSgClean('${esc(cid)}',${sgi})">★ Usar limpios</button>`;
+
+    bdHtml = fusionBadge + blocksHtml;
+    bdHtml += `<button class="btn green sm" style="margin:4px 10px 8px" onclick="assignSgClean('${esc(cid)}',${sgi})">★ Usar limpios</button>`;
   }
 
   // Corrección asignada
@@ -1074,8 +1101,8 @@ function rebuildBdPanel(cid){
 // ── corrección externa ────────────────────────────────────────────────────────
 let _extCorrData = null;
 
-function openExtCorr(store_id, app_name, app_address, cluster_index, cluster_name, cluster_address) {
-  _extCorrData = {store_id, app_name, app_address, cluster_index, cluster_name, cluster_address};
+function openExtCorr(store_id, app_name, app_address, cluster_index, cluster_name, cluster_address, scraper_source) {
+  _extCorrData = {store_id, app_name, app_address, cluster_index, cluster_name, cluster_address, scraper_source: scraper_source||""};
   document.getElementById("extCorrInfo").innerHTML = `
     <div style="margin-bottom:4px"><strong>${esc(app_name)}</strong></div>
     <div style="color:var(--muted);font-size:11px">${esc(app_address)}</div>
@@ -1202,7 +1229,7 @@ async function openDashboard() {
   document.getElementById("dashboardScreen").classList.remove("hidden");
   document.getElementById("hdrFile").textContent = "";
   // Ocultar botones de revisión
-  ["btnExport","btnMarkReviewed","btnMemory","btnDashboard"].forEach(id=>{
+  ["btnExport","btnMarkReviewed","btnMemory","btnBdUpdate","btnDashboard"].forEach(id=>{
     const el = document.getElementById(id); if(el) el.style.display="none";
   });
   await loadDashTab(_dashTab);
@@ -1299,6 +1326,152 @@ async function cleanDuplicates(){
 function openProgress() { openDashboard(); } // compatibilidad
 
 
+// ── lógica de fusión de clusters ──────────────────────────────────────────────
+function calcNewCluster(bdResults) {
+  // Reglas para determinar qué cluster absorbe a los otros:
+  // 1. cluster_index = item_index del ancla
+  // 2. El que tenga más miembros absorbe
+  // 3. Si igual cantidad, el que tenga item_index del ancla menor (primer segmento numérico)
+  // 4. Cluster nuevo → item_index menor del grupo
+  if (!bdResults || bdResults.length === 0) return null;
+  if (bdResults.length === 1) return bdResults[0].cluster_index;
+
+  // Encontrar el cluster dominante
+  let best = null;
+  for (const bdc of bdResults) {
+    if (!best) { best = bdc; continue; }
+    // Regla 2: más miembros gana
+    if (bdc.members.length > best.members.length) { best = bdc; continue; }
+    if (bdc.members.length < best.members.length) continue;
+    // Regla 3: igual cantidad → item_index del ancla menor
+    // El ancla es el store cuyo item_index == cluster_index
+    const anchorBest = best.members.find(m => {
+      const ii = (best.cluster_index||"").split("_");
+      return String(m.store_id) === ii.slice(1).join("_");
+    }) || best.members[0];
+    const anchorCurr = bdc.members.find(m => {
+      const ii = (bdc.cluster_index||"").split("_");
+      return String(m.store_id) === ii.slice(1).join("_");
+    }) || bdc.members[0];
+    // Comparar primer segmento numérico del item_index
+    const appIdBest = parseInt((best.cluster_index||"").split("_")[0]) || 0;
+    const appIdCurr = parseInt((bdc.cluster_index||"").split("_")[0]) || 0;
+    if (appIdCurr < appIdBest) { best = bdc; }
+  }
+  return best ? best.cluster_index : null;
+}
+
+function autoSuggestCorrection(cid, sgi) {
+  const sgs = SUBGROUPS[cid];
+  if (!sgs || !sgs[sgi]) return;
+  const sg = sgs[sgi];
+  if (!sg.bd_results || sg.bd_results.length < 2) return;
+  if (sg.correction) return;
+  const uniqueClusters = new Set(sg.bd_results.map(b => b.cluster_index));
+  if (uniqueClusters.size > 1) {
+    const suggested = calcNewCluster(sg.bd_results);
+    if (suggested) {
+      const sgKey = CSS.escape(cid) + "_sg" + sgi;
+      const inp = document.getElementById("sgCorrIn_" + sgKey);
+      if (inp && !inp.value) {
+        inp.value = suggested;
+        inp.style.borderColor = "var(--amber)";
+        inp.title = "Sugerido por regla de fusión";
+      }
+    }
+  }
+}
+
+async function applySuggestedFusion(cid, sgi, suggested) {
+  // Asignar corrección directamente
+  const sgs = SUBGROUPS[cid];
+  if (!sgs || !sgs[sgi]) return;
+  sgs[sgi].correction = suggested;
+  sgs[sgi].is_new = false;
+  await saveSgCorr(cid, sgi, suggested, false);
+  rebuildBdPanel(cid);
+  refreshClusterBadge(cid);
+  renderFilterBar();
+  api("/save_subgroups", {subgroups: SUBGROUPS});
+  toast(`Corrección aplicada: ${suggested}`);
+}
+
+// ── actualizar BD ──────────────────────────────────────────────────────────────
+let _bdUpdateRows = [];
+
+async function openBdUpdate() {
+  document.getElementById("bdUpdateModal").classList.add("open");
+  document.getElementById("btnConfirmBdUpdate").style.display = "none";
+  document.getElementById("bdUpdateBody").innerHTML =
+    '<div style="padding:20px;text-align:center;color:var(--muted)"><span class="spinner"></span> Cargando preview…</div>';
+
+  const d = await api("/bd_update/preview", {});
+  if(d.error){ document.getElementById("bdUpdateBody").innerHTML=`<div style="color:var(--red);padding:16px">${esc(d.error)}</div>`; return; }
+  _bdUpdateRows = d.rows;
+
+  if(!d.rows.length){
+    document.getElementById("bdUpdateBody").innerHTML =
+      '<div style="padding:20px;text-align:center;color:var(--muted)">No hay correcciones pendientes para insertar.</div>';
+    return;
+  }
+
+  const srcLabel = {"file":"📄 Archivo","external":"📝 Anotar"};
+  const rows = d.rows.map(r=>`<tr>
+    <td style="padding:5px 10px;font-size:11px;color:var(--muted)">${srcLabel[r.source]||r.source}</td>
+    <td style="padding:5px 10px;font-family:monospace;font-size:10px;color:var(--muted)">${esc(r.store_id)}</td>
+    <td style="padding:5px 10px;font-size:11px">${esc(r.scraper_source||"—")}</td>
+    <td style="padding:5px 10px;font-family:monospace;font-size:10px;color:var(--red)">${esc(r.old_cluster)}</td>
+    <td style="padding:5px 10px;font-family:monospace;font-size:10px;color:var(--green)">${esc(r.new_cluster)}</td>
+  </tr>`).join("");
+
+  document.getElementById("bdUpdateBody").innerHTML = `
+    <div style="padding:10px 16px;background:var(--surf2);border-bottom:1px solid var(--border);font-size:12px">
+      <strong>${d.total}</strong> fila${d.total!==1?"s":""} a insertar ·
+      store_type: <strong>${d.store_type}</strong> ·
+      country: <strong>${d.country}</strong> ·
+      homologation_type: <strong>manual</strong> ·
+      data_quality: <strong>true</strong>
+    </div>
+    <div style="max-height:50vh;overflow-y:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:11px">
+        <thead><tr style="background:var(--surf2);position:sticky;top:0">
+          <th style="padding:5px 10px;text-align:left;border-bottom:1px solid var(--border);color:var(--muted);font-size:10px">Fuente</th>
+          <th style="padding:5px 10px;text-align:left;border-bottom:1px solid var(--border);color:var(--muted);font-size:10px">store_id</th>
+          <th style="padding:5px 10px;text-align:left;border-bottom:1px solid var(--border);color:var(--muted);font-size:10px">scraper_source</th>
+          <th style="padding:5px 10px;text-align:left;border-bottom:1px solid var(--border);color:var(--muted);font-size:10px">old_cluster</th>
+          <th style="padding:5px 10px;text-align:left;border-bottom:1px solid var(--border);color:var(--muted);font-size:10px">new_cluster</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+  document.getElementById("btnConfirmBdUpdate").style.display = "";
+}
+
+async function executeBdUpdate() {
+  const btn = document.getElementById("btnConfirmBdUpdate");
+  btn.innerHTML = '<span class="spinner"></span> Insertando…';
+  btn.disabled = true;
+  const d = await api("/bd_update/execute", {rows: _bdUpdateRows});
+  if(d.error){
+    toast("Error: " + d.error);
+    btn.innerHTML = "✓ Confirmar INSERT";
+    btn.disabled = false;
+    return;
+  }
+  const errMsg = d.errors&&d.errors.length ? ` · ${d.errors.length} errores` : "";
+  toast(`✓ ${d.inserted} fila${d.inserted!==1?"s":""} insertada${d.inserted!==1?"s":""}${errMsg}`);
+  document.getElementById("bdUpdateBody").innerHTML =
+    `<div style="padding:20px;text-align:center;color:var(--green);font-size:14px">
+      ✓ ${d.inserted} fila${d.inserted!==1?"s":""} insertada${d.inserted!==1?"s":""}${errMsg}
+    </div>`;
+  btn.style.display = "none";
+  _bdUpdateRows = [];
+}
+
+function closeBdUpdate(){
+  document.getElementById("bdUpdateModal").classList.remove("open");
+}
+
 async function openMemory(){
   document.getElementById("memModal").classList.add("open");
   const s=await api("/memory/stats");
@@ -1369,7 +1542,7 @@ function initDropzone(){
   inp.onchange = e => doUpload(e.target.files[0]);
 }
 
-function resetApp(){
+async function resetApp(){
   CLUSTERS=[];COUNTRY="mx";SUBGROUPS={};DISH_GROUPS=[];REVIEW_TYPE=null;
   document.getElementById("uploadScreen").classList.remove("hidden");
   document.getElementById("mainScreen").classList.add("hidden");
@@ -1379,15 +1552,15 @@ function resetApp(){
   document.getElementById("storesSubtype").classList.add("hidden");
   document.getElementById("fileSelect").classList.add("hidden");
   document.getElementById("fbBar").classList.add("hidden");
-  ["btnExport","btnMarkReviewed","btnMemory","btnDashboard"].forEach(id=>document.getElementById(id).style.display="none");
+  ["btnExport","btnMarkReviewed","btnMemory","btnBdUpdate","btnDashboard"].forEach(id=>document.getElementById(id).style.display="none");
   document.getElementById("hdrFile").textContent="";
   document.getElementById("clusterList").innerHTML="";
   document.getElementById("dishesList").innerHTML="";
-  // Limpiar el input sin recrear el dropzone
   const inp = document.getElementById("mainFile");
   if(inp) inp.value="";
-  // Reconectar listeners (el dropzone HTML sigue igual)
   initDropzone();
+  // Limpiar sesión del servidor
+  try{ await fetch("/reset_session", {method:"POST"}); }catch(e){}
 }
 
 // ── dishes render ──────────────────────────────────────────────────────────────
@@ -1437,7 +1610,7 @@ function buildDishCard(g, gi) {
   const rows = g.members.map(m=>`<tr>
     <td style="padding:6px 12px;font-size:11px;color:var(--muted);white-space:nowrap">${esc(m.scraper_source)}</td>
     <td style="padding:6px 12px;font-weight:500">${esc(m.product_name)}</td>
-    <td style="padding:6px 12px;color:var(--muted);font-size:11px">${esc((m.product_description||"").slice(0,80))}${(m.product_description||"").length>80?"…":""}</td>
+    <td style="padding:6px 12px;color:var(--muted);font-size:11px;max-width:320px;word-break:break-word">${esc(m.product_description||"")}</td>
     <td style="padding:6px 12px;font-weight:600;text-align:right;white-space:nowrap">${esc(m.price)}</td>
   </tr>`).join("");
   return `<div class="dish-card" id="dish_${gi}">
@@ -1475,6 +1648,11 @@ async function setDishRev(gi, rev) {
   const g = DISH_GROUPS[gi]; if(!g) return;
   g.revision = rev;
   if(rev !== 2) g.fusion_with = "";
+  // Recalcular categorías también para revision=2
+  if(rev === 0 || rev === 2) {
+    const r = await api("/dishes/update", {group_id: g.group_id, revision: rev, fusion_with: g.fusion_with||""});
+    if(r && r.error_cats !== undefined) g.error_cats = r.error_cats;
+  }
   const card = document.getElementById("dish_"+gi);
   if(card){ const tmp=document.createElement("div"); tmp.innerHTML=buildDishCard(g,gi); card.replaceWith(tmp.firstElementChild); }
   updateDishStats();
@@ -1496,16 +1674,16 @@ let _fusionOpts = []; // cache de grupos para filtrar
 
 function buildFusionOpts(groups, gi) {
   return groups.filter((_,i)=>i!==gi).map(og=>{
-    const names = og.members.map(m=>m.product_name).join(" / ");
-    const desc  = og.members.map(m=>m.product_description).filter(Boolean).join(" | ");
-    const prices = og.members.map(m=>m.price).filter(Boolean).join(", ");
+    const names  = [...new Set(og.members.map(m=>m.product_name).filter(Boolean))].join(" / ");
+    const descs  = [...new Set(og.members.map(m=>m.product_description).filter(Boolean))].join(" | ");
+    const prices = [...new Set(og.members.map(m=>m.price).filter(Boolean))].join(", ");
     return {
       group_id: og.group_id,
       count:    og.count,
       names,
-      desc,
+      desc:  descs,
       prices,
-      searchText: `${og.group_id} ${names} ${desc}`.toLowerCase()
+      searchText: `${og.group_id} ${names} ${descs}`.toLowerCase()
     };
   });
 }
@@ -1516,13 +1694,13 @@ function renderFusionOpts(opts) {
     <div onclick="selectFusion('${esc(o.group_id)}')"
       style="padding:10px 14px;cursor:pointer;border-bottom:1px solid var(--border);transition:background .1s"
       onmouseover="this.style.background='var(--bbg)'" onmouseout="this.style.background=''">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:${o.desc||o.prices?"4px":"0"}">
-        <span style="font-family:monospace;font-size:10px;color:var(--muted)">grupo ${esc(o.group_id)}</span>
-        <span style="font-weight:600;font-size:12px">${esc(o.names.slice(0,60))}${o.names.length>60?"…":""}</span>
-        <span style="font-size:11px;color:var(--muted);margin-left:auto">${o.count} plato${o.count!==1?"s":""}</span>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:${o.desc||o.prices?"3px":"0"}">
+        <span style="font-family:monospace;font-size:10px;color:var(--muted);white-space:nowrap">grupo ${esc(o.group_id)}</span>
+        <span style="font-weight:600;font-size:12px">${esc(o.names.slice(0,70))}${o.names.length>70?"…":""}</span>
+        <span style="font-size:11px;color:var(--muted);margin-left:auto;white-space:nowrap">${o.count} plato${o.count!==1?"s":""}</span>
       </div>
-      ${o.desc?`<div style="font-size:11px;color:var(--muted);margin-bottom:2px">${esc(o.desc.slice(0,80))}${o.desc.length>80?"…":""}</div>`:""}
-      ${o.prices?`<div style="font-size:11px;color:var(--muted)">💰 ${esc(o.prices)}</div>`:""}
+      ${o.desc?`<div style="font-size:11px;color:var(--muted)">${esc(o.desc.slice(0,90))}${o.desc.length>90?"…":""}</div>`
+               :o.prices?`<div style="font-size:11px;color:var(--muted)">💰 ${esc(o.prices)}</div>`:""}
     </div>`).join("");
 }
 
