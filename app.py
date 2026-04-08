@@ -93,6 +93,7 @@ def init_db():
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_item ON corrections(item_index)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_appname ON corrections(app_name)")
+    # Tabla para restauración completa de sesión por archivo
     conn.execute("""
         CREATE TABLE IF NOT EXISTS session_state (
             file_name    TEXT PRIMARY KEY,
@@ -185,12 +186,14 @@ def mem_lookup_similar(app_name, anchor_name, threshold=0.75):
             best_sim = combined; best = r
     return best, best_sim
 
-def save_session_state(filename, clusters):
+def save_session_state(filename, clusters, subgroups=None):
+    """Guarda el estado completo: revisiones, correcciones y subgrupos."""
     state = []
     for cl in clusters:
         state.append({
             "cluster_id":  cl["cluster_id"],
             "corrections": cl.get("corrections", {}),
+            "subgroups":   subgroups.get(cl["cluster_id"], []) if subgroups else [],
             "members":     [
                 {"item_index": m["item_index"], "revision": m["revision"]}
                 for m in cl["members"] if not m["is_anchor"]
@@ -204,6 +207,7 @@ def save_session_state(filename, clusters):
     conn.commit(); conn.close()
 
 def load_session_state(filename):
+    """Restaura el estado guardado para un archivo."""
     conn = sqlite3.connect(DB_FILE)
     row = conn.execute(
         "SELECT state_json, saved_at FROM session_state WHERE file_name=?",
@@ -215,7 +219,9 @@ def load_session_state(filename):
     return None, None
 
 def apply_session_state(clusters, state):
+    """Aplica el estado guardado sobre los clusters recién cargados."""
     state_map = {s["cluster_id"]: s for s in state}
+    subgroups_restored = {}
     for cl in clusters:
         saved = state_map.get(cl["cluster_id"])
         if not saved: continue
@@ -226,7 +232,9 @@ def apply_session_state(clusters, state):
         cl["corrections"] = saved.get("corrections", {})
         cl["ok_count"]  = sum(1 for m in cl["members"] if m["revision"]==1)
         cl["bad_count"] = sum(1 for m in cl["members"] if m["revision"]==0)
-    return clusters
+        if saved.get("subgroups"):
+            subgroups_restored[cl["cluster_id"]] = saved["subgroups"]
+    return clusters, subgroups_restored
 
 def mem_stats():
     conn = sqlite3.connect(DB_FILE)
@@ -319,7 +327,8 @@ def detect_country(df):
     return "mx"
 
 def get_threshold():
-    return 0.95
+    fb = load_feedback()
+    return round(0.95 + fb.get("threshold_adj", 0.0), 4)
 
 # ── feedback ──────────────────────────────────────────────────────────────────
 
@@ -329,7 +338,7 @@ def load_feedback():
         except: pass
     return {"pairs":[], "threshold_adj":0.0, "stats":{"total":0,"overrides_to_1":0,"overrides_to_0":0}}
 
-def save_feedback(fb): FEEDBACK_FILE.write_text(json.dumps(fb, ensure_ascii=False, indent=2))
+def save_feedback(fb): FEEDBACK_FILE.write_text(json.dumps(fb, ensure_ascii=False, indent=2), encoding="utf-8")
 
 def record_feedback(anchor_name, anchor_addr, member_name, member_addr, model_score, model_rev, human_rev):
     if model_rev == human_rev: return
@@ -341,6 +350,12 @@ def record_feedback(anchor_name, anchor_addr, member_name, member_addr, model_sc
     fb["stats"]["total"] += 1
     if human_rev==1: fb["stats"]["overrides_to_1"] += 1
     else:            fb["stats"]["overrides_to_0"] += 1
+    recent = fb["pairs"][-30:]
+    if len(recent) >= 5:
+        fp = sum(1 for p in recent if p["model_rev"]==1 and p["human_rev"]==0)
+        fn = sum(1 for p in recent if p["model_rev"]==0 and p["human_rev"]==1)
+        adj = max(-0.10, min(0.10, (fp-fn)/len(recent)*0.10))
+        fb["threshold_adj"] = round(adj, 4)
     save_feedback(fb)
 
 # ── subgrupos ─────────────────────────────────────────────────────────────────
@@ -674,7 +689,7 @@ def progress_stats(table="sales_opportunity.dim_maestra", country="mx"):
         ]
     }, None
 
-# ── dishes ────────────────────────────────────────────────────────────────────
+# ── dishes (revisión de platos) ───────────────────────────────────────────────
 
 def pairwise_sim_semantic(names, descs):
     """Similitud semántica promedio entre todos los pares. Sin fallback Jaccard."""
@@ -798,10 +813,43 @@ def build_dish_groups(df, filename="", threshold=0.75):
         "threshold": threshold, "model_ready": _model_ready
     }
 
+
 # ── rutas ─────────────────────────────────────────────────────────────────────
 
 @app.route("/")
-def index(): return render_template("index.html")
+def index():
+    return render_template("index.html")
+
+@app.route("/session/restore")
+def session_restore():
+    """Devuelve el estado de la sesión activa si existe."""
+    if session.get("clusters"):
+        clusters = session.get("clusters",[])
+        return jsonify({
+            "type":     "stores",
+            "filename": session.get("filename",""),
+            "clusters": clusters,
+            "country":  session.get("country","mx"),
+            "stats": {
+                "total_rows":    sum(len(c["members"]) for c in clusters),
+                "total_clusters":len(clusters),
+                "total_ok":      sum(c["ok_count"] for c in clusters),
+                "total_bad":     sum(c["bad_count"] for c in clusters),
+            }
+        })
+    elif session.get("dishes_groups"):
+        groups = session.get("dishes_groups",[])
+        ok  = sum(1 for g in groups if g["revision"]==1)
+        bad = sum(1 for g in groups if g["revision"]==0)
+        inc = sum(1 for g in groups if g["revision"]==2)
+        return jsonify({
+            "type":     "dishes",
+            "filename": session.get("dishes_filename",""),
+            "groups":   groups,
+            "meta":     {"total_groups":len(groups),"ok":ok,"bad":bad,
+                         "incomplete":inc,"threshold":0.75,"model_ready":_model_ready}
+        })
+    return jsonify({"type": None})
 
 @app.route("/model_status")
 def model_status():
@@ -896,14 +944,13 @@ def upload():
     except Exception as e: return jsonify({"error":str(e)}), 400
     clusters, meta = build_clusters(df, filename=f.filename)
     country = detect_country(df)
-    session["review_path"] = str(path)
-    session["clusters"]    = clusters
-    session["country"]     = country
-    session["filename"]    = f.filename
+
+    # Intentar restaurar estado previo para este archivo
     saved_state, saved_at = load_session_state(f.filename)
     restored = False
+    subgroups_restored = {}
     if saved_state:
-        clusters = apply_session_state(clusters, saved_state)
+        clusters, subgroups_restored = apply_session_state(clusters, saved_state)
         restored = True
         meta["restored"] = True
         meta["saved_at"] = saved_at
@@ -914,6 +961,7 @@ def upload():
     session["filename"]    = f.filename
     return jsonify({"clusters":clusters, "meta":meta, "country":country,
                     "restored": restored,
+                    "subgroups_restored": subgroups_restored,
                     "stats":{"total_rows":len(df),"total_clusters":len(clusters),
                              "total_ok":sum(c["ok_count"] for c in clusters),
                              "total_bad":sum(c["bad_count"] for c in clusters)}})
@@ -944,6 +992,7 @@ def update_revisions():
         sql,bad=cl["sql"],cl["bad_count"]
         break
     session["clusters"]=clusters; session.modified=True
+    # Guardar estado en disco en tiempo real
     save_session_state(session.get("filename",""), clusters)
     fb=load_feedback()
     return jsonify({"sql":sql,"bad_count":bad,"threshold":get_threshold(),"fb_stats":fb["stats"]})
@@ -957,6 +1006,17 @@ def get_subgroups():
         sg_members=[m for m in members_data if m["item_index"] in sg["members"]]
         sg["sql"]=generate_unified_sql(sg_members,country=country)
     return jsonify({"subgroups":subgroups,"cluster_id":cid})
+
+@app.route("/save_subgroups", methods=["POST"])
+def save_subgroups():
+    """Guarda el estado actual de subgrupos en session_state."""
+    data     = request.json
+    subgroups_map = data.get("subgroups", {})  # {cluster_id: [subgrupos]}
+    clusters = session.get("clusters", [])
+    filename = session.get("filename", "")
+    if filename and clusters:
+        save_session_state(filename, clusters, subgroups=subgroups_map)
+    return jsonify({"ok": True})
 
 @app.route("/set_clean", methods=["POST"])
 def set_clean():
@@ -982,6 +1042,7 @@ def set_correction():
             else:    cl["corrections"].pop(ii,None)
         break
     session["clusters"]=clusters; session.modified=True
+    # Guardar estado en disco en tiempo real
     save_session_state(session.get("filename",""), clusters)
     return jsonify({"ok":True})
 
@@ -1076,13 +1137,16 @@ def dishes_upload():
     session["dishes_path"]     = str(path)
     session["dishes_groups"]   = groups
     session["dishes_filename"] = f.filename
+    # Intentar restaurar estado previo
     saved_state, saved_at = load_session_state("dishes_"+f.filename)
     restored = False
     if saved_state:
-        rev_map = {s["group_id"]: s["revision"] for s in saved_state}
+        rev_map = {s["group_id"]: s for s in saved_state}
         for g in groups:
-            if g["group_id"] in rev_map:
-                g["revision"] = rev_map[g["group_id"]]
+            saved = rev_map.get(g["group_id"])
+            if saved:
+                g["revision"]    = saved["revision"]
+                g["fusion_with"] = saved.get("fusion_with","")
         restored = True
         meta["saved_at"] = saved_at
     session["dishes_groups"] = groups; session.modified = True
@@ -1179,9 +1243,18 @@ def dishes_export():
                      download_name="dishes_revisados.xlsx",
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
+
+@app.route("/reset_session", methods=["POST"])
+def reset_session():
+    """Limpia la sesión activa para empezar una nueva revisión."""
+    for key in ["clusters","review_path","filename","country",
+                "dishes_groups","dishes_path","dishes_filename"]:
+        session.pop(key, None)
+    session.modified = True
+    return jsonify({"ok": True})
+
 @app.route("/upload_bd", methods=["POST"])
 def upload_bd():
-    """Fallback: recibe CSV de BD cuando no hay conexión directa."""
     f          = request.files.get("file")
     cluster_id = request.form.get("cluster_id","")
     if not f: return jsonify({"error":"Sin archivo"}), 400

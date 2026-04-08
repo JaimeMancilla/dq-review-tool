@@ -293,9 +293,7 @@ function selectType(type) {
   document.getElementById("fileSelect").classList.remove("hidden");
   document.getElementById("typeLabel").textContent =
     type === "stores" ? "🏪 Revisión de Stores" : "🍽️ Revisión de Dishes";
-  // Reconectar listener del file input
-  const inp = document.getElementById("mainFile");
-  inp.onchange = e => doUpload(e.target.files[0]);
+  // No llamar initDropzone() aquí — ya está inicializado
 }
 function backToTypeSelect() {
   REVIEW_TYPE = null;
@@ -346,20 +344,33 @@ function updateFbBar(fb,thr,adj){
   document.getElementById("fbTotal").textContent=`${fb.total} correcc.`;
   document.getElementById("fbThreshold").textContent=`umbral: ${thr}`;
   const a=document.getElementById("fbAdj");
-  a.textContent=adj>0.01?`↑ (+${adj.toFixed(3)})`:adj<-0.01?`↓ (${adj.toFixed(3)})`:"";
+  if(a) a.textContent=adj>0.01?`↑ (+${adj.toFixed(3)})`:adj<-0.01?`↓ (${adj.toFixed(3)})`:"";
 }
-async function resetFeedback(){if(!confirm("¿Reiniciar feedback?"))return;await api("/reset_feedback",{});document.getElementById("fbBar").classList.add("hidden");toast("Feedback reiniciado")}
+async function resetFeedback(){
+  if(!confirm("¿Reiniciar feedback?"))return;
+  await api("/reset_feedback",{});
+  document.getElementById("fbBar").classList.add("hidden");
+  toast("Feedback reiniciado");
+}
 
 // ── upload ────────────────────────────────────────────────────────────────────
-const dz=document.getElementById("dropZone");
-dz.addEventListener("dragover",e=>{e.preventDefault();dz.classList.add("over")});
-dz.addEventListener("dragleave",()=>dz.classList.remove("over"));
-dz.addEventListener("drop",e=>{e.preventDefault();dz.classList.remove("over");doUpload(e.dataTransfer.files[0])});
-document.getElementById("mainFile").addEventListener("change",e=>doUpload(e.target.files[0]));
+// Inicializar dropzone
+initDropzone();
 
 async function doUpload(file){
   if(!file)return;
-  dz.innerHTML='<span class="spinner"></span> Procesando…';
+  const dz=document.getElementById("dropZone");
+ if(dz){
+    // Evitar spinner duplicado
+    if(!dz.querySelector(".spinner")){
+      const inp=dz.querySelector("input");
+      const spinner=document.createElement("div");
+      spinner.innerHTML='<span class="spinner"></span> Procesando…';
+      spinner.style.cssText="text-align:center;padding:20px";
+      dz.appendChild(spinner);
+      if(inp) inp.style.display="none";
+    }
+  }
   const fd=new FormData();fd.append("file",file);
   try{
     if(REVIEW_TYPE === 'dishes') {
@@ -379,6 +390,10 @@ async function doUpload(file){
       const d=await fetch("/upload",{method:"POST",body:fd}).then(r=>r.json());
       if(d.error){toast("Error: "+d.error);return}
       CLUSTERS=d.clusters;COUNTRY=d.country||"mx";SUBGROUPS={};FILTER="all";
+      // Restaurar subgrupos si existen
+      if(d.subgroups_restored && Object.keys(d.subgroups_restored).length){
+        SUBGROUPS = d.subgroups_restored;
+      }
       renderStats(d.stats);
       renderFilterBar();
       renderAll();
@@ -391,8 +406,9 @@ async function doUpload(file){
       document.getElementById("btnProgress").style.display="";
       if(d.meta)updateFbBar(d.meta.fb_stats,d.meta.threshold,0);
       if(d.restored){
+        const sgCount = Object.keys(SUBGROUPS).length;
         const dt = d.meta.saved_at ? new Date(d.meta.saved_at*1000).toLocaleString() : "";
-        toast(`✓ Estado restaurado (guardado: ${dt})`, 4000);
+        toast(`✓ Estado restaurado${sgCount?` · ${sgCount} subgrupos`:""} (${dt})`, 4000);
       }
     }
   }catch(e){toast("Error: "+e.message)}
@@ -886,6 +902,8 @@ async function genSql(cid){
   if(!d.subgroups?.length){toast("No se pudieron generar subgrupos");return}
   SUBGROUPS[cid]=d.subgroups.map(sg=>({...sg,bd_results:[],correction:"",is_new:false}));
   rebuildBdPanel(cid);
+  // Guardar subgrupos en disco
+  api("/save_subgroups", {subgroups: SUBGROUPS});
   toast(`${d.subgroups.length} subgrupo${d.subgroups.length!==1?"s":""} ✓`);
 }
 
@@ -958,6 +976,7 @@ async function saveSgCorr(cid,sgi,correction,is_new){
   }
   refreshClusterBadge(cid);
   renderFilterBar();
+  api("/save_subgroups", {subgroups: SUBGROUPS});
   toast("Corrección guardada ✓");
 }
 function clearSgCorr(cid,sgi){
@@ -966,6 +985,7 @@ function clearSgCorr(cid,sgi){
   rebuildBdPanel(cid);
   refreshClusterBadge(cid);
   renderFilterBar();
+  api("/save_subgroups", {subgroups: SUBGROUPS});
 }
 function refreshClusterBadge(cid) {
   const cl  = getCl(cid); if (!cl) return;
@@ -1134,6 +1154,17 @@ async function exportFile(){
   btn.innerHTML="⬇ Descargar";
 }
 
+function initDropzone(){
+  const dz  = document.getElementById("dropZone");
+  const inp = document.getElementById("mainFile");
+  if(!dz||!inp) return;
+  dz.onclick = () => inp.click();
+  dz.ondragover = e => { e.preventDefault(); dz.classList.add("over"); };
+  dz.ondragleave = () => dz.classList.remove("over");
+  dz.ondrop = e => { e.preventDefault(); dz.classList.remove("over"); doUpload(e.dataTransfer.files[0]); };
+  inp.onchange = e => doUpload(e.target.files[0]);
+}
+
 function resetApp(){
   CLUSTERS=[];COUNTRY="mx";SUBGROUPS={};DISH_GROUPS=[];REVIEW_TYPE=null;
   document.getElementById("uploadScreen").classList.remove("hidden");
@@ -1146,14 +1177,11 @@ function resetApp(){
   document.getElementById("hdrFile").textContent="";
   document.getElementById("clusterList").innerHTML="";
   document.getElementById("dishesList").innerHTML="";
-  document.getElementById("mainFile").value="";
-  // Resetear dropzone
-  const dz=document.getElementById("dropZone");
-  dz.innerHTML=`<input type="file" id="mainFile" accept=".xlsx,.csv">
-    <div class="drop-title">Arrastra tu archivo de revisión</div>
-    <div class="drop-sub">Excel (.xlsx) o CSV</div>
-    <button class="btn primary" onclick="event.stopPropagation();document.getElementById('mainFile').click()">Seleccionar archivo</button>`;
-  document.getElementById("mainFile").addEventListener("change",e=>doUpload(e.target.files[0]));
+  // Limpiar el input sin recrear el dropzone
+  const inp = document.getElementById("mainFile");
+  if(inp) inp.value="";
+  // Reconectar listeners (el dropzone HTML sigue igual)
+  initDropzone();
 }
 
 // ── dishes render ──────────────────────────────────────────────────────────────
