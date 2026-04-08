@@ -126,10 +126,15 @@ def init_db():
             had_errors      INTEGER DEFAULT 0,
             corrections_count INTEGER DEFAULT 0,
             reviewed_at     REAL,
-            file_name       TEXT
+            file_name       TEXT,
+            review_type     TEXT DEFAULT 'stores_restaurant'
         )
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_ci ON reviewed_clusters(cluster_index)")
+    # Migración: agregar columna review_type si no existe
+    try:
+        conn.execute("ALTER TABLE reviewed_clusters ADD COLUMN review_type TEXT DEFAULT 'stores_restaurant'")
+    except: pass
     # Pares etiquetados de dishes para futuro fine-tuning
     conn.execute("""
         CREATE TABLE IF NOT EXISTS dish_pairs (
@@ -697,62 +702,87 @@ def get_reviewed_files(review_type=None):
     cols = ["file_name","review_type","total","ok","bad","incomplete","reviewed_at"]
     return [dict(zip(cols,r)) for r in rows]
 
-def save_reviewed_clusters(clusters, filename):
+def save_reviewed_clusters(clusters, filename, review_type=None):
     """Guarda qué clusters pasaron por revisión al exportar."""
+    rt = review_type or session.get("review_type","stores_restaurant")
     conn = sqlite3.connect(DB_FILE)
     for cl in clusters:
         had_errors = cl.get("bad_count",0) > 0
         corr_count = len(cl.get("corrections",{}))
         conn.execute("""
             INSERT INTO reviewed_clusters
-              (cluster_index, cluster_name, had_errors, corrections_count, reviewed_at, file_name)
-            VALUES (?,?,?,?,?,?)
+              (cluster_index, cluster_name, had_errors, corrections_count, reviewed_at, file_name, review_type)
+            VALUES (?,?,?,?,?,?,?)
         """, (
             cl["cluster_id"],
             cl.get("anchor_name",""),
             1 if had_errors else 0,
             corr_count,
             time.time(),
-            filename
+            filename,
+            rt
         ))
     conn.commit(); conn.close()
 
-def progress_stats(table="sales_opportunity.dim_maestra", country="mx"):
+def progress_stats(table="sales_opportunity.dim_maestra", country="mx", review_type="stores_restaurant"):
     """Cruza la memoria con la BD para calcular progreso."""
     if not pg_is_configured():
         return None, "BD no configurada"
-    # Clusters únicos en BD
-    sql = f"""
-        SELECT COUNT(DISTINCT cluster_index) as total
-        FROM {table}
-        WHERE country = '{country}'
-    """
-    rows, err = pg_query(sql, timeout_ms=10000)
-    if err: return None, err
-    total_bd = rows[0]["total"] if rows else 0
 
-    # Clusters revisados en memoria
+    # Filtro de country
+    country_filter = f"WHERE country = '{country}'" if country != "all" else ""
+    where_and = f"AND country = '{country}'" if country != "all" else ""
+
+    # Clusters y tiendas totales en BD
+    sql_total = f"""
+        SELECT
+            COUNT(DISTINCT cluster_index) as total_clusters,
+            COUNT(*) as total_stores
+        FROM {table}
+        {country_filter}
+    """
+    rows, err = pg_query(sql_total, timeout_ms=30000)
+    if err: return None, err
+    total_clusters = rows[0]["total_clusters"] if rows else 0
+    total_stores   = rows[0]["total_stores"]   if rows else 0
+
+    # Desde memoria interna — filtrar por review_type
     conn = sqlite3.connect(DB_FILE)
-    reviewed = conn.execute(
-        "SELECT COUNT(DISTINCT cluster_index) FROM reviewed_clusters"
-    ).fetchone()[0]
-    corrected = conn.execute(
-        "SELECT COUNT(DISTINCT cluster_index) FROM reviewed_clusters WHERE corrections_count > 0"
-    ).fetchone()[0]
-    recent = conn.execute("""
+    rt_filter = f"AND review_type = '{review_type}'"
+    reviewed_clusters = conn.execute(f"""
+        SELECT COUNT(DISTINCT cluster_index) FROM reviewed_clusters
+        WHERE 1=1 {rt_filter}
+    """).fetchone()[0]
+    corrected_clusters = conn.execute(f"""
+        SELECT COUNT(DISTINCT cluster_index) FROM reviewed_clusters
+        WHERE corrections_count > 0 {rt_filter}
+    """).fetchone()[0]
+    # Tiendas corregidas desde corrections
+    migrated = conn.execute("""
+        SELECT COUNT(*) FROM corrections WHERE is_new = 0
+    """).fetchone()[0]
+    new_cluster = conn.execute("""
+        SELECT COUNT(*) FROM corrections WHERE is_new = 1
+    """).fetchone()[0]
+    recent = conn.execute(f"""
         SELECT cluster_index, cluster_name, had_errors, corrections_count, reviewed_at, file_name
-        FROM reviewed_clusters
+        FROM reviewed_clusters WHERE 1=1 {rt_filter}
         ORDER BY reviewed_at DESC LIMIT 20
     """).fetchall()
     conn.close()
 
+    pct = round(reviewed_clusters / int(total_clusters) * 100, 1) if total_clusters else 0
     return {
-        "table": table,
-        "total_bd": int(total_bd),
-        "reviewed": reviewed,
-        "corrected": corrected,
-        "pending": max(0, int(total_bd) - reviewed),
-        "pct": round(reviewed / int(total_bd) * 100, 1) if total_bd else 0,
+        "table":              table,
+        "country":            country,
+        "total_clusters":     int(total_clusters),
+        "total_stores":       int(total_stores),
+        "reviewed":           reviewed_clusters,
+        "corrected":          corrected_clusters,
+        "migrated_stores":    migrated,
+        "new_cluster_stores": new_cluster,
+        "pending":            max(0, int(total_clusters) - reviewed_clusters),
+        "pct":                pct,
         "recent": [
             {"cluster_index":r[0],"cluster_name":r[1],"had_errors":bool(r[2]),
              "corrections_count":r[3],"reviewed_at":r[4],"file_name":r[5]}
@@ -1467,6 +1497,21 @@ def progress_stats_dishes():
         "files":         files
     }
 
+@app.route("/reviewed_files/clean", methods=["POST"])
+def reviewed_files_clean():
+    """Elimina duplicados en reviewed_files, dejando solo el más reciente por archivo."""
+    conn = sqlite3.connect(DB_FILE)
+    conn.execute("""
+        DELETE FROM reviewed_files
+        WHERE id NOT IN (
+            SELECT MAX(id) FROM reviewed_files GROUP BY file_name, review_type
+        )
+    """)
+    conn.commit()
+    remaining = conn.execute("SELECT COUNT(*) FROM reviewed_files").fetchone()[0]
+    conn.close()
+    return jsonify({"ok": True, "remaining": remaining})
+
 @app.route("/reviewed_files")
 def reviewed_files_route():
     review_type = request.args.get("type")
@@ -1474,22 +1519,23 @@ def reviewed_files_route():
 
 @app.route("/progress")
 def progress():
-    mode    = request.args.get("mode", "stores")
-    table   = request.args.get("table", "sales_opportunity.dim_maestra")
-    country = request.args.get("country", session.get("country","mx"))
+    mode        = request.args.get("mode", "stores")
+    table       = request.args.get("table", "sales_opportunity.dim_maestra")
+    country     = request.args.get("country", "mx")
+    review_type = request.args.get("review_type", "")
 
     if mode == "dishes":
         return jsonify(progress_stats_dishes())
 
-    # Para stores, usar la tabla según el review_type de sesión si no se especifica
-    if table == "sales_opportunity.dim_maestra":
-        rt = session.get("review_type", "stores_restaurant")
-        if rt == "stores_retail":
-            table = "sales_opportunity.dim_maestra_retail"
+    # Determinar tabla y review_type
+    if "retail" in table:
+        review_type = review_type or "stores_retail"
+    else:
+        review_type = review_type or "stores_restaurant"
 
-    stats, err = progress_stats(table=table, country=country)
+    stats, err = progress_stats(table=table, country=country, review_type=review_type)
     if err: return jsonify({"error": err}), 400
-    stats["files"] = get_reviewed_files("stores")
+    stats["files"] = get_reviewed_files(review_type)
     return jsonify(stats)
 
 @app.route("/memory/reset", methods=["POST"])

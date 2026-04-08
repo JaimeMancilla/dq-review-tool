@@ -128,6 +128,9 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
 .dish-card{background:var(--surf);border:1px solid var(--border);border-radius:var(--rl);margin-bottom:10px;overflow:hidden}
 .dish-hdr{display:flex;align-items:center;gap:10px;padding:10px 16px;background:var(--surf2);border-bottom:1px solid var(--border)}
 .dish-body{padding:0}
+.dash-tab{padding:8px 18px;font-size:13px;font-weight:500;border:none;background:none;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-2px;transition:all .15s}
+.dash-tab:hover{color:var(--text)}
+.dash-tab.active{color:var(--blue);border-bottom-color:var(--blue);font-weight:700}
 </style>
 </head>
 <body>
@@ -139,8 +142,8 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
   <div id="pgPill" class="pill loading"><span class="spinner"></span> BD…</div>
   <div class="hdr-right">
     <button class="btn sm" id="btnMemory" onclick="openMemory()" style="display:none">🧠 Memoria</button>
-    <button class="btn sm" id="btnProgress" onclick="openProgress()" style="display:none">📊 Progreso</button>
-    <button class="btn" id="btnReset" onclick="resetApp()" style="display:none">Nueva revisión</button>
+    <button class="btn sm" id="btnDashboard" onclick="openDashboard()" style="display:none">📊 Dashboard</button>
+    <button class="btn" id="btnReset" onclick="resetApp()">← Menú</button>
     <button class="btn sm" id="btnMarkReviewed" onclick="markAsReviewed()" style="display:none">✓ Marcar revisado</button>
     <button class="btn primary" id="btnExport" onclick="exportFile()" style="display:none">⬇ Descargar</button>
   </div>
@@ -170,6 +173,11 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
           <div style="font-size:28px;margin-bottom:10px">🍽️</div>
           <div style="font-weight:700;font-size:15px;margin-bottom:4px">Dishes</div>
           <div style="font-size:12px;color:var(--muted)">Matching de platos</div>
+        </div>
+        <div class="type-card" onclick="openDashboard()">
+          <div style="font-size:28px;margin-bottom:10px">📊</div>
+          <div style="font-weight:700;font-size:15px;margin-bottom:4px">Dashboard</div>
+          <div style="font-size:12px;color:var(--muted)">Progreso general</div>
         </div>
       </div>
     </div>
@@ -210,6 +218,25 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
 <div id="mainScreen" class="hidden">
   <div class="stats" id="statsBar"></div>
   <div class="clusters" id="clusterList"></div>
+</div>
+
+<!-- Pantalla Dashboard -->
+<div id="dashboardScreen" class="hidden">
+  <div style="max-width:900px;margin:0 auto;padding:24px 20px 60px">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:24px">
+      <button class="btn sm" onclick="backToTypeSelect()">← Volver</button>
+      <h2 style="font-size:18px;font-weight:700;margin:0">📊 Dashboard de revisión</h2>
+      <button class="btn sm" style="margin-left:auto;font-size:11px" onclick="cleanDuplicates()">🗑 Limpiar duplicados</button>
+    </div>
+    <!-- Pestañas -->
+    <div style="display:flex;gap:4px;margin-bottom:20px;border-bottom:2px solid var(--border)">
+      <button class="dash-tab active" id="tabDishes"    onclick="switchDashTab('dishes')"            >🍽️ Dishes</button>
+      <button class="dash-tab"        id="tabRestaurant" onclick="switchDashTab('stores_restaurant')">🍴 Restaurant</button>
+      <button class="dash-tab"        id="tabRetail"     onclick="switchDashTab('stores_retail')"    >🛒 Retail</button>
+    </div>
+    <!-- Contenido -->
+    <div id="dashContent"><span class="spinner"></span></div>
+  </div>
 </div>
 
 <!-- Pantalla Dishes -->
@@ -332,9 +359,11 @@ function selectType(type) {
 
 function backToTypeSelect() {
   REVIEW_TYPE = null;
+  document.getElementById("uploadScreen").classList.remove("hidden");
   document.getElementById("typeSelect").classList.remove("hidden");
   document.getElementById("storesSubtype").classList.add("hidden");
   document.getElementById("fileSelect").classList.add("hidden");
+  document.getElementById("dashboardScreen").classList.add("hidden");
 }
 
 const esc = s => String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
@@ -409,11 +438,10 @@ async function doUpload(file){
       document.getElementById("uploadScreen").classList.add("hidden");
       document.getElementById("dishesScreen").classList.remove("hidden");
       document.getElementById("hdrFile").textContent=file.name;
-      document.getElementById("btnReset").style.display="";
       document.getElementById("btnExport").style.display="";
       document.getElementById("btnMarkReviewed").style.display="";
       document.getElementById("btnMemory").style.display="";
-      document.getElementById("btnProgress").style.display="";
+      document.getElementById("btnDashboard").style.display="";
       if(d.restored) toast(`✓ Estado restaurado`, 3000);
     } else {
       const d=await fetch("/upload",{method:"POST",body:fd}).then(r=>r.json());
@@ -429,11 +457,10 @@ async function doUpload(file){
       document.getElementById("uploadScreen").classList.add("hidden");
       document.getElementById("mainScreen").classList.remove("hidden");
       document.getElementById("hdrFile").textContent=file.name;
-      document.getElementById("btnReset").style.display="";
       document.getElementById("btnExport").style.display="";
       document.getElementById("btnMarkReviewed").style.display="";
       document.getElementById("btnMemory").style.display="";
-      document.getElementById("btnProgress").style.display="";
+      document.getElementById("btnDashboard").style.display="";
       if(d.meta)updateFbBar(d.meta.fb_stats,d.meta.threshold,0);
       if(d.restored){
         const sgCount = Object.keys(SUBGROUPS).length;
@@ -1079,13 +1106,6 @@ async function saveExtCorr() {
 }
 
 // ── progreso ──────────────────────────────────────────────────────────────────
-function openProgress() {
-  document.getElementById("progressModal").classList.add("open");
-  loadProgress();
-}
-function closeProgress() {
-  document.getElementById("progressModal").classList.remove("open");
-}
 
 function renderReviewedFiles(files, type) {
   if(!files||!files.length) return `<div style="color:var(--muted);font-size:12px;padding:8px 0">Aún no hay archivos revisados.</div>`;
@@ -1171,7 +1191,114 @@ async function loadProgress() {
   }
 }
 
-// ── memoria ───────────────────────────────────────────────────────────────────
+// ── dashboard ─────────────────────────────────────────────────────────────────
+let _dashTab = "dishes";
+
+async function openDashboard() {
+  // Ocultar todo y mostrar dashboard
+  document.getElementById("uploadScreen").classList.add("hidden");
+  document.getElementById("mainScreen").classList.add("hidden");
+  document.getElementById("dishesScreen").classList.add("hidden");
+  document.getElementById("dashboardScreen").classList.remove("hidden");
+  document.getElementById("hdrFile").textContent = "";
+  // Ocultar botones de revisión
+  ["btnExport","btnMarkReviewed","btnMemory","btnDashboard"].forEach(id=>{
+    const el = document.getElementById(id); if(el) el.style.display="none";
+  });
+  await loadDashTab(_dashTab);
+}
+
+function switchDashTab(tab) {
+  _dashTab = tab;
+  ["tabDishes","tabRestaurant","tabRetail"].forEach(id=>
+    document.getElementById(id).classList.remove("active"));
+  const map = {"dishes":"tabDishes","stores_restaurant":"tabRestaurant","stores_retail":"tabRetail"};
+  document.getElementById(map[tab]).classList.add("active");
+  loadDashTab(tab);
+}
+
+async function loadDashTab(tab) {
+  const content = document.getElementById("dashContent");
+  content.innerHTML = '<span class="spinner"></span> Cargando…';
+  try {
+    let d;
+    if(tab === "dishes") {
+      d = await api("/progress?mode=dishes");
+      if(d.error){ content.innerHTML=`<div style="color:var(--red)">${esc(d.error)}</div>`; return; }
+      content.innerHTML = `
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px">
+          <div class="stat"><div class="stat-lbl">Archivos</div><div class="stat-val">${d.total_files}</div></div>
+          <div class="stat"><div class="stat-lbl">Grupos ok</div><div class="stat-val g">${d.total_ok}</div></div>
+          <div class="stat"><div class="stat-lbl">Con error</div><div class="stat-val r">${d.total_bad}</div></div>
+          <div class="stat"><div class="stat-lbl">Incompletos</div><div class="stat-val" style="color:var(--amber)">${d.total_incomplete}</div></div>
+        </div>
+        ${renderReviewedFiles(d.files, "dishes")}`;
+    } else {
+      const table = tab === "stores_retail"
+        ? "sales_opportunity.dim_maestra_retail"
+        : "sales_opportunity.dim_maestra";
+      const review_type = tab;
+      const country = document.getElementById("dashCountry")?.value || "mx";
+      d = await api(`/progress?mode=stores&table=${encodeURIComponent(table)}&country=${country}&review_type=${review_type}`);
+      if(d.error){ content.innerHTML=`<div style="color:var(--red);padding:12px">${esc(d.error)}</div>`; return; }
+      const pct = d.pct || 0;
+      const barColor = pct<30?"var(--red)":pct<70?"var(--amber)":"var(--green)";
+      content.innerHTML = `
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+          <label style="font-size:12px;color:var(--muted)">País:</label>
+          <select id="dashCountry" onchange="loadDashTab('${tab}')"
+            style="font-size:12px;padding:4px 8px;border:1px solid var(--border2);border-radius:var(--r);background:var(--surf)">
+            <option value="all"  ${country==="all" ?"selected":""}>🌎 Todos</option>
+            <option value="mx"   ${country==="mx"  ?"selected":""}>🇲🇽 México</option>
+            <option value="co"   ${country==="co"  ?"selected":""}>🇨🇴 Colombia</option>
+            <option value="br"   ${country==="br"  ?"selected":""}>🇧🇷 Brasil</option>
+            <option value="ar"   ${country==="ar"  ?"selected":""}>🇦🇷 Argentina</option>
+            <option value="cl"   ${country==="cl"  ?"selected":""}>🇨🇱 Chile</option>
+            <option value="pe"   ${country==="pe"  ?"selected":""}>🇵🇪 Perú</option>
+          </select>
+        </div>
+        <!-- Stats BD -->
+        <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Universo en BD</div>
+        <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:20px">
+          <div class="stat"><div class="stat-lbl">Total clusters</div><div class="stat-val">${(d.total_clusters||0).toLocaleString()}</div></div>
+          <div class="stat"><div class="stat-lbl">Total tiendas</div><div class="stat-val">${(d.total_stores||0).toLocaleString()}</div></div>
+        </div>
+        <!-- Stats revisión -->
+        <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Revisión</div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">
+          <div class="stat"><div class="stat-lbl">Clusters revisados</div><div class="stat-val g">${(d.reviewed||0).toLocaleString()}</div></div>
+          <div class="stat"><div class="stat-lbl">Clusters corregidos</div><div class="stat-val r">${(d.corrected||0).toLocaleString()}</div></div>
+          <div class="stat"><div class="stat-lbl">Tiendas migradas</div><div class="stat-val" style="color:var(--blue)">${(d.migrated_stores||0).toLocaleString()}</div></div>
+          <div class="stat"><div class="stat-lbl">Nuevo cluster</div><div class="stat-val" style="color:var(--purple)">${(d.new_cluster_stores||0).toLocaleString()}</div></div>
+        </div>
+        <div style="margin-bottom:24px">
+          <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px">
+            <span>Progreso vs BD <span style="color:var(--muted)">(clusters revisados / total)</span></span>
+            <span style="font-weight:700">${pct}%</span>
+          </div>
+          <div style="height:8px;background:var(--surf2);border-radius:4px;overflow:hidden">
+            <div style="height:100%;width:${Math.min(pct,100)}%;background:${barColor};border-radius:4px;transition:width .3s"></div>
+          </div>
+        </div>
+        ${renderReviewedFiles(d.files||[], "stores")}`;
+    }
+  } catch(e) {
+    content.innerHTML = `<div style="color:var(--red)">Error: ${esc(e.message)}</div>`;
+  }
+}
+
+async function cleanDuplicates(){
+  if(!confirm("¿Eliminar registros duplicados? Se conserva el más reciente por archivo.")) return;
+  const d = await api("/reviewed_files/clean", {});
+  if(d.ok){
+    toast(`✓ Limpiado — ${d.remaining} registros`);
+    loadDashTab(_dashTab);
+  }
+}
+
+function openProgress() { openDashboard(); } // compatibilidad
+
+
 async function openMemory(){
   document.getElementById("memModal").classList.add("open");
   const s=await api("/memory/stats");
@@ -1247,11 +1374,12 @@ function resetApp(){
   document.getElementById("uploadScreen").classList.remove("hidden");
   document.getElementById("mainScreen").classList.add("hidden");
   document.getElementById("dishesScreen").classList.add("hidden");
+  document.getElementById("dashboardScreen").classList.add("hidden");
   document.getElementById("typeSelect").classList.remove("hidden");
   document.getElementById("storesSubtype").classList.add("hidden");
   document.getElementById("fileSelect").classList.add("hidden");
   document.getElementById("fbBar").classList.add("hidden");
-  ["btnReset","btnExport","btnMarkReviewed","btnMemory","btnProgress"].forEach(id=>document.getElementById(id).style.display="none");
+  ["btnExport","btnMarkReviewed","btnMemory","btnDashboard"].forEach(id=>document.getElementById(id).style.display="none");
   document.getElementById("hdrFile").textContent="";
   document.getElementById("clusterList").innerHTML="";
   document.getElementById("dishesList").innerHTML="";
