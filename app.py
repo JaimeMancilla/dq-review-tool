@@ -130,6 +130,19 @@ def init_db():
         )
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_ci ON reviewed_clusters(cluster_index)")
+    # Tabla de archivos revisados (resumen por archivo)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS reviewed_files (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            file_name    TEXT NOT NULL,
+            review_type  TEXT NOT NULL,
+            total        INTEGER DEFAULT 0,
+            ok           INTEGER DEFAULT 0,
+            bad          INTEGER DEFAULT 0,
+            incomplete   INTEGER DEFAULT 0,
+            reviewed_at  REAL
+        )
+    """)
     conn.commit()
     conn.close()
 
@@ -338,7 +351,7 @@ def load_feedback():
         except: pass
     return {"pairs":[], "threshold_adj":0.0, "stats":{"total":0,"overrides_to_1":0,"overrides_to_0":0}}
 
-def save_feedback(fb): FEEDBACK_FILE.write_text(json.dumps(fb, ensure_ascii=False, indent=2), encoding="utf-8")
+def save_feedback(fb): FEEDBACK_FILE.write_text(json.dumps(fb, ensure_ascii=False, indent=2))
 
 def record_feedback(anchor_name, anchor_addr, member_name, member_addr, model_score, model_rev, human_rev):
     if model_rev == human_rev: return
@@ -468,6 +481,13 @@ def word_ilike(field, word):
     conditions = " or ".join(f"{field} ilike '%{v}%'" for v in sorted(variants))
     return f"({conditions})"
 
+def get_pg_table():
+    """Retorna la tabla correcta según el tipo de revisión de la sesión."""
+    rt = session.get("review_type", "stores_restaurant")
+    if rt == "stores_retail":
+        return "sales_opportunity.dim_maestra_retail"
+    return "sales_opportunity.dim_maestra"
+
 def generate_unified_sql(bad_members, country="mx"):
     """
     Genera SQL usando:
@@ -512,7 +532,7 @@ def generate_unified_sql(bad_members, country="mx"):
         f"-- {len(bad_members)} store(s): {comment}\n"
         f"select\n  cluster_index, store_id, cluster_name, main_chain,\n"
         f"  app_name, app_address, app_longitude, app_latitude\n"
-        f"from sales_opportunity.dim_maestra\n"
+        f"from {get_pg_table()}\n"
         f"where country = '{country}'\n"
         f"  and (\n" + "\n    or\n".join(blocks) + "\n  )\n"
         f"order by cluster_index;"
@@ -625,6 +645,33 @@ def ext_corr_delete(rec_id):
     conn = sqlite3.connect(DB_FILE)
     conn.execute("DELETE FROM external_corrections WHERE id=?", (rec_id,))
     conn.commit(); conn.close()
+
+def save_reviewed_file(file_name, review_type, total, ok, bad, incomplete=0):
+    """Guarda un resumen del archivo revisado al descargar."""
+    conn = sqlite3.connect(DB_FILE)
+    conn.execute("""
+        INSERT INTO reviewed_files (file_name, review_type, total, ok, bad, incomplete, reviewed_at)
+        VALUES (?,?,?,?,?,?,?)
+    """, (file_name, review_type, total, ok, bad, incomplete, time.time()))
+    conn.commit(); conn.close()
+
+def get_reviewed_files(review_type=None):
+    """Retorna historial de archivos revisados."""
+    conn = sqlite3.connect(DB_FILE)
+    if review_type:
+        rows = conn.execute("""
+            SELECT file_name, review_type, total, ok, bad, incomplete, reviewed_at
+            FROM reviewed_files WHERE review_type=?
+            ORDER BY reviewed_at DESC
+        """, (review_type,)).fetchall()
+    else:
+        rows = conn.execute("""
+            SELECT file_name, review_type, total, ok, bad, incomplete, reviewed_at
+            FROM reviewed_files ORDER BY reviewed_at DESC
+        """).fetchall()
+    conn.close()
+    cols = ["file_name","review_type","total","ok","bad","incomplete","reviewed_at"]
+    return [dict(zip(cols,r)) for r in rows]
 
 def save_reviewed_clusters(clusters, filename):
     """Guarda qué clusters pasaron por revisión al exportar."""
@@ -903,7 +950,7 @@ def run_pg_query():
     full_sql = f"""select
   cluster_index, store_id, cluster_name, main_chain,
   app_name, app_address, app_longitude, app_latitude
-from sales_opportunity.dim_maestra
+from {get_pg_table()}
 where country = '{country}'
   and cluster_index in ({ci_list})
 order by cluster_index, store_id"""
@@ -942,6 +989,10 @@ def upload():
     f.save(path)
     try: df = load_file(path)
     except Exception as e: return jsonify({"error":str(e)}), 400
+
+    review_type = request.form.get("review_type", "stores_restaurant")
+    session["review_type"] = review_type
+
     clusters, meta = build_clusters(df, filename=f.filename)
     country = detect_country(df)
 
@@ -961,6 +1012,7 @@ def upload():
     session["filename"]    = f.filename
     return jsonify({"clusters":clusters, "meta":meta, "country":country,
                     "restored": restored,
+                    "review_type": review_type,
                     "subgroups_restored": subgroups_restored,
                     "stats":{"total_rows":len(df),"total_clusters":len(clusters),
                              "total_ok":sum(c["ok_count"] for c in clusters),
@@ -1098,6 +1150,10 @@ def export():
     if mem_records: mem_save(mem_records)
     # Guardar progreso de revisión
     save_reviewed_clusters(clusters, filename)
+    # Guardar resumen del archivo
+    ok  = sum(c["ok_count"]  for c in clusters)
+    bad = sum(c["bad_count"] for c in clusters)
+    save_reviewed_file(filename, session.get("review_type","stores_restaurant"), len(clusters), ok, bad)
 
     df["item_index"]=df["item_index"].astype(str).str.strip()
     df["revision"]=df["item_index"].map(rev_map).fillna(1).astype(int)
@@ -1237,6 +1293,11 @@ def dishes_export():
         """, (g["group_id"], "", 1 if g["revision"] in (0,2) else 0,
               0, time.time(), filename))
     conn.commit(); conn.close()
+    # Guardar resumen del archivo
+    ok  = sum(1 for g in groups if g["revision"]==1)
+    bad = sum(1 for g in groups if g["revision"]==0)
+    inc = sum(1 for g in groups if g["revision"]==2)
+    save_reviewed_file(filename, "dishes", len(groups), ok, bad, inc)
     out = UPLOAD_FOLDER/"dishes_revisado.xlsx"
     df.to_excel(out, index=False)
     return send_file(out, as_attachment=True,
@@ -1289,12 +1350,47 @@ def ext_correction_delete():
     ext_corr_delete(request.json.get("id"))
     return jsonify({"ok": True})
 
+def progress_stats_dishes():
+    """Progreso de revisión de dishes — solo desde memoria interna."""
+    files = get_reviewed_files("dishes")
+    total_files = len(files)
+    total_groups = sum(f["total"] for f in files)
+    total_ok     = sum(f["ok"]    for f in files)
+    total_bad    = sum(f["bad"]   for f in files)
+    total_inc    = sum(f["incomplete"] for f in files)
+    return {
+        "mode":          "dishes",
+        "total_files":   total_files,
+        "total_groups":  total_groups,
+        "total_ok":      total_ok,
+        "total_bad":     total_bad,
+        "total_incomplete": total_inc,
+        "files":         files
+    }
+
+@app.route("/reviewed_files")
+def reviewed_files_route():
+    review_type = request.args.get("type")
+    return jsonify({"files": get_reviewed_files(review_type)})
+
 @app.route("/progress")
 def progress():
+    mode    = request.args.get("mode", "stores")
     table   = request.args.get("table", "sales_opportunity.dim_maestra")
     country = request.args.get("country", session.get("country","mx"))
+
+    if mode == "dishes":
+        return jsonify(progress_stats_dishes())
+
+    # Para stores, usar la tabla según el review_type de sesión si no se especifica
+    if table == "sales_opportunity.dim_maestra":
+        rt = session.get("review_type", "stores_restaurant")
+        if rt == "stores_retail":
+            table = "sales_opportunity.dim_maestra_retail"
+
     stats, err = progress_stats(table=table, country=country)
     if err: return jsonify({"error": err}), 400
+    stats["files"] = get_reviewed_files("stores")
     return jsonify(stats)
 
 @app.route("/memory/reset", methods=["POST"])

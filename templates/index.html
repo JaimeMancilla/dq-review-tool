@@ -160,7 +160,7 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
       <div style="font-size:22px;font-weight:700;margin-bottom:8px">Data Quality Review</div>
       <div style="font-size:13px;color:var(--muted);margin-bottom:32px">¿Qué tipo de revisión vas a realizar?</div>
       <div style="display:flex;gap:16px;justify-content:center">
-        <div class="type-card" onclick="selectType('stores')">
+        <div class="type-card" onclick="selectStores()">
           <div style="font-size:28px;margin-bottom:10px">🏪</div>
           <div style="font-weight:700;font-size:15px;margin-bottom:4px">Stores</div>
           <div style="font-size:12px;color:var(--muted)">Clusterización de locales</div>
@@ -171,6 +171,24 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
           <div style="font-size:12px;color:var(--muted)">Matching de platos</div>
         </div>
       </div>
+    </div>
+    <!-- Paso 1.5: subtipo de stores -->
+    <div id="storesSubtype" class="hidden" style="text-align:center;padding:40px 0 24px">
+      <div style="font-size:18px;font-weight:700;margin-bottom:8px">Stores — ¿Qué segmento?</div>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:32px">Esto determina la tabla de referencia</div>
+      <div style="display:flex;gap:16px;justify-content:center;margin-bottom:24px">
+        <div class="type-card" onclick="selectType('stores_restaurant')">
+          <div style="font-size:28px;margin-bottom:10px">🍴</div>
+          <div style="font-weight:700;font-size:15px;margin-bottom:4px">Restaurant</div>
+          <div style="font-size:12px;color:var(--muted)">dim_maestra</div>
+        </div>
+        <div class="type-card" onclick="selectType('stores_retail')">
+          <div style="font-size:28px;margin-bottom:10px">🛒</div>
+          <div style="font-weight:700;font-size:15px;margin-bottom:4px">Retail</div>
+          <div style="font-size:12px;color:var(--muted)">dim_maestra_retail</div>
+        </div>
+      </div>
+      <button class="btn sm" onclick="backToTypeSelect()">← Cambiar tipo</button>
     </div>
     <!-- Paso 2: carga de archivo -->
     <div id="fileSelect" class="hidden">
@@ -287,17 +305,29 @@ let REVIEW_TYPE = null; // 'stores' | 'dishes'
 let DISH_GROUPS = [];
 
 // ── selección de tipo ────────────────────────────────────────────────────────
+function selectStores() {
+  document.getElementById("typeSelect").classList.add("hidden");
+  document.getElementById("storesSubtype").classList.remove("hidden");
+}
+
 function selectType(type) {
   REVIEW_TYPE = type;
   document.getElementById("typeSelect").classList.add("hidden");
+  document.getElementById("storesSubtype").classList.add("hidden");
   document.getElementById("fileSelect").classList.remove("hidden");
-  document.getElementById("typeLabel").textContent =
-    type === "stores" ? "🏪 Revisión de Stores" : "🍽️ Revisión de Dishes";
-  // No llamar initDropzone() aquí — ya está inicializado
+  const labels = {
+    "stores_restaurant": "🍴 Stores — Restaurant",
+    "stores_retail":     "🛒 Stores — Retail",
+    "dishes":            "🍽️ Revisión de Dishes"
+  };
+  document.getElementById("typeLabel").textContent = labels[type] || type;
+  initDropzone();
 }
+
 function backToTypeSelect() {
   REVIEW_TYPE = null;
   document.getElementById("typeSelect").classList.remove("hidden");
+  document.getElementById("storesSubtype").classList.add("hidden");
   document.getElementById("fileSelect").classList.add("hidden");
 }
 
@@ -360,18 +390,10 @@ initDropzone();
 async function doUpload(file){
   if(!file)return;
   const dz=document.getElementById("dropZone");
- if(dz){
-    // Evitar spinner duplicado
-    if(!dz.querySelector(".spinner")){
-      const inp=dz.querySelector("input");
-      const spinner=document.createElement("div");
-      spinner.innerHTML='<span class="spinner"></span> Procesando…';
-      spinner.style.cssText="text-align:center;padding:20px";
-      dz.appendChild(spinner);
-      if(inp) inp.style.display="none";
-    }
-  }
-  const fd=new FormData();fd.append("file",file);
+  if(dz) dz.innerHTML='<span class="spinner"></span> Procesando…';
+  const fd=new FormData();
+  fd.append("file",file);
+  fd.append("review_type", REVIEW_TYPE||"stores_restaurant");
   try{
     if(REVIEW_TYPE === 'dishes') {
       const d=await fetch("/dishes/upload",{method:"POST",body:fd}).then(r=>r.json());
@@ -1056,54 +1078,81 @@ function openProgress() {
 function closeProgress() {
   document.getElementById("progressModal").classList.remove("open");
 }
+
+function renderReviewedFiles(files, type) {
+  if(!files||!files.length) return `<div style="color:var(--muted);font-size:12px;padding:8px 0">Aún no hay archivos revisados.</div>`;
+  const isDishes = type==="dishes";
+  return `
+    <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">
+      Archivos revisados
+    </div>
+    <table style="width:100%;border-collapse:collapse;font-size:11px">
+      <thead><tr style="background:var(--surf2)">
+        <th style="padding:5px 8px;text-align:left;border-bottom:1px solid var(--border)">Archivo</th>
+        <th style="padding:5px 8px;text-align:center;border-bottom:1px solid var(--border)">Total</th>
+        <th style="padding:5px 8px;text-align:center;border-bottom:1px solid var(--border)">✓ Ok</th>
+        <th style="padding:5px 8px;text-align:center;border-bottom:1px solid var(--border)">✕ Error</th>
+        ${isDishes?`<th style="padding:5px 8px;text-align:center;border-bottom:1px solid var(--border)">🔗 Incompleto</th>`:""}
+        <th style="padding:5px 8px;text-align:left;border-bottom:1px solid var(--border)">Fecha</th>
+      </tr></thead>
+      <tbody>${files.map(f=>{
+        const dt = f.reviewed_at ? new Date(f.reviewed_at*1000).toLocaleString() : "";
+        return `<tr>
+          <td style="padding:4px 8px;font-size:11px">${esc(f.file_name)}</td>
+          <td style="padding:4px 8px;text-align:center;font-weight:600">${f.total}</td>
+          <td style="padding:4px 8px;text-align:center;color:var(--green);font-weight:600">${f.ok}</td>
+          <td style="padding:4px 8px;text-align:center;color:var(--red);font-weight:600">${f.bad}</td>
+          ${isDishes?`<td style="padding:4px 8px;text-align:center;color:var(--amber);font-weight:600">${f.incomplete||0}</td>`:""}
+          <td style="padding:4px 8px;color:var(--muted);font-size:10px">${dt}</td>
+        </tr>`;
+      }).join("")}</tbody>
+    </table>`;
+}
+
 async function loadProgress() {
-  const table   = document.getElementById("progressTable").value;
-  const country = COUNTRY || "mx";
   const content = document.getElementById("progressContent");
-  content.innerHTML = '<span class="spinner"></span> Consultando BD…';
+  const isDishes = REVIEW_TYPE === "dishes";
+  const tableSelect = document.getElementById("progressTable");
+  if(tableSelect) tableSelect.style.display = isDishes ? "none" : "";
+  content.innerHTML = '<span class="spinner"></span> ' + (isDishes ? "Calculando…" : "Consultando BD…");
   try {
-    const d = await api(`/progress?table=${encodeURIComponent(table)}&country=${country}`);
-    if (d.error) { content.innerHTML = `<div style="color:var(--red)">${esc(d.error)}</div>`; return; }
-    const pct = d.pct;
-    const barColor = pct < 30 ? "var(--red)" : pct < 70 ? "var(--amber)" : "var(--green)";
-    content.innerHTML = `
-      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:20px">
-        <div class="stat"><div class="stat-lbl">Total en BD</div><div class="stat-val">${d.total_bd.toLocaleString()}</div></div>
-        <div class="stat"><div class="stat-lbl">Revisados</div><div class="stat-val g">${d.reviewed.toLocaleString()}</div></div>
-        <div class="stat"><div class="stat-lbl">Con correcciones</div><div class="stat-val r">${d.corrected.toLocaleString()}</div></div>
-        <div class="stat"><div class="stat-lbl">Pendientes</div><div class="stat-val">${d.pending.toLocaleString()}</div></div>
-      </div>
-      <div style="margin-bottom:16px">
-        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px">
-          <span>Progreso general</span><span style="font-weight:700">${pct}%</span>
+    if(isDishes) {
+      const d = await api(`/progress?mode=dishes`);
+      if(d.error){ content.innerHTML=`<div style="color:var(--red)">${esc(d.error)}</div>`; return; }
+      content.innerHTML = `
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:20px">
+          <div class="stat"><div class="stat-lbl">Archivos</div><div class="stat-val">${d.total_files}</div></div>
+          <div class="stat"><div class="stat-lbl">Grupos ok</div><div class="stat-val g">${d.total_ok}</div></div>
+          <div class="stat"><div class="stat-lbl">Con error</div><div class="stat-val r">${d.total_bad}</div></div>
+          <div class="stat"><div class="stat-lbl">Incompletos</div><div class="stat-val" style="color:var(--amber)">${d.total_incomplete}</div></div>
         </div>
-        <div style="height:8px;background:var(--surf2);border-radius:4px;overflow:hidden">
-          <div style="height:100%;width:${pct}%;background:${barColor};border-radius:4px;transition:width .3s"></div>
+        ${renderReviewedFiles(d.files, "dishes")}`;
+    } else {
+      const table = REVIEW_TYPE === "stores_retail"
+        ? "sales_opportunity.dim_maestra_retail"
+        : (tableSelect?.value || "sales_opportunity.dim_maestra");
+      const country = COUNTRY || "mx";
+      const d = await api(`/progress?mode=stores&table=${encodeURIComponent(table)}&country=${country}`);
+      if(d.error){ content.innerHTML=`<div style="color:var(--red)">${esc(d.error)}</div>`; return; }
+      const pct = d.pct;
+      const barColor = pct<30?"var(--red)":pct<70?"var(--amber)":"var(--green)";
+      content.innerHTML = `
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">
+          <div class="stat"><div class="stat-lbl">Total en BD</div><div class="stat-val">${d.total_bd.toLocaleString()}</div></div>
+          <div class="stat"><div class="stat-lbl">Revisados</div><div class="stat-val g">${d.reviewed.toLocaleString()}</div></div>
+          <div class="stat"><div class="stat-lbl">Con correcciones</div><div class="stat-val r">${d.corrected.toLocaleString()}</div></div>
+          <div class="stat"><div class="stat-lbl">Pendientes</div><div class="stat-val">${d.pending.toLocaleString()}</div></div>
         </div>
-      </div>
-      ${d.recent.length ? `
-        <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Últimos revisados</div>
-        <table style="width:100%;border-collapse:collapse;font-size:11px">
-          <thead><tr style="background:var(--surf2)">
-            <th style="padding:5px 8px;text-align:left;border-bottom:1px solid var(--border)">cluster_index</th>
-            <th style="padding:5px 8px;text-align:left;border-bottom:1px solid var(--border)">nombre</th>
-            <th style="padding:5px 8px;text-align:center;border-bottom:1px solid var(--border)">estado</th>
-            <th style="padding:5px 8px;text-align:left;border-bottom:1px solid var(--border)">archivo</th>
-          </tr></thead>
-          <tbody>
-            ${d.recent.map(r=>`<tr>
-              <td style="padding:4px 8px;font-family:monospace;font-size:10px">${esc(r.cluster_index)}</td>
-              <td style="padding:4px 8px">${esc(r.cluster_name||"")}</td>
-              <td style="padding:4px 8px;text-align:center">
-                ${r.corrections_count>0
-                  ?`<span class="badge bad">${r.corrections_count} correc.</span>`
-                  :`<span class="badge ok">✓ ok</span>`}
-              </td>
-              <td style="padding:4px 8px;color:var(--muted);font-size:10px">${esc(r.file_name||"")}</td>
-            </tr>`).join("")}
-          </tbody>
-        </table>` : '<div style="color:var(--muted);font-size:12px">Aún no hay clusters revisados en la memoria.</div>'}
-    `;
+        <div style="margin-bottom:20px">
+          <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px">
+            <span>Progreso vs BD</span><span style="font-weight:700">${pct}%</span>
+          </div>
+          <div style="height:8px;background:var(--surf2);border-radius:4px;overflow:hidden">
+            <div style="height:100%;width:${pct}%;background:${barColor};border-radius:4px;transition:width .3s"></div>
+          </div>
+        </div>
+        ${renderReviewedFiles(d.files||[], "stores")}`;
+    }
   } catch(e) {
     content.innerHTML = `<div style="color:var(--red)">Error: ${esc(e.message)}</div>`;
   }
@@ -1171,6 +1220,7 @@ function resetApp(){
   document.getElementById("mainScreen").classList.add("hidden");
   document.getElementById("dishesScreen").classList.add("hidden");
   document.getElementById("typeSelect").classList.remove("hidden");
+  document.getElementById("storesSubtype").classList.add("hidden");
   document.getElementById("fileSelect").classList.add("hidden");
   document.getElementById("fbBar").classList.add("hidden");
   ["btnReset","btnExport","btnMemory","btnProgress"].forEach(id=>document.getElementById(id).style.display="none");
