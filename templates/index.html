@@ -141,6 +141,7 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
     <button class="btn sm" id="btnMemory" onclick="openMemory()" style="display:none">🧠 Memoria</button>
     <button class="btn sm" id="btnProgress" onclick="openProgress()" style="display:none">📊 Progreso</button>
     <button class="btn" id="btnReset" onclick="resetApp()" style="display:none">Nueva revisión</button>
+    <button class="btn sm" id="btnMarkReviewed" onclick="markAsReviewed()" style="display:none">✓ Marcar revisado</button>
     <button class="btn primary" id="btnExport" onclick="exportFile()" style="display:none">⬇ Descargar</button>
   </div>
 </header>
@@ -410,6 +411,7 @@ async function doUpload(file){
       document.getElementById("hdrFile").textContent=file.name;
       document.getElementById("btnReset").style.display="";
       document.getElementById("btnExport").style.display="";
+      document.getElementById("btnMarkReviewed").style.display="";
       document.getElementById("btnMemory").style.display="";
       document.getElementById("btnProgress").style.display="";
       if(d.restored) toast(`✓ Estado restaurado`, 3000);
@@ -429,6 +431,7 @@ async function doUpload(file){
       document.getElementById("hdrFile").textContent=file.name;
       document.getElementById("btnReset").style.display="";
       document.getElementById("btnExport").style.display="";
+      document.getElementById("btnMarkReviewed").style.display="";
       document.getElementById("btnMemory").style.display="";
       document.getElementById("btnProgress").style.display="";
       if(d.meta)updateFbBar(d.meta.fb_stats,d.meta.threshold,0);
@@ -1087,6 +1090,10 @@ function closeProgress() {
 function renderReviewedFiles(files, type) {
   if(!files||!files.length) return `<div style="color:var(--muted);font-size:12px;padding:8px 0">Aún no hay archivos revisados.</div>`;
   const isDishes = type==="dishes";
+  // Deduplicar por file_name — quedarse con el más reciente
+  const seen = new Map();
+  files.forEach(f => { if(!seen.has(f.file_name)||f.reviewed_at>seen.get(f.file_name).reviewed_at) seen.set(f.file_name,f); });
+  const deduped = [...seen.values()].sort((a,b)=>b.reviewed_at-a.reviewed_at);
   return `
     <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">
       Archivos revisados
@@ -1094,18 +1101,19 @@ function renderReviewedFiles(files, type) {
     <table style="width:100%;border-collapse:collapse;font-size:11px">
       <thead><tr style="background:var(--surf2)">
         <th style="padding:5px 8px;text-align:left;border-bottom:1px solid var(--border)">Archivo</th>
-        <th style="padding:5px 8px;text-align:center;border-bottom:1px solid var(--border)">Total</th>
+        <th style="padding:5px 8px;text-align:center;border-bottom:1px solid var(--border)">Grupos</th>
         <th style="padding:5px 8px;text-align:center;border-bottom:1px solid var(--border)">✓ Ok</th>
         <th style="padding:5px 8px;text-align:center;border-bottom:1px solid var(--border)">✕ Error</th>
         ${isDishes?`<th style="padding:5px 8px;text-align:center;border-bottom:1px solid var(--border)">🔗 Incompleto</th>`:""}
         <th style="padding:5px 8px;text-align:left;border-bottom:1px solid var(--border)">Fecha</th>
       </tr></thead>
-      <tbody>${files.map(f=>{
-        const dt = f.reviewed_at ? new Date(f.reviewed_at*1000).toLocaleString() : "";
+      <tbody>${deduped.map(f=>{
+        const dt = f.reviewed_at ? new Date(f.reviewed_at*1000).toLocaleString("es-CL") : "";
+        const pct = f.total ? Math.round(f.ok/f.total*100) : 0;
         return `<tr>
           <td style="padding:4px 8px;font-size:11px">${esc(f.file_name)}</td>
           <td style="padding:4px 8px;text-align:center;font-weight:600">${f.total}</td>
-          <td style="padding:4px 8px;text-align:center;color:var(--green);font-weight:600">${f.ok}</td>
+          <td style="padding:4px 8px;text-align:center;color:var(--green);font-weight:600">${f.ok} <span style="font-size:9px;color:var(--muted)">(${pct}%)</span></td>
           <td style="padding:4px 8px;text-align:center;color:var(--red);font-weight:600">${f.bad}</td>
           ${isDishes?`<td style="padding:4px 8px;text-align:center;color:var(--amber);font-weight:600">${f.incomplete||0}</td>`:""}
           <td style="padding:4px 8px;color:var(--muted);font-size:10px">${dt}</td>
@@ -1194,6 +1202,21 @@ async function searchMemory(q){
 async function resetMemory(){await api("/memory/reset",{});closeMemory();toast("Memoria borrada")}
 
 // ── export ────────────────────────────────────────────────────────────────────
+async function markAsReviewed(){
+  const btn=document.getElementById("btnMarkReviewed");
+  btn.innerHTML='<span class="spinner"></span>';
+  try{
+    const d=await api("/mark_as_reviewed",{});
+    if(d.ok){
+      btn.innerHTML="✓ Marcar revisado";
+      btn.style.background="var(--gbg)";
+      btn.style.color="var(--green)";
+      btn.style.borderColor="var(--gborder)";
+      toast(`✓ "${d.filename}" marcado como revisado`);
+    }
+  }catch(e){toast("Error: "+e.message);btn.innerHTML="✓ Marcar revisado";}
+}
+
 async function exportFile(){
   const btn=document.getElementById("btnExport");btn.innerHTML='<span class="spinner"></span>';
   try{
@@ -1228,7 +1251,7 @@ function resetApp(){
   document.getElementById("storesSubtype").classList.add("hidden");
   document.getElementById("fileSelect").classList.add("hidden");
   document.getElementById("fbBar").classList.add("hidden");
-  ["btnReset","btnExport","btnMemory","btnProgress"].forEach(id=>document.getElementById(id).style.display="none");
+  ["btnReset","btnExport","btnMarkReviewed","btnMemory","btnProgress"].forEach(id=>document.getElementById(id).style.display="none");
   document.getElementById("hdrFile").textContent="";
   document.getElementById("clusterList").innerHTML="";
   document.getElementById("dishesList").innerHTML="";
@@ -1387,10 +1410,45 @@ function openFusionModal(gi) {
   const g = DISH_GROUPS[gi];
   _fusionOpts = buildFusionOpts(DISH_GROUPS, gi);
   document.getElementById("fusionModalTitle").textContent=`Fusionar grupo ${g.group_id} con…`;
-  document.getElementById("fusionModalList").innerHTML=renderFusionOpts(_fusionOpts);
+  // Mostrar spinner mientras carga sugeridos
+  document.getElementById("fusionModalList").innerHTML=`
+    <div style="padding:12px 14px;border-bottom:2px solid var(--border);background:var(--pbg)">
+      <div style="font-size:10px;font-weight:700;color:var(--purple);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">
+        ⭐ Sugeridos <span class="spinner" style="width:10px;height:10px;border-width:1.5px"></span>
+      </div>
+    </div>
+    ${renderFusionOpts(_fusionOpts)}`;
   const searchInp = document.getElementById("fusionSearch");
   if(searchInp){ searchInp.value=""; setTimeout(()=>searchInp.focus(), 100); }
   document.getElementById("fusionModal").classList.add("open");
+  // Cargar sugeridos del servidor
+  api("/dishes/suggestions", {group_id: g.group_id}).then(d=>{
+    const sugs = d.suggestions || [];
+    const sugIds = new Set(sugs.map(s=>s.group_id));
+    const sugHtml = sugs.length ? `
+      <div style="padding:6px 14px 4px;background:var(--pbg);border-bottom:1px solid var(--pborder)">
+        <div style="font-size:10px;font-weight:700;color:var(--purple);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">⭐ Sugeridos</div>
+        ${sugs.map(s=>`
+          <div onclick="selectFusion('${esc(s.group_id)}')"
+            style="padding:8px 10px;cursor:pointer;border-radius:var(--r);margin-bottom:4px;background:var(--surf);border:1px solid var(--pborder);transition:background .1s"
+            onmouseover="this.style.background='var(--bbg)'" onmouseout="this.style.background='var(--surf)'">
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style="font-family:monospace;font-size:10px;color:var(--muted)">grupo ${esc(s.group_id)}</span>
+              <span style="font-weight:600;font-size:12px">${esc((s.members[0]?.product_name||"").slice(0,50))}</span>
+              <span style="margin-left:auto;font-size:11px;font-weight:700;color:${s.sim>=0.8?"var(--green)":s.sim>=0.6?"var(--amber)":"var(--muted)"}">${Math.round(s.sim*100)}%</span>
+            </div>
+            ${s.members[0]?.product_description?`<div style="font-size:11px;color:var(--muted);margin-top:2px">${esc(s.members[0].product_description.slice(0,60))}…</div>`:""}
+          </div>`).join("")}
+      </div>` : "";
+    const restOpts = _fusionOpts.filter(o=>!sugIds.has(o.group_id));
+    document.getElementById("fusionModalList").innerHTML =
+      sugHtml + (restOpts.length ? `
+        <div style="padding:6px 14px 4px;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Todos los grupos</div>
+        ${renderFusionOpts(restOpts)}` : "");
+  }).catch(()=>{
+    // Si falla, mostrar solo todos los grupos
+    document.getElementById("fusionModalList").innerHTML = renderFusionOpts(_fusionOpts);
+  });
 }
 
 async function selectFusion(targetGroupId) {

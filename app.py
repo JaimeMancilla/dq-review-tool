@@ -130,6 +130,18 @@ def init_db():
         )
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_ci ON reviewed_clusters(cluster_index)")
+    # Pares etiquetados de dishes para futuro fine-tuning
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS dish_pairs (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            name_a      TEXT, desc_a TEXT,
+            name_b      TEXT, desc_b TEXT,
+            label       INTEGER,  -- 1=mismo plato, 0=distinto, 2=fusionar
+            source      TEXT,     -- "fusion" | "revision"
+            added_at    REAL,
+            file_name   TEXT
+        )
+    """)
     # Tabla de archivos revisados (resumen por archivo)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS reviewed_files (
@@ -646,6 +658,18 @@ def ext_corr_delete(rec_id):
     conn.execute("DELETE FROM external_corrections WHERE id=?", (rec_id,))
     conn.commit(); conn.close()
 
+def save_reviewed_clusters_dishes(groups, filename):
+    """Guarda grupos de dishes en reviewed_clusters."""
+    conn = sqlite3.connect(DB_FILE)
+    for g in groups:
+        conn.execute("""
+            INSERT INTO reviewed_clusters
+              (cluster_index, cluster_name, had_errors, corrections_count, reviewed_at, file_name)
+            VALUES (?,?,?,?,?,?)
+        """, (g["group_id"], "", 1 if g["revision"] in (0,2) else 0,
+              0, time.time(), filename))
+    conn.commit(); conn.close()
+
 def save_reviewed_file(file_name, review_type, total, ok, bad, incomplete=0):
     """Guarda un resumen del archivo revisado al descargar."""
     conn = sqlite3.connect(DB_FILE)
@@ -860,6 +884,40 @@ def build_dish_groups(df, filename="", threshold=0.75):
         "threshold": threshold, "model_ready": _model_ready
     }
 
+
+
+def save_dish_pair(name_a, desc_a, name_b, desc_b, label, source="revision", file_name=""):
+    """Guarda un par etiquetado de dishes para futuro fine-tuning."""
+    conn = sqlite3.connect(DB_FILE)
+    conn.execute("""
+        INSERT INTO dish_pairs (name_a, desc_a, name_b, desc_b, label, source, added_at, file_name)
+        VALUES (?,?,?,?,?,?,?,?)
+    """, (name_a, desc_a, name_b, desc_b, label, source, time.time(), file_name))
+    conn.commit(); conn.close()
+
+def compute_group_similarity(g_target, g_other):
+    """
+    Calcula similitud entre dos grupos de dishes.
+    Combina nombre (70%) y descripción (30%).
+    """
+    # Texto representativo de cada grupo (primer miembro)
+    name_a = g_target["members"][0].get("product_name","") if g_target["members"] else ""
+    desc_a = g_target["members"][0].get("product_description","") if g_target["members"] else ""
+    name_b = g_other["members"][0].get("product_name","") if g_other["members"] else ""
+    desc_b = g_other["members"][0].get("product_description","") if g_other["members"] else ""
+
+    m = get_model()
+    if m:
+        from sentence_transformers import util
+        texts = [name_a, name_b, desc_a or name_a, desc_b or name_b]
+        embs  = m.encode(texts, convert_to_tensor=True, show_progress_bar=False)
+        sim_name = float(util.cos_sim(embs[0], embs[1]))
+        sim_desc = float(util.cos_sim(embs[2], embs[3]))
+    else:
+        sim_name = jaccard_sim(name_a, name_b)
+        sim_desc = jaccard_sim(desc_a or name_a, desc_b or name_b)
+
+    return round(sim_name * 0.7 + sim_desc * 0.3, 3)
 
 # ── rutas ─────────────────────────────────────────────────────────────────────
 
@@ -1177,7 +1235,11 @@ def export():
         if not df_ext_out.empty:
             df_ext_out.to_excel(writer, sheet_name="Correcciones externas", index=False)
 
-    return send_file(out, as_attachment=True, download_name="clusters_revisados.xlsx",
+    # Nombre dinámico: nombre_archivo_revisado_YYYYMMDD_HHMMSS.xlsx
+    stem = Path(filename).stem
+    ts   = time.strftime("%Y%m%d_%H%M%S")
+    download_name = f"{stem}_revisado_{ts}.xlsx"
+    return send_file(out, as_attachment=True, download_name=download_name,
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 @app.route("/dishes/upload", methods=["POST"])
@@ -1193,6 +1255,7 @@ def dishes_upload():
     session["dishes_path"]     = str(path)
     session["dishes_groups"]   = groups
     session["dishes_filename"] = f.filename
+    session["review_type"]     = "dishes"  # para mark_as_reviewed
     # Intentar restaurar estado previo
     saved_state, saved_at = load_session_state("dishes_"+f.filename)
     restored = False
@@ -1259,6 +1322,18 @@ def dishes_set_fusion():
             g["fusion_with"] = dest
             g["error_cats"]  = []
     session["dishes_groups"] = groups; session.modified = True
+    # Guardar par etiquetado label=2 (mismo plato, deben fusionarse)
+    ga = next((g for g in groups if g["group_id"]==gid_a), None)
+    gb = next((g for g in groups if g["group_id"]==gid_b), None)
+    if ga and gb and ga.get("members") and gb.get("members"):
+        save_dish_pair(
+            ga["members"][0].get("product_name",""),
+            ga["members"][0].get("product_description",""),
+            gb["members"][0].get("product_name",""),
+            gb["members"][0].get("product_description",""),
+            label=2, source="fusion",
+            file_name=session.get("dishes_filename","")
+        )
     # Guardar estado
     state = [{"group_id": g["group_id"], "revision": g["revision"],
               "fusion_with": g.get("fusion_with","")} for g in groups]
@@ -1300,10 +1375,34 @@ def dishes_export():
     save_reviewed_file(filename, "dishes", len(groups), ok, bad, inc)
     out = UPLOAD_FOLDER/"dishes_revisado.xlsx"
     df.to_excel(out, index=False)
+    stem = Path(filename).stem
+    ts   = time.strftime("%Y%m%d_%H%M%S")
+    download_name = f"{stem}_revisado_{ts}.xlsx"
     return send_file(out, as_attachment=True,
-                     download_name="dishes_revisados.xlsx",
+                     download_name=download_name,
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
+
+@app.route("/mark_as_reviewed", methods=["POST"])
+def mark_as_reviewed():
+    """Registra el archivo como revisado en memoria sin descargar."""
+    review_type = session.get("review_type","stores_restaurant")
+    if review_type == "dishes":
+        groups   = session.get("dishes_groups",[])
+        filename = session.get("dishes_filename","")
+        ok  = sum(1 for g in groups if g["revision"]==1)
+        bad = sum(1 for g in groups if g["revision"]==0)
+        inc = sum(1 for g in groups if g["revision"]==2)
+        save_reviewed_file(filename, "dishes", len(groups), ok, bad, inc)
+        save_reviewed_clusters_dishes(groups, filename)
+    else:
+        clusters = session.get("clusters",[])
+        filename = session.get("filename","")
+        ok  = sum(c["ok_count"]  for c in clusters)
+        bad = sum(c["bad_count"] for c in clusters)
+        save_reviewed_clusters(clusters, filename)
+        save_reviewed_file(filename, review_type, len(clusters), ok, bad)
+    return jsonify({"ok": True, "filename": filename})
 
 @app.route("/reset_session", methods=["POST"])
 def reset_session():
@@ -1398,6 +1497,25 @@ def memory_reset():
     conn=sqlite3.connect(DB_FILE)
     conn.execute("DELETE FROM corrections"); conn.commit(); conn.close()
     return jsonify({"ok":True})
+
+
+@app.route("/dishes/suggestions", methods=["POST"])
+def dishes_suggestions():
+    """Retorna los 3 grupos más similares al grupo dado."""
+    data     = request.json
+    group_id = data["group_id"]
+    groups   = session.get("dishes_groups", [])
+    target   = next((g for g in groups if g["group_id"]==group_id), None)
+    if not target: return jsonify({"suggestions":[]})
+
+    others = [g for g in groups if g["group_id"] != group_id]
+    scored = []
+    for g in others:
+        sim = compute_group_similarity(target, g)
+        scored.append({"group_id": g["group_id"], "sim": sim,
+                       "members": g["members"], "count": g["count"]})
+    scored.sort(key=lambda x: x["sim"], reverse=True)
+    return jsonify({"suggestions": scored[:3]})
 
 
 if __name__=="__main__":
