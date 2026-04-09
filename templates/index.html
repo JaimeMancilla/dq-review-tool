@@ -742,22 +742,6 @@ function buildSgBlock(cl,sg,sgi){
       sg.members.map(ii => { const idx=ii.indexOf("_"); return idx>=0?ii.slice(idx+1):ii; })
     );
 
-    // Escenario B — clusters separados que deberían ser uno
-    // Detectar si hay 2+ clusters distintos en los resultados
-    const uniqueClusters = new Set(sg.bd_results.map(b=>b.cluster_index));
-    const suggestedCluster = uniqueClusters.size > 1 ? calcNewCluster(sg.bd_results) : null;
-    const fusionBadge = suggestedCluster
-      ? `<div style="margin:6px 10px 4px;padding:7px 10px;background:var(--abg);border:1px solid var(--aborder);border-radius:var(--r);font-size:11px">
-          <div style="font-weight:600;margin-bottom:4px">⚠️ ${uniqueClusters.size} clusters separados — mismo local físico</div>
-          <div style="font-size:10px;color:var(--muted);margin-bottom:6px">Se recomienda fusionar todos en:</div>
-          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-            <code style="font-size:10px;background:var(--surf);border:1px solid var(--border);padding:2px 6px;border-radius:var(--r);color:var(--amber)">${esc(suggestedCluster)}</code>
-            <span style="font-size:10px;color:var(--muted)">(${sg.bd_results.find(b=>b.cluster_index===suggestedCluster)?.members?.length||0} stores · mayor cantidad)</span>
-            <button class="btn sm" style="font-size:10px;padding:2px 8px;margin-left:auto"
-              onclick="applySuggestedFusion('${esc(cid)}',${sgi},'${esc(suggestedCluster)}')">✓ Aplicar fusión</button>
-          </div>
-        </div>` : "";
-
     const blocksHtml = sg.bd_results.map((bdc,bi)=>{
       const rowsHtml = bdc.members.map(m=>{
         const isMatch = sgStoreIds.has(String(m.store_id||""));
@@ -785,20 +769,24 @@ function buildSgBlock(cl,sg,sgi){
           <label class="clean-lbl"><input type="checkbox" ${bdc.is_clean?"checked":""}
             onchange="setSgClean('${esc(cid)}',${sgi},${bi},this.checked)">limpio</label>
         </div>
-        <table style="width:100%;border-collapse:collapse;font-size:11px">
+        <table style="width:100%;border-collapse:collapse;font-size:11px;table-layout:fixed">
           <thead><tr style="background:var(--surf2)">
-            <th style="padding:3px 8px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border);width:100px;cursor:default">store_id</th>
+            <th style="padding:3px 8px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border);width:90px;cursor:default">store_id</th>
             <th style="padding:3px 8px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border);cursor:default">app_name</th>
-            <th style="padding:3px 8px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border);cursor:default">app_address</th>
-            <th style="padding:3px 8px;border-bottom:1px solid var(--border);width:28px;cursor:default"></th>
+            <th style="padding:3px 8px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border);width:140px;cursor:default">app_address</th>
+            <th style="padding:3px 4px;border-bottom:1px solid var(--border);width:30px;cursor:default"></th>
           </tr></thead>
           <tbody>${rowsHtml}</tbody>
         </table>
       </div>`;
     }).join("");
 
-    bdHtml = fusionBadge + blocksHtml;
-    bdHtml += `<button class="btn green sm" style="margin:4px 10px 8px" onclick="assignSgClean('${esc(cid)}',${sgi})">★ Usar limpios</button>`;
+    bdHtml = blocksHtml;
+    const cleanCount = (sg.bd_results||[]).filter(b=>b.is_clean).length;
+    bdHtml += `<div style="display:flex;gap:6px;padding:4px 10px 8px;flex-wrap:wrap">
+      <button class="btn green sm" onclick="assignSgClean('${esc(cid)}',${sgi})">✓ Asignar limpio</button>
+      ${cleanCount>=2?`<button class="btn sm" style="border-color:var(--amber);color:var(--amber)" onclick="fusionSgClean('${esc(cid)}',${sgi})">⇄ Fusionar (${cleanCount})</button>`:""}
+    </div>`;
   }
 
   // Corrección asignada
@@ -1029,6 +1017,17 @@ async function assignSgClean(cid,sgi){
   if(!cleans.length){toast("Marca al menos un cluster como limpio");return}
   const corr=cleans.length===1?cleans[0]:'("'+cleans.join('","')+'")';
   await saveSgCorr(cid,sgi,corr,false);
+}
+
+async function fusionSgClean(cid,sgi){
+  // Escenario B: fusionar los clusters marcados como limpios según reglas
+  const sgs=SUBGROUPS[cid];if(!sgs||!sgs[sgi])return;
+  const cleans=(sgs[sgi].bd_results||[]).filter(b=>b.is_clean);
+  if(cleans.length<2){toast("Marca al menos 2 clusters como limpios para fusionar");return}
+  const winner=calcNewCluster(cleans);
+  if(!winner){toast("No se pudo determinar el cluster dominante");return}
+  await saveSgCorr(cid,sgi,winner,false);
+  toast(`⇄ Fusión aplicada → ${winner}`);
 }
 async function assignSgInput(cid,sgi,sgKey){
   const inp=document.getElementById("sgCorrIn_"+sgKey);
