@@ -690,7 +690,6 @@ function buildToolbar(cl){
   </div>`;
 }
 
-// ── panel BD con subgrupos ────────────────────────────────────────────────────
 function buildBdPanel(cl){
   const cid=cl.cluster_id;
   const sgs=SUBGROUPS[cid]||[];
@@ -709,7 +708,9 @@ function buildBdPanel(cl){
   return`<div class="col-bd" id="bdPanel_${CSS.escape(cid)}" data-cid="${esc(cid)}">
     <div class="bd-hdr">
       <span>${sgs.length} subgrupo${sgs.length!==1?"s":""}</span>
-      <span style="margin-left:auto;color:${corrCount===sgs.length?"var(--green)":"var(--muted)"};font-size:10px;font-weight:700">${corrCount}/${sgs.length} corregidos</span>
+      <button class="btn sm" style="font-size:10px;padding:2px 7px;margin-left:8px"
+        onclick="addNewSubgroup('${esc(cid)}')">+ Subgrupo</button>
+      <span style="margin-left:auto;font-size:10px;font-weight:700;color:var(--green)">${corrCount===sgs.length?`✓ ${corrCount}/${sgs.length} corregidos`:""}</span>
     </div>
     ${sgBlocks}
   </div>`;
@@ -875,6 +876,16 @@ function onPillDragStart(e){
 function onPillDragEnd(e){e.target.classList.remove("dragging")}
 function onSgDragOver(e,cid,toSgi){e.preventDefault();document.getElementById("sg_"+CSS.escape(cid)+"_sg"+toSgi)?.classList.add("drag-active")}
 function onSgDragLeave(e){e.currentTarget.classList.remove("drag-active")}
+async function addNewSubgroup(cid){
+  const sgs = SUBGROUPS[cid];
+  if(!sgs||!sgs.length){ toast("Genera subgrupos primero"); return; }
+  // Crear subgrupo vacío con rep_name placeholder
+  sgs.push({members:[], rep_name:"Nuevo subgrupo", sql:"", bd_results:[], correction:"", is_new:false});
+  rebuildBdPanel(cid);
+  api("/save_subgroups", {subgroups: SUBGROUPS});
+  toast("Subgrupo vacío creado — arrastra stores aquí");
+}
+
 function onSgDrop(e,cid,toSgi){
   e.preventDefault();e.currentTarget.classList.remove("drag-active");
   if(!_dragData||_dragData.cid!==cid||_dragData.fromSg===toSgi){_dragData=null;return}
@@ -885,8 +896,36 @@ function onSgDrop(e,cid,toSgi){
   if(!sgs[toSgi].members.includes(ii))sgs[toSgi].members.push(ii);
   // Eliminar subgrupo si quedó vacío
   SUBGROUPS[cid]=sgs.filter(sg=>sg.members.length>0);
+  // Regenerar SQL para los subgrupos afectados
+  regenerateSgSql(cid);
   rebuildBdPanel(cid);
-  toast("Store movido al grupo "+(toSgi+1));
+  toast("Store movido — SQL regenerado");
+}
+
+async function regenerateSgSql(cid){
+  const sgs = SUBGROUPS[cid]; if(!sgs) return;
+  const cl  = getCl(cid); if(!cl) return;
+  const allMembers = cl.members.map(m=>({
+    item_index: m.item_index, store_id: m.store_id,
+    app_name: m.app_name, app_address: m.app_address,
+    cluster_index: m.cluster_index, scraper_source: m.scraper_source||""
+  }));
+  // Regenerar SQL para cada subgrupo que tenga miembros pero no tenga SQL reciente
+  for(let i=0;i<sgs.length;i++){
+    if(!sgs[i].members.length) continue;
+    const sgMembers = allMembers.filter(m=>sgs[i].members.includes(m.item_index));
+    if(!sgMembers.length) continue;
+    try{
+      const d = await api("/get_subgroups",{
+        cluster_id: cid,
+        members_data: sgMembers,
+        country: COUNTRY
+      });
+      // Solo tomar el SQL del primer subgrupo devuelto
+      if(d.subgroups&&d.subgroups[0]) sgs[i].sql = d.subgroups[0].sql||"";
+    }catch(e){}
+  }
+  api("/save_subgroups", {subgroups: SUBGROUPS});
 }
 
 // ── ejecutar en BD ────────────────────────────────────────────────────────────

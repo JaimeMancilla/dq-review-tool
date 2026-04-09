@@ -417,9 +417,46 @@ def record_feedback(anchor_name, anchor_addr, member_name, member_addr, model_sc
 # ── subgrupos ─────────────────────────────────────────────────────────────────
 
 GEO_STOP = {
+    # Colonias / barrios MX frecuentes
     "reforma","serdan","serdán","canek","manuel","moreno","loza","morelos",
-    "monica","mónica","hidalgo","centro","local","plaza","paseo","calle",
-    "avenida","sur","norte","oriente","poniente","col","colonia","zona",
+    "monica","mónica","hidalgo","centro","pedregal","polanco","roma","condesa",
+    "satelite","satélite","narvarte","coyoacan","coyoacán","xochimilco",
+    "tepito","tlalpan","iztapalapa","ecatepec","naucalpan","tlalnepantla",
+    "texcoco","chalco","ixtapaluca","nezahualcoyotl","nezahualcóyotl",
+    "insurgentes","chapultepec","juarez","juárez","guerrero","doctores",
+    "lindavista","vallejo","azcapotzalco","magdalena","contreras",
+    "tlahuac","tláhuac","milpa","alta","alvaro","obregon","obregón",
+    "benito","cuauhtemoc","cuauhtémoc","miguel","venustiano","carranza",
+    "iztacalco","gustavo","madero","cuajimalpa","cuautitlan","cuautitlán",
+    # Palabras geográficas genéricas
+    "san","santa","santo","nuevo","nueva","gran","grande","real","real",
+    "jardines","residencial","fracc","fraccionamiento","unidad","barrio",
+    "colonia","col","pueblo","ciudad","municipio","delegacion","delegación",
+    "local","plaza","paseo","calle","avenida","blvd","boulevard","calz","calzada",
+    "sur","norte","oriente","poniente","este","oeste","inner","outer",
+    "zona","sector","modulo","módulo","piso","nivel","torre","edificio",
+    # Ciudades/estados MX
+    "puebla","monterrey","guadalajara","tijuana","juarez","merida","mérida",
+    "leon","león","toluca","queretaro","querétaro","chihuahua","hermosillo",
+    "mexicali","aguascalientes","morelia","veracruz","oaxaca","tuxtla",
+    "gutierrez","gutiérrez","villahermosa","tampico","culiacan","culiacán",
+    "durango","zacatecas","saltillo","tepic","colima","campeche","chetumal",
+    "pachuca","tlaxcala","cuernavaca","chilpancingo","xalapa","jalapa",
+    "cdmx","cdmex","edomex","mx","mexico","méxico",
+    # Colombia
+    "bogota","bogotá","medellin","medellín","cali","barranquilla","cartagena",
+    "cucuta","cúcuta","bucaramanga","pereira","manizales","armenia","ibague",
+    "ibagué","neiva","villavicencio","pasto","monteria","montería","sincelejo",
+    "valledupar","santa","marta","riohacha","quibdo","quibdó","popayan",
+    "popayán","tunja","manizales","florencia","mocoa","leticia","inirida",
+    "inírida","mitu","mitú","yopal","arauca","puerto","carreño","san","andres",
+    # Brasil
+    "sao","são","paulo","rio","janeiro","belo","horizonte","brasilia","brasília",
+    "salvador","fortaleza","curitiba","manaus","recife","porto","alegre",
+    "belem","belém","goiania","goiânia","florianopolis","florianópolis",
+    "natal","maceio","maceió","joao","joão","pessoa","teresina","campo",
+    "grande","aracaju","macapa","macapá","porto","velho","palmas","boa","vista",
+    "rio","branco","vitoria","vitória","cuiaba","cuiabá",
 }
 
 def brand_words(name):
@@ -427,7 +464,7 @@ def brand_words(name):
     Extrae palabras de marca ignorando sufijos geográficos.
     Para nombres genéricos de 1 sola palabra (burger, pizza...) busca más contexto.
     """
-    func = {"la","el","los","las","de","del","en","al","por","con","san","santa","que"}
+    func = {"la","el","los","las","de","del","en","al","por","con","que","y","e","o"}
     generic = {"burger","pizza","tacos","taco","tortas","torta","pollo","wings",
                "alitas","sushi","coffee","cafe","grill","cocina","comida"}
 
