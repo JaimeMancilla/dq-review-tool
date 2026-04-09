@@ -758,13 +758,14 @@ function buildSgBlock(cl,sg,sgi){
         const isMatch = sgStoreIds.has(String(m.store_id||""));
         const bg = isMatch ? "background:var(--gbg);border-left:3px solid var(--green)" : "border-left:3px solid transparent";
         return `<tr style="${bg}">
-          <td style="padding:3px 8px;font-family:monospace;font-size:10px;color:var(--muted);white-space:nowrap">${esc(m.store_id||"")}</td>
-          <td style="padding:3px 8px;font-weight:${isMatch?'600':'400'}">${esc(m.app_name||"")}${isMatch?` <span style="font-size:9px;color:var(--green);font-weight:700">✓</span>`:''}</td>
-          <td style="padding:3px 8px;color:var(--muted);font-size:11px">${esc((m.app_address||"").slice(0,42))}</td>
-          <td style="padding:2px 8px;text-align:center;white-space:nowrap;width:70px">
-            <button class="btn sm" style="padding:2px 8px;font-size:10px;white-space:nowrap;width:100%"
+          <td style="padding:3px 8px;font-family:monospace;font-size:10px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(m.store_id||"")}</td>
+          <td style="padding:3px 8px;font-weight:${isMatch?'600':'400'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(m.app_name||"")}${isMatch?` <span style="font-size:9px;color:var(--green);font-weight:700">✓</span>`:''}</td>
+          <td style="padding:3px 8px;color:var(--muted);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc((m.app_address||"").slice(0,50))}</td>
+          <td style="padding:2px 4px;text-align:center;width:28px">
+            <button class="btn sm" title="Anotar corrección externa"
+              style="padding:2px 6px;font-size:12px;font-weight:700;width:100%;min-width:24px"
               onclick="openExtCorr('${esc(m.store_id||"")}','${esc(m.app_name||"")}','${esc(m.app_address||"")}','${esc(bdc.cluster_index)}','${esc(m.cluster_name||"")}','${esc(m.cluster_address||"")}','${esc(m.scraper_source||"")}')">
-              + Anotar
+              +
             </button>
           </td>
         </tr>`;
@@ -779,12 +780,12 @@ function buildSgBlock(cl,sg,sgi){
           <label class="clean-lbl"><input type="checkbox" ${bdc.is_clean?"checked":""}
             onchange="setSgClean('${esc(cid)}',${sgi},${bi},this.checked)">limpio</label>
         </div>
-        <table style="width:100%;border-collapse:collapse;font-size:11px">
+        <table style="width:100%;border-collapse:collapse;font-size:11px;table-layout:fixed">
           <thead><tr style="background:var(--surf2)">
-            <th style="padding:3px 8px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border);width:80px;cursor:default">store_id</th>
+            <th style="padding:3px 8px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border);width:120px;cursor:default;overflow:hidden">store_id</th>
             <th style="padding:3px 8px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border);cursor:default">app_name</th>
             <th style="padding:3px 8px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border);cursor:default">app_address</th>
-            <th style="padding:3px 8px;border-bottom:1px solid var(--border);width:70px;cursor:default"></th>
+            <th style="padding:3px 8px;border-bottom:1px solid var(--border);width:28px;cursor:default"></th>
           </tr></thead>
           <tbody>${rowsHtml}</tbody>
         </table>

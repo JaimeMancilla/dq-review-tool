@@ -11,6 +11,10 @@ Abrir:  http://localhost:5000
 
 import re, unicodedata, json, time, sqlite3, os
 from pathlib import Path
+
+# Usar modelo semántico desde caché local — evita timeout al arrancar
+os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
 from flask import Flask, render_template, request, jsonify, send_file, session
 import pandas as pd
 
