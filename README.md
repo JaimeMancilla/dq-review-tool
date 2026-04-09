@@ -2,7 +2,6 @@
 
 Herramienta web local para revisión y corrección de calidad de datos en clusters de **product matching** — stores de delivery (restaurant y retail) y platos (dishes).
 
-Desarrollada en [Gregario](https://gregario.mx) para el equipo de Data Quality.
 
 ---
 

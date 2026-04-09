@@ -39,7 +39,7 @@ except ImportError:
 UPLOAD_FOLDER = Path("uploads"); UPLOAD_FOLDER.mkdir(exist_ok=True)
 FEEDBACK_FILE = Path("feedback.json")
 DB_FILE       = Path("memory.db")
-MODEL_NAME    = "paraphrase-multilingual-MiniLM-L12-v2"
+MODEL_NAME = r"C:\models\paraphrase-multilingual"
 
 # ── PostgreSQL ────────────────────────────────────────────────────────────────
 
@@ -318,12 +318,14 @@ def get_model():
     if _model_ready or _model_error: return _model
     try:
         from sentence_transformers import SentenceTransformer
-        # Intentar primero desde caché local
+        import os
+        # Forzar uso de caché sin contactar HuggingFace
+        os.environ["HF_HUB_OFFLINE"] = "1"
         try:
-            _model = SentenceTransformer(MODEL_NAME, local_files_only=True)
-        except Exception:
-            # Si no está en caché, intentar descarga
             _model = SentenceTransformer(MODEL_NAME)
+        finally:
+            # Restaurar para no afectar otras operaciones
+            os.environ.pop("HF_HUB_OFFLINE", None)
         _model_ready = True
     except Exception as e:
         _model_error = str(e)
