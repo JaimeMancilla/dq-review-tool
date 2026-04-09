@@ -11,10 +11,6 @@ Abrir:  http://localhost:5000
 
 import re, unicodedata, json, time, sqlite3, os
 from pathlib import Path
-
-# Usar modelo semántico desde caché local — evita timeout al arrancar
-os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
-os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
 from flask import Flask, render_template, request, jsonify, send_file, session
 import pandas as pd
 
@@ -322,7 +318,12 @@ def get_model():
     if _model_ready or _model_error: return _model
     try:
         from sentence_transformers import SentenceTransformer
-        _model = SentenceTransformer(MODEL_NAME)
+        # Intentar primero desde caché local
+        try:
+            _model = SentenceTransformer(MODEL_NAME, local_files_only=True)
+        except Exception:
+            # Si no está en caché, intentar descarga
+            _model = SentenceTransformer(MODEL_NAME)
         _model_ready = True
     except Exception as e:
         _model_error = str(e)
