@@ -742,22 +742,19 @@ function buildSgBlock(cl,sg,sgi){
       sg.members.map(ii => { const idx=ii.indexOf("_"); return idx>=0?ii.slice(idx+1):ii; })
     );
 
-    // Badge de fusión — mostrar selector con todos los clusters disponibles
+    // Escenario B — clusters separados que deberían ser uno
+    // Detectar si hay 2+ clusters distintos en los resultados
     const uniqueClusters = new Set(sg.bd_results.map(b=>b.cluster_index));
     const suggestedCluster = uniqueClusters.size > 1 ? calcNewCluster(sg.bd_results) : null;
     const fusionBadge = suggestedCluster
       ? `<div style="margin:6px 10px 4px;padding:7px 10px;background:var(--abg);border:1px solid var(--aborder);border-radius:var(--r);font-size:11px">
-          <div style="font-weight:600;margin-bottom:6px">⚠️ ${uniqueClusters.size} clusters distintos — ¿cuál es el correcto?</div>
-          <div style="display:flex;flex-direction:column;gap:3px">
-            ${sg.bd_results.map(bdc=>`
-              <div onclick="applySuggestedFusion('${esc(cid)}',${sgi},'${esc(bdc.cluster_index)}')"
-                style="padding:5px 8px;cursor:pointer;border:1px solid var(--border);border-radius:var(--r);background:var(--surf);transition:background .1s;display:flex;align-items:center;gap:8px"
-                onmouseover="this.style.background='var(--bbg)'" onmouseout="this.style.background='var(--surf)'">
-                <span style="font-family:monospace;font-size:10px;color:var(--blue)">${esc(bdc.cluster_index)}</span>
-                ${bdc.members[0]?.cluster_name?`<span style="font-size:11px">${esc(bdc.members[0].cluster_name)}</span>`:""}
-                <span style="font-size:10px;color:var(--muted);margin-left:auto">${bdc.members.length} stores</span>
-                ${bdc.cluster_index===suggestedCluster?`<span style="font-size:9px;color:var(--amber);font-weight:700">★ sugerido</span>`:""}
-              </div>`).join("")}
+          <div style="font-weight:600;margin-bottom:4px">⚠️ ${uniqueClusters.size} clusters separados — mismo local físico</div>
+          <div style="font-size:10px;color:var(--muted);margin-bottom:6px">Se recomienda fusionar todos en:</div>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <code style="font-size:10px;background:var(--surf);border:1px solid var(--border);padding:2px 6px;border-radius:var(--r);color:var(--amber)">${esc(suggestedCluster)}</code>
+            <span style="font-size:10px;color:var(--muted)">(${sg.bd_results.find(b=>b.cluster_index===suggestedCluster)?.members?.length||0} stores · mayor cantidad)</span>
+            <button class="btn sm" style="font-size:10px;padding:2px 8px;margin-left:auto"
+              onclick="applySuggestedFusion('${esc(cid)}',${sgi},'${esc(suggestedCluster)}')">✓ Aplicar fusión</button>
           </div>
         </div>` : "";
 
