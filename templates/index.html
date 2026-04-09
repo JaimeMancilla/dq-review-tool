@@ -33,7 +33,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;backgrou
 .stat-lbl{font-size:10px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.05em}
 .stat-val{font-size:21px;font-weight:700;margin-top:2px}
 .stat-val.g{color:var(--green)}.stat-val.r{color:var(--red)}
-.clusters{max-width:1400px;margin:0 auto;padding:12px 20px 60px}
+.clusters{max-width:1600px;margin:0 auto;padding:12px 20px 60px}
 .cluster-wrap{background:var(--surf);border:1px solid var(--border);border-radius:var(--rl);margin-bottom:12px;overflow:hidden}
 .c-hdr{display:flex;align-items:center;gap:10px;padding:10px 16px;background:var(--surf2);border-bottom:1px solid var(--border);cursor:pointer;user-select:none}
 .c-hdr:hover{background:var(--surf3)}
@@ -60,7 +60,7 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
 .thr-info{font-size:10px;color:var(--purple);font-weight:600;margin-left:auto}
 .c-body-inner{display:flex}
 .col-table{flex:1;min-width:0}
-.col-bd{width:460px;flex-shrink:0;border-left:1px solid var(--border);background:#fafaf8;display:flex;flex-direction:column;overflow-y:auto}
+.col-bd{width:540px;flex-shrink:0;border-left:1px solid var(--border);background:#fafaf8;display:flex;flex-direction:column;overflow-y:auto}
 .bd-hdr{padding:8px 14px;border-bottom:1px solid var(--border);font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;display:flex;align-items:center;gap:8px;position:sticky;top:0;background:#fafaf8;z-index:2}
 .bd-upload{margin:8px 14px;border:1.5px dashed var(--border2);border-radius:var(--r);padding:10px;text-align:center;cursor:pointer;font-size:12px;color:var(--muted);transition:all .15s;display:block}
 .bd-upload:hover{border-color:var(--blue);color:var(--blue);background:var(--bbg)}
@@ -249,23 +249,23 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
 
 <!-- Modal corrección externa -->
 <div class="modal-bg" id="extCorrModal" onclick="if(event.target===this)closeExtCorr()">
-  <div class="modal-box" style="max-width:560px">
+  <div class="modal-box" style="max-width:580px">
     <div class="modal-hdr">
-      <h2>+ Corrección externa</h2>
+      <h2>+ Anotar corrección</h2>
       <button class="btn sm" onclick="closeExtCorr()">✕</button>
     </div>
     <div class="modal-body">
-      <p style="font-size:12px;color:var(--muted);margin-bottom:14px">
-        Este store no está en el archivo de revisión pero identificaste que necesita corrección.
-        Se guardará en una hoja separada del Excel final.
-      </p>
       <div id="extCorrInfo" style="background:var(--surf2);border-radius:var(--r);padding:10px 12px;font-size:12px;margin-bottom:12px"></div>
-      <div style="margin-bottom:8px">
-        <label style="font-size:11px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">Corrección (cluster_index destino)</label>
-        <input id="extCorrInput" class="corr-input" style="width:100%" placeholder="cluster_index correcto · vacío = crear nuevo">
+      <div style="margin-bottom:10px">
+        <label style="font-size:11px;font-weight:600;color:var(--muted);display:block;margin-bottom:6px">Asignar a cluster:</label>
+        <div id="extCorrClusterList" style="max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--r);margin-bottom:8px"></div>
+        <div style="display:flex;gap:6px;align-items:center">
+          <span style="font-size:11px;color:var(--muted)">O ingresa manualmente:</span>
+          <input id="extCorrInput" class="corr-input" style="flex:1;font-size:11px" placeholder="cluster_index · vacío = crear nuevo">
+        </div>
       </div>
       <div style="display:flex;gap:8px">
-        <button class="btn green" onclick="saveExtCorr()">✓ Guardar corrección externa</button>
+        <button class="btn green" onclick="saveExtCorr()">✓ Guardar</button>
         <button class="btn" onclick="closeExtCorr()">Cancelar</button>
       </div>
     </div>
@@ -742,15 +742,23 @@ function buildSgBlock(cl,sg,sgi){
       sg.members.map(ii => { const idx=ii.indexOf("_"); return idx>=0?ii.slice(idx+1):ii; })
     );
 
-    // Sugerencia de fusión automática
+    // Badge de fusión — mostrar selector con todos los clusters disponibles
     const uniqueClusters = new Set(sg.bd_results.map(b=>b.cluster_index));
     const suggestedCluster = uniqueClusters.size > 1 ? calcNewCluster(sg.bd_results) : null;
     const fusionBadge = suggestedCluster
-      ? `<div style="margin:6px 10px 4px;padding:7px 10px;background:var(--abg);border:1px solid var(--aborder);border-radius:var(--r);font-size:11px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-          <span>⚠️ <strong>${uniqueClusters.size} clusters distintos</strong> — fusionar en:</span>
-          <code style="font-size:10px;color:var(--amber)">${esc(suggestedCluster)}</code>
-          <button class="btn sm" style="font-size:10px;padding:2px 8px;margin-left:auto"
-            onclick="applySuggestedFusion('${esc(cid)}',${sgi},'${esc(suggestedCluster)}')">✓ Aplicar</button>
+      ? `<div style="margin:6px 10px 4px;padding:7px 10px;background:var(--abg);border:1px solid var(--aborder);border-radius:var(--r);font-size:11px">
+          <div style="font-weight:600;margin-bottom:6px">⚠️ ${uniqueClusters.size} clusters distintos — ¿cuál es el correcto?</div>
+          <div style="display:flex;flex-direction:column;gap:3px">
+            ${sg.bd_results.map(bdc=>`
+              <div onclick="applySuggestedFusion('${esc(cid)}',${sgi},'${esc(bdc.cluster_index)}')"
+                style="padding:5px 8px;cursor:pointer;border:1px solid var(--border);border-radius:var(--r);background:var(--surf);transition:background .1s;display:flex;align-items:center;gap:8px"
+                onmouseover="this.style.background='var(--bbg)'" onmouseout="this.style.background='var(--surf)'">
+                <span style="font-family:monospace;font-size:10px;color:var(--blue)">${esc(bdc.cluster_index)}</span>
+                ${bdc.members[0]?.cluster_name?`<span style="font-size:11px">${esc(bdc.members[0].cluster_name)}</span>`:""}
+                <span style="font-size:10px;color:var(--muted);margin-left:auto">${bdc.members.length} stores</span>
+                ${bdc.cluster_index===suggestedCluster?`<span style="font-size:9px;color:var(--amber);font-weight:700">★ sugerido</span>`:""}
+              </div>`).join("")}
+          </div>
         </div>` : "";
 
     const blocksHtml = sg.bd_results.map((bdc,bi)=>{
@@ -764,7 +772,7 @@ function buildSgBlock(cl,sg,sgi){
           <td style="padding:2px 4px;text-align:center;width:28px">
             <button class="btn sm" title="Anotar corrección externa"
               style="padding:2px 6px;font-size:12px;font-weight:700;width:100%;min-width:24px"
-              onclick="openExtCorr('${esc(m.store_id||"")}','${esc(m.app_name||"")}','${esc(m.app_address||"")}','${esc(bdc.cluster_index)}','${esc(m.cluster_name||"")}','${esc(m.cluster_address||"")}','${esc(m.scraper_source||"")}')">
+              onclick="openExtCorr('${esc(m.store_id||"")}','${esc(m.app_name||"")}','${esc(m.app_address||"")}','${esc(bdc.cluster_index)}','${esc(m.cluster_name||"")}','${esc(m.cluster_address||"")}','${esc(m.scraper_source||"")}','${esc(cid)}',${sgi})">
               +
             </button>
           </td>
@@ -780,9 +788,9 @@ function buildSgBlock(cl,sg,sgi){
           <label class="clean-lbl"><input type="checkbox" ${bdc.is_clean?"checked":""}
             onchange="setSgClean('${esc(cid)}',${sgi},${bi},this.checked)">limpio</label>
         </div>
-        <table style="width:100%;border-collapse:collapse;font-size:11px;table-layout:fixed">
+        <table style="width:100%;border-collapse:collapse;font-size:11px">
           <thead><tr style="background:var(--surf2)">
-            <th style="padding:3px 8px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border);width:120px;cursor:default;overflow:hidden">store_id</th>
+            <th style="padding:3px 8px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border);width:100px;cursor:default">store_id</th>
             <th style="padding:3px 8px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border);cursor:default">app_name</th>
             <th style="padding:3px 8px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border);cursor:default">app_address</th>
             <th style="padding:3px 8px;border-bottom:1px solid var(--border);width:28px;cursor:default"></th>
@@ -1102,17 +1110,47 @@ function rebuildBdPanel(cid){
 // ── corrección externa ────────────────────────────────────────────────────────
 let _extCorrData = null;
 
-function openExtCorr(store_id, app_name, app_address, cluster_index, cluster_name, cluster_address, scraper_source) {
+function openExtCorr(store_id, app_name, app_address, cluster_index, cluster_name, cluster_address, scraper_source, cid, sgi) {
   _extCorrData = {store_id, app_name, app_address, cluster_index, cluster_name, cluster_address, scraper_source: scraper_source||""};
   document.getElementById("extCorrInfo").innerHTML = `
-    <div style="margin-bottom:4px"><strong>${esc(app_name)}</strong></div>
+    <div style="margin-bottom:2px"><strong>${esc(app_name)}</strong></div>
     <div style="color:var(--muted);font-size:11px">${esc(app_address)}</div>
-    <div style="margin-top:6px;font-size:10px;color:var(--muted)">
-      Cluster actual: <code>${esc(cluster_index)}</code>
-      ${cluster_name ? `· ${esc(cluster_name)}` : ""}
-    </div>`;
+    <div style="margin-top:4px;font-size:10px;color:var(--muted)">Cluster actual: <code>${esc(cluster_index)}</code></div>`;
   document.getElementById("extCorrInput").value = "";
+
+  // Poblar lista de clusters del subgrupo
+  const listEl = document.getElementById("extCorrClusterList");
+  const bdResults = (cid && sgi !== undefined && SUBGROUPS[cid] && SUBGROUPS[cid][sgi])
+    ? (SUBGROUPS[cid][sgi].bd_results || []) : [];
+
+  if(bdResults.length) {
+    listEl.innerHTML = bdResults.map(bdc => `
+      <div onclick="selectExtCluster('${esc(bdc.cluster_index)}')"
+        style="padding:8px 12px;cursor:pointer;border-bottom:1px solid var(--border);transition:background .1s"
+        onmouseover="this.style.background='var(--bbg)'" onmouseout="this.style.background=''">
+        <div style="font-family:monospace;font-size:10px;color:var(--blue);font-weight:700">${esc(bdc.cluster_index)}</div>
+        ${bdc.members[0]?.cluster_name ? `<div style="font-size:11px;font-weight:500">${esc(bdc.members[0].cluster_name)}</div>` : ""}
+        ${bdc.members[0]?.cluster_address ? `<div style="font-size:10px;color:var(--muted)">${esc(bdc.members[0].cluster_address)}</div>` : ""}
+        <div style="font-size:10px;color:var(--muted)">${bdc.members.length} store${bdc.members.length!==1?"s":""} en BD</div>
+      </div>`).join("") +
+      `<div onclick="selectExtCluster('')"
+        style="padding:8px 12px;cursor:pointer;border-bottom:1px solid var(--border);transition:background .1s;color:var(--purple)"
+        onmouseover="this.style.background='var(--bbg)'" onmouseout="this.style.background=''">
+        <div style="font-weight:600;font-size:11px">+ Crear nuevo cluster</div>
+        <div style="font-size:10px;color:var(--muted)">Se asignará un nuevo cluster_index</div>
+      </div>`;
+  } else {
+    listEl.innerHTML = `<div style="padding:10px 12px;font-size:11px;color:var(--muted)">No hay clusters en la consulta — ingresa manualmente</div>`;
+  }
   document.getElementById("extCorrModal").classList.add("open");
+}
+
+function selectExtCluster(cluster_index) {
+  document.getElementById("extCorrInput").value = cluster_index;
+  // Highlight seleccionado
+  document.querySelectorAll("#extCorrClusterList > div").forEach(el => {
+    el.style.background = el.onclick?.toString().includes(cluster_index) ? "var(--bbg)" : "";
+  });
 }
 function closeExtCorr() {
   document.getElementById("extCorrModal").classList.remove("open");
