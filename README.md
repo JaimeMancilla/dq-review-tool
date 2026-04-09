@@ -1,89 +1,149 @@
-# Cluster Reviewer
+# DQ Review Tool
 
-Herramienta local para revisar y corregir clusters de product matching.
+Herramienta web local para revisión y corrección de calidad de datos en clusters de **product matching** — stores de delivery (restaurant y retail) y platos (dishes).
+
+Desarrollada en [Gregario](https://gregario.mx) para el equipo de Data Quality.
+
+---
+
+## Stack técnico
+
+| Componente | Tecnología |
+|-----------|------------|
+| Backend | Python 3.9+ / Flask |
+| BD producción | PostgreSQL (`pimvault.gcp.gregario.com`) |
+| Memoria interna | SQLite (`memory.db`) |
+| Similitud semántica | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` |
+| Sesiones | `flask-session` (filesystem) |
+| Frontend | JavaScript vanilla |
 
 ---
 
 ## Instalación (una sola vez)
 
-### 1. Instalar Python
-Si no tienes Python instalado, descárgalo desde https://python.org (versión 3.9 o superior).
-
-Verifica que esté instalado:
-```
-python --version
+### 1. Clonar el repositorio
+```bash
+git clone https://github.com/JaimeMancilla/stores-review.git
+cd stores-review
 ```
 
-### 2. Abrir la carpeta en terminal
-- **Mac**: abre Terminal, escribe `cd ` (con espacio), arrastra la carpeta `cluster_reviewer` al terminal y presiona Enter.
-- **Windows**: abre la carpeta en el Explorador, haz clic en la barra de direcciones, escribe `cmd` y presiona Enter.
-
-### 3. Instalar dependencias
-```
+### 2. Instalar dependencias
+```bash
 pip install -r requirements.txt
 ```
+
+### 3. Configurar credenciales PostgreSQL
+Crea un archivo `.env` en la raíz del proyecto:
+```
+PG_HOST=pimvault.gcp.gregario.com
+PG_PORT=5432
+PG_DB=pimvault
+PG_USER=tu_usuario
+PG_PASS=tu_password
+```
+
+### 4. Descargar modelo semántico (una sola vez)
+```python
+from sentence_transformers import SentenceTransformer
+SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
+```
+Una vez descargado, la app lo usa desde caché local sin conexión a internet.
 
 ---
 
 ## Uso diario
 
-### 1. Iniciar la app
-```
+### Iniciar la app
+```bash
 python app.py
 ```
+Abrir en el navegador: **http://localhost:5000**
 
-Verás en el terminal:
+### Detener la app
+`Ctrl + C` en el terminal.
+
+---
+
+## Módulos
+
+### 🏪 Stores (Restaurant / Retail)
+Revisión de clusters de locales. Al seleccionar este módulo se elige el segmento:
+- **Restaurant** → tabla `sales_opportunity.dim_maestra`
+- **Retail** → tabla `sales_opportunity.dim_maestra_retail`
+
+**Flujo:**
+1. Cargar archivo `.xlsx` de revisión
+2. Marcar stores incorrectos (checkbox)
+3. Generar subgrupos (agrupados por similitud de marca)
+4. Ejecutar query en BD para cada subgrupo
+5. Identificar el escenario de corrección (ver `RULES.md`)
+6. Asignar corrección
+7. Descargar archivo revisado o hacer click en **"⬆ Actualizar BD"**
+
+### 🍽️ Dishes
+Revisión de grupos de platos por similitud semántica.
+
+**Estados:**
+- `1` = Correcto
+- `0` = Incorrecto
+- `2` = Incompleto (fusionar con otro grupo)
+
+### 📊 Dashboard
+Panel de progreso accesible desde el menú principal. Muestra:
+- **Dishes**: archivos revisados, grupos ok/error/incompletos
+- **Restaurant / Retail**: progreso vs BD, tiendas migradas, nuevos clusters, selector de país
+
+---
+
+## Los 4 escenarios de corrección
+
+Ver documentación completa en [`RULES.md`](RULES.md).
+
+| Escenario | Descripción |
+|-----------|-------------|
+| **A** | Store incorrecto → reasignar a cluster limpio existente |
+| **B** | 2+ clusters separados que son el mismo local → fusionar según reglas |
+| **C** | Store externo (no en el archivo) → anotar con "+" y asignar cluster |
+| **D** | No existe cluster correcto → crear nuevo |
+
+---
+
+## Actualizar BD
+
+El botón **"⬆ Actualizar BD"** (módulo Stores) muestra preview de los INSERTs e inserta en `sales_opportunity.ctrl_restaurant_homologation` con `homologation_type = 'manual'` y `data_quality = true`.
+
+---
+
+## Memoria interna (`memory.db`)
+
+| Tabla | Contenido |
+|-------|-----------|
+| `session_state` | Estado de revisión por archivo (se restaura al recargar) |
+| `corrections` | Correcciones asignadas (sugerencias futuras) |
+| `external_corrections` | Correcciones de stores externos (Escenario C) |
+| `reviewed_clusters` | Registro de clusters revisados |
+| `reviewed_files` | Resumen por archivo (total, ok, error, fecha) |
+| `store_pairs` | Pares etiquetados de stores para futuro fine-tuning |
+| `dish_pairs` | Pares etiquetados de platos para futuro fine-tuning |
+
+---
+
+## Estructura del proyecto
+
 ```
-==================================================
-  Cluster Reviewer iniciado
-  Abrir en browser: http://localhost:5000
-==================================================
+stores-review/
+├── app.py              # Backend Flask
+├── templates/
+│   └── index.html      # Frontend (HTML + JS + CSS)
+├── requirements.txt
+├── RULES.md            # Reglas de negocio y escenarios
+├── .env                # Credenciales PG (no en repo)
+├── memory.db           # SQLite local (no en repo)
+└── flask_sessions/     # Sesiones servidor (no en repo)
 ```
 
-### 2. Abrir en el navegador
-Ve a: **http://localhost:5000**
-
-### 3. Flujo de revisión
-
-**Paso 1 — Cargar archivo**
-- Arrastra tu archivo Excel (.xlsx) o CSV al área de carga.
-- La app identifica automáticamente el ancla de cada cluster (donde `item_index == new_cluster`).
-- Marca revisión 1/0 comparando nombre y dirección vs el ancla.
-- Puedes cambiar cualquier 1→0 o 0→1 haciendo clic en el botón circular de cada fila.
-
-**Paso 2 — Revisar subgrupos incorrectos**
-- Para cada cluster con incorrectos (rev=0), los agrupa en subgrupos por similitud entre ellos.
-- Cada subgrupo tiene una **query SQL lista** para copiar y correr en tu BD PostgreSQL.
-
-**Paso 3 — Subir CSV de BD**
-- Corre la query en tu BD, exporta como CSV.
-- Sube ese CSV en el subgrupo correspondiente.
-- La app muestra los clusters encontrados. **Tú marcas cuáles son "cluster limpio"**.
-- Haz clic en "Asignar clusters limpios marcados".
-  - Si hay 1 cluster limpio → se asigna ese.
-  - Si hay 2+ → se asigna como `("cluster1","cluster2")`.
-  - Si no hay ninguno limpio → usa el botón "Crear nuevo cluster".
-
-**Paso 4 — Descargar**
-- Clic en "⬇ Descargar revisado" en la barra superior.
-- Descarga el Excel original con las columnas `revision` y `correccion` añadidas.
-
 ---
 
-## Lógica de identificación del ancla
+## Licencia
 
-El ancla de un `new_cluster` es el miembro cuyo `item_index` es igual al valor de `new_cluster`.  
-Si el archivo no tiene columna `new_cluster`, se usa `cluster_index`.
-
----
-
-## Lógica de nuevo cluster
-
-Cuando no hay cluster limpio en la BD para un subgrupo:
-- Se toma el `item_index` del miembro con menor valor del subgrupo.
-- Se usa como nombre del nuevo cluster (ya que `item_index = app_id + "_" + store_id`).
-
----
-
-## Detener la app
-En el terminal donde corre: presiona `Ctrl + C`.
+Uso interno — Gregario © 2024-2026
