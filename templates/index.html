@@ -158,135 +158,97 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
 
 /* ── Subgroups Modal (nuevo) ── */
 .sg-modal-box{
-  background:var(--surf);border-radius:var(--rl);
-  width:100%;max-width:1100px;height:88vh;
+  background:var(--bg);border-radius:var(--rl);
+  width:100%;max-width:1200px;height:90vh;
   display:flex;flex-direction:column;
   box-shadow:var(--shadow-lg);overflow:hidden;
 }
 .sg-modal-hdr{
   display:flex;align-items:center;gap:12px;
-  padding:16px 22px;border-bottom:1px solid var(--border);
-  background:var(--surf2);flex-shrink:0;
+  padding:14px 20px;border-bottom:1px solid var(--border);
+  background:var(--surf);flex-shrink:0;
 }
 .sg-modal-title{font-size:15px;font-weight:700;flex:1}
-.sg-modal-meta{font-size:11px;color:var(--muted)}
+.sg-modal-meta{font-size:11px;color:var(--muted);margin-right:8px}
 .sg-modal-body{
-  display:flex;flex:1;overflow:hidden;
+  flex:1;overflow-y:auto;padding:16px 20px;
 }
-/* Panel izquierdo: lista de stores incorrectos */
-.sg-stores-panel{
-  width:280px;flex-shrink:0;border-right:1px solid var(--border);
-  display:flex;flex-direction:column;background:var(--surf2);
-}
-.sg-stores-hdr{
-  padding:10px 14px;border-bottom:1px solid var(--border);
-  font-size:10px;font-weight:700;color:var(--muted);
-  text-transform:uppercase;letter-spacing:.06em;flex-shrink:0;
-}
-.sg-stores-list{overflow-y:auto;flex:1;padding:8px}
-.sg-store-item{
-  background:var(--surf);border:1px solid var(--border);border-radius:var(--r);
-  padding:8px 10px;margin-bottom:6px;cursor:grab;transition:all .15s;
-  user-select:none;
-}
-.sg-store-item:hover{border-color:var(--bborder);box-shadow:0 2px 8px rgba(26,95,180,.08)}
-.sg-store-item.dragging{opacity:.35;cursor:grabbing}
-.sg-store-item.assigned{opacity:.5;border-style:dashed}
-.sg-store-name{font-size:11px;font-weight:600;color:var(--text);margin-bottom:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.sg-store-addr{font-size:10px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-/* Panel derecho: subgrupos */
-.sg-groups-panel{
-  flex:1;overflow-y:auto;padding:14px;
-  display:flex;flex-direction:column;gap:12px;
+/* Grilla de grupos */
+.sg-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(340px,1fr));
+  gap:14px;
 }
 .sg-group-card{
   background:var(--surf);border:2px solid var(--border);border-radius:var(--rl);
-  overflow:hidden;transition:all .15s;
+  overflow:hidden;transition:all .15s;display:flex;flex-direction:column;
 }
-.sg-group-card.corrected{border-color:var(--gborder);background:var(--gbg);}
+.sg-group-card.corrected{border-color:var(--gborder);}
 .sg-group-card.drag-over{border-color:var(--blue);border-style:dashed;background:var(--bbg)}
 .sg-group-hdr{
-  display:flex;align-items:center;gap:10px;
-  padding:10px 14px;border-bottom:1px solid var(--border);
-  background:rgba(0,0,0,.02);
+  display:flex;align-items:center;gap:8px;
+  padding:10px 12px;border-bottom:1px solid var(--border);
+  background:var(--surf2);flex-shrink:0;
 }
-.sg-group-hdr.corrected{background:rgba(15,123,62,.05);border-bottom-color:var(--gborder)}
+.sg-group-hdr.corrected{background:rgba(15,123,62,.06);border-bottom-color:var(--gborder)}
 .sg-group-num{
-  width:24px;height:24px;border-radius:50%;
+  width:22px;height:22px;border-radius:50%;
   background:var(--rbg);border:1.5px solid var(--rborder);
   display:flex;align-items:center;justify-content:center;
   font-size:10px;font-weight:800;color:var(--red);flex-shrink:0;
 }
 .sg-group-num.corrected{background:var(--gbg);border-color:var(--gborder);color:var(--green)}
 .sg-group-name{font-size:12px;font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.sg-group-count{font-size:10px;color:var(--muted)}
-.sg-group-corr{font-family:monospace;font-size:10px;color:var(--green);font-weight:700;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.sg-group-body{padding:10px 14px}
+.sg-group-count{font-size:10px;color:var(--muted);white-space:nowrap}
+.sg-group-corr-badge{font-family:monospace;font-size:9px;color:var(--green);font-weight:700;
+  background:var(--gbg);border:1px solid var(--gborder);border-radius:4px;
+  padding:1px 6px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sg-group-body{padding:10px 12px;flex:1;display:flex;flex-direction:column;gap:8px}
+/* Drop zone */
 .sg-drop-zone{
-  min-height:36px;border:2px dashed var(--border2);border-radius:var(--r);
-  padding:6px;display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px;
-  transition:all .15s;
+  min-height:40px;border:2px dashed var(--border2);border-radius:var(--r);
+  padding:6px;display:flex;flex-wrap:wrap;gap:4px;
+  transition:all .15s;background:var(--surf2);
 }
 .sg-drop-zone.drag-over{border-color:var(--blue);background:var(--bbg)}
 .sg-drop-zone:empty::after{
   content:"Arrastra stores aquí";
   font-size:10px;color:var(--muted);
-  display:flex;align-items:center;justify-content:center;
-  width:100%;padding:4px;
+  width:100%;text-align:center;padding:6px 0;
 }
-/* Store chip dentro del grupo */
+/* Chip dentro del grupo */
 .sg-chip{
   display:inline-flex;align-items:center;gap:4px;
-  background:var(--surf2);border:1px solid var(--border);
-  border-radius:5px;padding:3px 8px;font-size:10px;
-  font-weight:500;cursor:grab;max-width:220px;
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-  transition:all .12s;
+  background:var(--surf);border:1px solid var(--border2);
+  border-radius:5px;padding:3px 8px;font-size:10px;font-weight:500;
+  cursor:grab;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  transition:all .12s;max-width:100%;
 }
 .sg-chip:hover{background:var(--rbg);border-color:var(--rborder)}
-.sg-chip-x{cursor:pointer;opacity:.4;font-size:11px;flex-shrink:0}
+.sg-chip-x{cursor:pointer;opacity:.4;font-size:11px;flex-shrink:0;line-height:1}
 .sg-chip-x:hover{opacity:1;color:var(--red)}
-/* BD results dentro del grupo */
-.sg-bd-results{margin-bottom:10px}
-.sg-bd-cluster{
-  border:1px solid var(--border);border-radius:var(--r);
-  margin-bottom:6px;overflow:hidden;
-}
-.sg-bd-cluster-hdr{
-  display:flex;align-items:center;gap:8px;
-  padding:6px 10px;background:var(--surf2);
-  border-bottom:1px solid var(--border);
-}
-.sg-bd-cluster-id{font-family:monospace;font-size:10px;font-weight:700;color:var(--blue);flex:1}
-.sg-bd-member{
-  display:flex;align-items:center;gap:6px;
-  padding:4px 10px;border-bottom:1px solid var(--border);font-size:11px;
-}
+/* BD results */
+.sg-bd-cluster{border:1px solid var(--border);border-radius:var(--r);overflow:hidden;margin-bottom:4px}
+.sg-bd-cluster-hdr{display:flex;align-items:center;gap:6px;padding:5px 8px;background:var(--surf2);border-bottom:1px solid var(--border)}
+.sg-bd-cluster-id{font-family:monospace;font-size:10px;font-weight:700;color:var(--blue);flex:1;overflow:hidden;text-overflow:ellipsis}
+.sg-bd-member{display:flex;align-items:center;gap:6px;padding:4px 8px;border-bottom:1px solid var(--border);font-size:11px}
 .sg-bd-member:last-child{border-bottom:none}
 .sg-bd-member.match{background:var(--gbg)}
-/* Corrección del grupo */
-.sg-group-corr-row{
-  display:flex;gap:6px;align-items:center;flex-wrap:wrap;
-}
-.sg-group-actions{
-  display:flex;gap:6px;padding:8px 14px;
-  border-top:1px solid var(--border);background:var(--surf2);
-  flex-wrap:wrap;align-items:center;
-}
-/* Footer del modal */
+/* Sección corrección */
+.sg-corr-section{background:var(--surf2);border-radius:var(--r);padding:8px 10px;border:1px solid var(--border);margin-top:auto}
+/* Footer */
 .sg-modal-footer{
-  padding:12px 22px;border-top:1px solid var(--border);
-  background:var(--surf2);display:flex;gap:8px;
+  padding:12px 20px;border-top:1px solid var(--border);
+  background:var(--surf);display:flex;gap:8px;
   justify-content:flex-end;align-items:center;flex-shrink:0;
 }
-.sg-modal-progress{
-  flex:1;font-size:11px;color:var(--muted);
-}
-/* Botón agregar grupo */
+.sg-modal-progress{flex:1;font-size:11px;color:var(--muted)}
+/* Añadir grupo */
 .sg-add-group{
   border:2px dashed var(--border2);border-radius:var(--rl);
-  padding:12px;text-align:center;cursor:pointer;
+  padding:20px;text-align:center;cursor:pointer;
   font-size:12px;color:var(--muted);transition:all .15s;
+  background:var(--surf);
 }
 .sg-add-group:hover{border-color:var(--blue);color:var(--blue);background:var(--bbg)}
 </style>
@@ -416,26 +378,19 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
 <div class="modal-bg" id="sgModal" onclick="if(event.target===this)closeSgModal()">
   <div class="sg-modal-box">
     <div class="sg-modal-hdr">
-      <div>
+      <div style="flex:1">
         <div class="sg-modal-title" id="sgModalTitle">Subgrupos</div>
         <div class="sg-modal-meta" id="sgModalMeta"></div>
       </div>
       <button class="btn sm" onclick="sgModalAddGroup()">+ Grupo</button>
-      <button class="btn sm" onclick="closeSgModal()">✕</button>
+      <button class="btn sm" onclick="closeSgModal()">✕ Cerrar</button>
     </div>
     <div class="sg-modal-body">
-      <!-- Panel izq: stores sin asignar -->
-      <div class="sg-stores-panel">
-        <div class="sg-stores-hdr">Stores incorrectos</div>
-        <div class="sg-stores-list" id="sgStoresList"></div>
-      </div>
-      <!-- Panel der: grupos -->
-      <div class="sg-groups-panel" id="sgGroupsPanel"></div>
+      <div class="sg-grid" id="sgGroupsPanel"></div>
     </div>
     <div class="sg-modal-footer">
       <div class="sg-modal-progress" id="sgModalProgress"></div>
-      <button class="btn" onclick="closeSgModal()">Cerrar</button>
-      <button class="btn primary" onclick="sgModalSave()">Guardar cambios</button>
+      <button class="btn primary" onclick="sgModalSave()">✓ Guardar y cerrar</button>
     </div>
   </div>
 </div>
@@ -2062,26 +2017,20 @@ function openSgModal(cid) {
   const cl = getCl(cid); if (!cl) return;
   const sgs = SUBGROUPS[cid] || [];
 
-  // Título
   document.getElementById("sgModalTitle").textContent =
     `Subgrupos — ${cl.anchor_name || cid}`;
   document.getElementById("sgModalMeta").textContent =
     `${sgs.length} subgrupo${sgs.length!==1?"s":""} · ${cl.members.filter(m=>m.revision===0).length} stores incorrectos`;
 
-  // Renderizar panel izquierdo (stores sin asignar)
-  renderSgStoresList(cid);
-  // Renderizar panel derecho (grupos)
   renderSgGroupsPanel(cid);
-  // Actualizar progreso
   updateSgModalProgress(cid);
-
   document.getElementById("sgModal").classList.add("open");
 }
 
 function closeSgModal() {
   document.getElementById("sgModal").classList.remove("open");
   if (_sgModalCid) {
-    rebuildBdPanel(getCl(_sgModalCid) ? getCl(_sgModalCid) : {cluster_id:_sgModalCid});
+    rebuildBdPanel(getCl(_sgModalCid)||{cluster_id:_sgModalCid});
     refreshClusterBadge(_sgModalCid);
     renderFilterBar();
   }
@@ -2095,42 +2044,12 @@ function sgModalSave() {
   toast("Subgrupos guardados ✓");
 }
 
-function renderSgStoresList(cid) {
-  const cl = getCl(cid); if (!cl) return;
-  const sgs = SUBGROUPS[cid] || [];
-  // Stores asignados a algún subgrupo
-  const assigned = new Set(sgs.flatMap(sg => sg.members));
-  const badMembers = cl.members.filter(m => m.revision === 0);
-
-  const el = document.getElementById("sgStoresList");
-  if (!badMembers.length) { el.innerHTML = `<div style="padding:12px;font-size:11px;color:var(--muted)">Sin stores incorrectos</div>`; return; }
-
-  el.innerHTML = badMembers.map(m => {
-    const isAssigned = assigned.has(m.item_index);
-    return `<div class="sg-store-item ${isAssigned?'assigned':''}"
-      draggable="true"
-      data-ii="${esc(m.item_index)}"
-      data-name="${esc(m.app_name)}"
-      data-addr="${esc(m.app_address)}"
-      ondragstart="onSgModalDragStart(event)"
-      ondragend="onSgModalDragEnd(event)"
-      title="${esc(m.item_index)}">
-      <div class="sg-store-name">${esc(m.app_name)}</div>
-      <div class="sg-store-addr">${esc((m.app_address||'').slice(0,60))}</div>
-    </div>`;
-  }).join("");
-}
-
 function renderSgGroupsPanel(cid) {
   const sgs = SUBGROUPS[cid] || [];
-  const cl = getCl(cid);
   const el = document.getElementById("sgGroupsPanel");
-
-  const groupsHtml = sgs.map((sg, sgi) => buildSgGroupCard(cid, sg, sgi)).join("");
-  el.innerHTML = groupsHtml + `
-    <div class="sg-add-group" onclick="sgModalAddGroup()">
-      + Añadir grupo vacío
-    </div>`;
+  if (!el) return;
+  el.innerHTML = sgs.map((sg, sgi) => buildSgGroupCard(cid, sg, sgi)).join("") +
+    `<div class="sg-add-group" onclick="sgModalAddGroup()">+ Añadir grupo vacío</div>`;
 }
 
 function buildSgGroupCard(cid, sg, sgi) {
@@ -2141,14 +2060,10 @@ function buildSgGroupCard(cid, sg, sgi) {
   // Chips de stores en este grupo
   const chipsHtml = sg.members.map(ii => {
     const m = clMembers.find(m => m.item_index === ii);
-    const label = m ? m.app_name.slice(0,32) + (m.app_name.length>32?'…':'') : ii.slice(-12);
-    const addr  = m ? (m.app_address||'').slice(0,45) : '';
-    return `<div class="sg-chip" draggable="true"
-      data-ii="${esc(ii)}" data-from-sgi="${sgi}" data-cid="${esc(cid)}"
-      ondragstart="onSgChipDragStart(event)"
-      ondragend="onSgChipDragEnd(event)"
-      title="${esc(ii)}\n${esc(addr)}">
-      ${esc(label)}
+    const label = m ? m.app_name : ii.slice(-12);
+    const addr  = m ? (m.app_address||'').slice(0,50) : '';
+    return `<div class="sg-chip" title="${esc(addr)}">
+      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px">${esc(label)}</span>
       <span class="sg-chip-x" onclick="removeSgChip('${esc(cid)}',${sgi},'${esc(ii)}')">✕</span>
     </div>`;
   }).join("");
@@ -2205,7 +2120,7 @@ function buildSgGroupCard(cid, sg, sgi) {
       <div class="sg-group-num ${isCorr?'corrected':''}">${isCorr?'✓':sgi+1}</div>
       <div class="sg-group-name">${esc(sg.rep_name||"Grupo "+(sgi+1))}</div>
       <div class="sg-group-count">${sg.members.length} store${sg.members.length!==1?"s":""}</div>
-      ${isCorr?`<div class="sg-group-corr" title="${esc(sg.correction)}">${esc(sg.correction)}</div>`:''}
+      ${isCorr?`<div class="sg-group-corr-badge" title="${esc(sg.correction)}">${esc(sg.correction)}</div>`:''}
     </div>
     <div class="sg-group-body">
       <!-- Drop zone para stores -->
@@ -2226,10 +2141,10 @@ function buildSgGroupCard(cid, sg, sgi) {
       ${bdHtml ? `<div class="sg-bd-results">${bdHtml}</div>` : ''}
 
       <!-- Corrección -->
-      <div style="background:var(--surf2);border-radius:var(--r);padding:8px 10px;border:1px solid var(--border)">
+      <div class="sg-corr-section">
         <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Corrección</div>
         <div style="margin-bottom:6px">${corrHtml}</div>
-        ${!sg.correction && !sg.bd_results?.length ? `<div style="font-size:10px;color:var(--amber);margin-bottom:6px">⚠ La query no devolvió resultados — ingresa manualmente o crea nuevo.</div>` : ''}
+        ${!sg.correction && !sg.bd_results?.length ? `<div style="font-size:10px;color:var(--amber);margin-bottom:6px">⚠ Sin resultados — ingresa manualmente o crea nuevo.</div>` : ''}
         <div style="display:flex;gap:5px;flex-wrap:wrap">
           <input id="sgModalCorrIn_${CSS.escape(cid)}_${sgi}" class="corr-input" placeholder="Pegar cluster_index aquí" style="font-size:11px;padding:5px 8px">
           <button class="btn green sm" onclick="assignSgInputModal('${esc(cid)}',${sgi})">✓</button>
