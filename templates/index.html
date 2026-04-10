@@ -1071,9 +1071,15 @@ async function fusionSgClean(cid,sgi){
   toast(`⇄ Fusión aplicada → ${winner}`);
 }
 async function assignSgInput(cid,sgi,sgKey){
-  const inp=document.getElementById("sgCorrIn_"+sgKey);
-  const val=(inp?.value||"").trim();if(!val){toast("Escribe el cluster_index");return}
-  await saveSgCorr(cid,sgi,val,false);if(inp)inp.value="";
+  // Buscar el input dentro del sg-block correspondiente
+  const panel = document.querySelector(`.col-bd[data-cid="${cid}"]`);
+  const blocks = panel ? panel.querySelectorAll(".sg-block") : [];
+  const block = blocks[sgi];
+  const inp = block ? block.querySelector(".corr-input") : document.getElementById("sgCorrIn_"+sgKey);
+  const val = (inp?.value||"").trim();
+  if(!val){toast("Escribe el cluster_index");return}
+  await saveSgCorr(cid,sgi,val,false);
+  if(inp) inp.value="";
 }
 async function createSgNew(cid,sgi){
   const sgs=SUBGROUPS[cid];if(!sgs||!sgs[sgi])return;
