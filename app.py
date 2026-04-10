@@ -1702,6 +1702,14 @@ def clean_correction(corr):
         return corr[6:]
     return corr
 
+def infer_scraper_source(scraper_source, item_index):
+    """Si scraper_source está vacío, lo infiere desde item_index (formato: appId_storeId)."""
+    if scraper_source:
+        return scraper_source
+    if item_index and "_" in item_index:
+        return item_index.split("_")[0]
+    return ""
+
 @app.route("/bd_update/preview", methods=["POST"])
 def bd_update_preview():
     """Genera preview de los INSERTs que se harían en ctrl_restaurant_homologation."""
@@ -1720,7 +1728,7 @@ def bd_update_preview():
             if not member: continue
             rows.append({
                 "store_id":       member.get("store_id", ""),
-                "scraper_source": member.get("scraper_source", ""),
+                "scraper_source": infer_scraper_source(member.get("scraper_source",""), ii),
                 "old_cluster":    member.get("cluster_index", cl["cluster_id"]),
                 "new_cluster":    corr,
                 "country":        country,
@@ -1733,7 +1741,7 @@ def bd_update_preview():
         if not rec.get("correction"): continue
         rows.append({
             "store_id":       rec.get("store_id", ""),
-            "scraper_source": rec.get("scraper_source", ""),
+            "scraper_source": infer_scraper_source(rec.get("scraper_source",""), rec.get("item_index","")),
             "old_cluster":    rec.get("cluster_index", ""),
             "new_cluster":    clean_correction(rec.get("correction", "")),
             "country":        country,
