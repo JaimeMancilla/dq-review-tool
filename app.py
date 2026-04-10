@@ -716,9 +716,12 @@ def ext_corr_add(record):
 
 def ext_corr_list():
     conn = sqlite3.connect(DB_FILE)
-    rows = conn.execute(
-        "SELECT * FROM external_corrections ORDER BY added_at DESC"
-    ).fetchall()
+    rows = conn.execute("""
+        SELECT id, store_id, item_index, cluster_index, cluster_name,
+               cluster_address, app_name, app_address, scraper_source,
+               correction, added_at, file_name
+        FROM external_corrections ORDER BY added_at DESC
+    """).fetchall()
     conn.close()
     cols = ["id","store_id","item_index","cluster_index","cluster_name",
             "cluster_address","app_name","app_address","scraper_source","correction","added_at","file_name"]
