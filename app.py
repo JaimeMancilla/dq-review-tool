@@ -1124,7 +1124,7 @@ def run_pg_query():
 
     full_sql = f"""select
   cluster_index, store_id, cluster_name, main_chain,
-  app_name, app_address, app_longitude, app_latitude
+  app_name, app_address, app_longitude, app_latitude, scraper_source
 from {get_pg_table()}
 where country = '{country}'
   and cluster_index in ({ci_list})
