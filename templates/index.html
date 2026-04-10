@@ -604,24 +604,22 @@ function buildCard(cl){
   const bad=cl.members.filter(m=>m.revision===0).length;
   const prog = clusterProgress(cl);
 
-  const okCount = cl.members.filter(m => m.revision === 1).length;
-  const badBadge = bad > 0
-    ? `<span class="badge bad">${bad} incorrecto${bad>1?"s":""}</span>`
-    : `<span class="badge ok">✓ Sin incorrectos</span>`;
-  let corrBadge = "";
-  if (prog.total > 0) {
-    corrBadge = prog.done
-      ? `<span class="badge ok">✓ ${prog.corrected}/${prog.total} corregidos</span>`
-      : `<span class="badge bad">${prog.corrected}/${prog.total} corregidos</span>`;
+  let statusBadge;
+  if (bad === 0) {
+    statusBadge = `<span class="badge ok">✓ Sin incorrectos</span>`;
+  } else if (prog.done) {
+    statusBadge = `<span class="badge ok">✓ ${prog.corrected}/${prog.total} corregidos</span>`;
+  } else if (prog.total > 0) {
+    statusBadge = `<span class="badge bad">${prog.corrected}/${prog.total} corregidos</span>`;
+  } else {
+    statusBadge = `<span class="badge bad">${bad} incorrecto${bad>1?"s":""}</span>`;
   }
   wrap.innerHTML=`
     <div class="c-hdr" onclick="toggleCard(this)">
       <span class="c-id">${esc(cl.cluster_id)}</span>
       <span class="c-anchor">${esc(cl.anchor_name)}</span>
       <span class="badge n">${cl.count} stores</span>
-      <span class="badge ok" style="background:var(--gbg);color:var(--green);border-color:var(--gborder)">${okCount} correcto${okCount!==1?"s":""}</span>
-      ${badBadge}
-      ${corrBadge}
+      ${statusBadge}
       ${cl.already_reviewed?`<span class="badge" style="background:var(--surf2);color:var(--muted);font-size:9px;border:1px solid var(--border2)">ya revisado</span>`:""}
       <span class="chev">▼</span>
     </div>
@@ -1071,15 +1069,9 @@ async function fusionSgClean(cid,sgi){
   toast(`⇄ Fusión aplicada → ${winner}`);
 }
 async function assignSgInput(cid,sgi,sgKey){
-  // Buscar el input dentro del sg-block correspondiente
-  const panel = document.querySelector(`.col-bd[data-cid="${cid}"]`);
-  const blocks = panel ? panel.querySelectorAll(".sg-block") : [];
-  const block = blocks[sgi];
-  const inp = block ? block.querySelector(".corr-input") : document.getElementById("sgCorrIn_"+sgKey);
-  const val = (inp?.value||"").trim();
-  if(!val){toast("Escribe el cluster_index");return}
-  await saveSgCorr(cid,sgi,val,false);
-  if(inp) inp.value="";
+  const inp=document.getElementById("sgCorrIn_"+sgKey);
+  const val=(inp?.value||"").trim();if(!val){toast("Escribe el cluster_index");return}
+  await saveSgCorr(cid,sgi,val,false);if(inp)inp.value="";
 }
 async function createSgNew(cid,sgi){
   const sgs=SUBGROUPS[cid];if(!sgs||!sgs[sgi])return;
@@ -1135,28 +1127,16 @@ function refreshClusterBadge(cid) {
   const card = document.getElementById("card_"+CSS.escape(cid)); if (!card) return;
   const prog = clusterProgress(cl);
   const bad  = cl.members.filter(m=>m.revision===0).length;
-  const okCount = cl.members.filter(m=>m.revision===1).length;
-  const badBadge = bad > 0
-    ? `<span class="badge bad">${bad} incorrecto${bad>1?"s":""}</span>`
-    : `<span class="badge ok">✓ Sin incorrectos</span>`;
-  let corrBadge = "";
-  if (prog.total > 0) {
-    corrBadge = prog.done
-      ? `<span class="badge ok">✓ ${prog.corrected}/${prog.total} corregidos</span>`
-      : `<span class="badge bad">${prog.corrected}/${prog.total} corregidos</span>`;
-  }
+  let html;
+  if (bad === 0)       html = `<span class="badge ok">✓ Sin incorrectos</span>`;
+  else if (prog.done)  html = `<span class="badge ok">✓ ${prog.corrected}/${prog.total} corregidos</span>`;
+  else if (prog.total) html = `<span class="badge bad">${prog.corrected}/${prog.total} corregidos</span>`;
+  else                 html = `<span class="badge bad">${bad} incorrecto${bad>1?"s":""}</span>`;
+  // Reemplazar solo el badge de estado (último antes del chev)
   const hdr = card.querySelector(".c-hdr");
   if (!hdr) return;
-  // Quitar badges dinámicos (todos excepto .n y "ya revisado")
-  Array.from(hdr.querySelectorAll(".badge:not(.n)"))
-    .filter(b => !b.textContent.includes("ya revisado"))
-    .forEach(b => b.remove());
-  // Insertar antes del chev
-  const chev = hdr.querySelector(".chev");
-  const ins = (html) => { const t=document.createElement("span"); t.innerHTML=html; hdr.insertBefore(t.firstElementChild, chev); };
-  if (corrBadge) ins(corrBadge);
-  ins(badBadge);
-  ins(`<span class="badge ok" style="background:var(--gbg);color:var(--green);border-color:var(--gborder)">${okCount} correcto${okCount!==1?"s":""}</span>`);
+  const badges = hdr.querySelectorAll(".badge:not(.n)");
+  if (badges.length) { const tmp=document.createElement("span"); tmp.innerHTML=html; badges[badges.length-1].replaceWith(tmp.firstElementChild); }
 }
 
 function rebuildBdPanel(cid){
@@ -1517,10 +1497,15 @@ async function openBdUpdate() {
   }
 
   const srcLabel = {"file":"📄 Archivo","external":"📝 Anotar"};
-  const rows = d.rows.map(r=>`<tr>
+  const rows = d.rows.map((r,i)=>`<tr>
     <td style="padding:5px 10px;font-size:11px;color:var(--muted)">${srcLabel[r.source]||r.source}</td>
     <td style="padding:5px 10px;font-family:monospace;font-size:10px;color:var(--muted)">${esc(r.store_id)}</td>
-    <td style="padding:5px 10px;font-size:11px">${esc(r.scraper_source||"—")}</td>
+    <td style="padding:3px 6px;font-size:11px">${r.scraper_source
+      ? esc(r.scraper_source)
+      : `<input data-row="${i}" class="ss-input" value="" placeholder="scraper_source"
+           style="width:110px;padding:3px 6px;font-size:11px;border:1px solid var(--rborder);border-radius:4px;background:var(--rbg);color:var(--text)"
+           oninput="_bdUpdateRows[${i}].scraper_source=this.value">`
+    }</td>
     <td style="padding:5px 10px;font-family:monospace;font-size:10px;color:var(--red)">${esc(r.old_cluster)}</td>
     <td style="padding:5px 10px;font-family:monospace;font-size:10px;color:var(--green)">${esc(r.new_cluster)}</td>
   </tr>`).join("");
