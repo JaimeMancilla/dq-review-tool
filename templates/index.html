@@ -206,7 +206,7 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
   display:flex;min-height:0;
 }
 .sg-group-stores{
-  width:280px;flex-shrink:0;border-right:1px solid var(--border);
+  width:340px;flex-shrink:0;border-right:1px solid var(--border);
   padding:10px;display:flex;flex-direction:column;gap:4px;
   background:var(--surf2);
 }
@@ -229,12 +229,12 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
 .sg-chip{
   display:flex;flex-direction:column;
   background:var(--surf);border:1px solid var(--border2);
-  border-radius:5px;padding:5px 8px;font-size:10px;
+  border-radius:5px;padding:5px 24px 5px 8px;font-size:10px;
   cursor:grab;transition:all .12s;position:relative;
 }
 .sg-chip:hover{background:var(--rbg);border-color:var(--rborder)}
-.sg-chip-name{font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-right:16px}
-.sg-chip-addr{color:var(--muted);font-size:9px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:1px}
+.sg-chip-name{font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sg-chip-addr{color:var(--muted);font-size:9px;white-space:normal;line-height:1.3;margin-top:2px}
 .sg-chip-x{position:absolute;top:4px;right:6px;cursor:pointer;opacity:.4;font-size:11px;line-height:1}
 .sg-chip-x:hover{opacity:1;color:var(--red)}
 /* BD results */
@@ -2086,9 +2086,12 @@ function buildSgGroupCard(cid, sg, sgi) {
       const rowsHtml = bdc.members.map(m => {
         const isMatch = sgStoreIds.has(String(m.store_id||""));
         return `<div class="sg-bd-member ${isMatch?'match':''}">
-          <span style="font-family:monospace;font-size:10px;color:var(--muted);min-width:70px;overflow:hidden;text-overflow:ellipsis">${esc((m.store_id||'').slice(0,14))}</span>
-          <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px">${esc(m.app_name||'')}${isMatch?` <span style="color:var(--green);font-size:9px">✓</span>`:''}</span>
-          <button class="btn sm" style="padding:1px 6px;font-size:11px"
+          <span style="font-family:monospace;font-size:10px;color:var(--muted);min-width:70px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex-shrink:0">${esc((m.store_id||'').slice(0,14))}</span>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(m.app_name||'')}${isMatch?` <span style="color:var(--green);font-size:9px">✓</span>`:''}</div>
+            <div style="font-size:9px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc((m.app_address||'').slice(0,60))}</div>
+          </div>
+          <button class="btn sm" style="padding:1px 6px;font-size:11px;flex-shrink:0"
             onclick="openExtCorr('${esc(m.store_id||"")}','${esc(m.app_name||"")}','${esc(m.app_address||"")}','${esc(bdc.cluster_index)}','${esc(m.cluster_name||"")}','${esc(m.cluster_address||"")}','${esc(m.scraper_source||"")}','${esc(cid)}',${sgi})">+</button>
         </div>`;
       }).join("");
