@@ -1693,6 +1693,12 @@ def store_pairs_stats():
     })
 
 
+def clean_correction(corr):
+    """Elimina prefijo NUEVO: si existe (artefacto de versiones anteriores)."""
+    if isinstance(corr, str) and corr.startswith("NUEVO:"):
+        return corr[6:]
+    return corr
+
 @app.route("/bd_update/preview", methods=["POST"])
 def bd_update_preview():
     """Genera preview de los INSERTs que se harían en ctrl_restaurant_homologation."""
@@ -1706,6 +1712,7 @@ def bd_update_preview():
     for cl in clusters:
         for ii, corr in cl.get("corrections", {}).items():
             if not corr: continue
+            corr = clean_correction(corr)
             member = next((m for m in cl["members"] if m["item_index"] == ii), None)
             if not member: continue
             rows.append({
@@ -1725,7 +1732,7 @@ def bd_update_preview():
             "store_id":       rec.get("store_id", ""),
             "scraper_source": rec.get("scraper_source", ""),
             "old_cluster":    rec.get("cluster_index", ""),
-            "new_cluster":    rec.get("correction", ""),
+            "new_cluster":    clean_correction(rec.get("correction", "")),
             "country":        country,
             "store_type":     store_type,
             "source":         "external",
