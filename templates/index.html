@@ -832,11 +832,10 @@ function buildSgBlock(cl,sg,sgi){
       <div style="padding:8px 10px;background:var(--surf2);border-top:1px solid var(--border)">
         <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px">Corrección</div>
         <div id="sgCorrChip_${sgKey}" style="margin-bottom:5px">${corrHtml}</div>
+        ${!sg.correction && !sg.bd_results?.length ? `<div style="font-size:10px;color:var(--amber);margin-bottom:5px">⚠ La query no devolvió resultados — ingresa el cluster_index manualmente o crea uno nuevo.</div>` : ""}
         <div style="display:flex;gap:5px;flex-wrap:wrap">
-          ${!sg.correction && !sg.bd_results?.length ? `<div style="font-size:10px;color:var(--amber);margin-bottom:5px">⚠ La query no devolvió resultados — ingresa el cluster_index manualmente o crea uno nuevo.</div>` : ""}
-          <input ... placeholder="Pegar cluster_index aquí">
-          <button ... title="Asignar el cluster_index ingresado">✓ Asignar</button>
-          <button ... title="Crear nuevo cluster (usa el store_id del primer miembro)">+ Nuevo</button>
+          <input id="sgCorrIn_${sgKey}" class="corr-input" placeholder="Pegar cluster_index aquí" style="font-size:11px;padding:5px 8px">
+          <button class="btn green sm" onclick="assignSgInput('${esc(cid)}',${sgi},'${sgKey}')">✓</button>
           <button class="btn sm" onclick="createSgNew('${esc(cid)}',${sgi})">+ Nuevo</button>
         </div>
       </div>
