@@ -1578,6 +1578,14 @@ def upload_bd():
 def ext_correction_add():
     data = request.json
     data["file_name"] = session.get("filename","")
+    # Si scraper_source está vacío, buscarlo en la BD por store_id
+    if not data.get("scraper_source","").strip() and data.get("store_id","").strip():
+        store_id = data["store_id"].strip()
+        table = get_pg_table()
+        sql = f"SELECT scraper_source FROM {table} WHERE store_id = '{store_id}' LIMIT 1"
+        rows, err = pg_query(sql)
+        if not err and rows:
+            data["scraper_source"] = rows[0].get("scraper_source","")
     ext_corr_add(data)
     # Guardar par etiquetado: store externo es distinto al cluster donde estaba
     save_store_pair(
@@ -1702,14 +1710,6 @@ def clean_correction(corr):
         return corr[6:]
     return corr
 
-def infer_scraper_source(scraper_source, item_index):
-    """Si scraper_source está vacío, lo infiere desde item_index (formato: appId_storeId)."""
-    if scraper_source:
-        return scraper_source
-    if item_index and "_" in item_index:
-        return item_index.split("_")[0]
-    return ""
-
 @app.route("/bd_update/preview", methods=["POST"])
 def bd_update_preview():
     """Genera preview de los INSERTs que se harían en ctrl_restaurant_homologation."""
@@ -1728,7 +1728,7 @@ def bd_update_preview():
             if not member: continue
             rows.append({
                 "store_id":       member.get("store_id", ""),
-                "scraper_source": infer_scraper_source(member.get("scraper_source",""), ii),
+                "scraper_source": member.get("scraper_source", ""),
                 "old_cluster":    member.get("cluster_index", cl["cluster_id"]),
                 "new_cluster":    corr,
                 "country":        country,
@@ -1741,7 +1741,7 @@ def bd_update_preview():
         if not rec.get("correction"): continue
         rows.append({
             "store_id":       rec.get("store_id", ""),
-            "scraper_source": infer_scraper_source(rec.get("scraper_source",""), rec.get("item_index","")),
+            "scraper_source": rec.get("scraper_source", ""),
             "old_cluster":    rec.get("cluster_index", ""),
             "new_cluster":    clean_correction(rec.get("correction", "")),
             "country":        country,
