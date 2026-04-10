@@ -60,7 +60,7 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
 .thr-info{font-size:10px;color:var(--purple);font-weight:600;margin-left:auto}
 .c-body-inner{display:flex}
 .col-table{flex:1;min-width:0}
-.col-bd{width:540px;flex-shrink:0;border-left:1px solid var(--border);background:#fafaf8;display:flex;flex-direction:column;overflow-y:auto}
+.col-bd{width:480px;flex-shrink:0;border-left:1px solid var(--border);background:#fafaf8;display:flex;flex-direction:column;overflow-y:auto}
 .bd-hdr{padding:8px 14px;border-bottom:1px solid var(--border);font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;display:flex;align-items:center;gap:8px;position:sticky;top:0;background:#fafaf8;z-index:2}
 .bd-upload{margin:8px 14px;border:1.5px dashed var(--border2);border-radius:var(--r);padding:10px;text-align:center;cursor:pointer;font-size:12px;color:var(--muted);transition:all .15s;display:block}
 .bd-upload:hover{border-color:var(--blue);color:var(--blue);background:var(--bbg)}
@@ -614,7 +614,6 @@ function buildCard(cl){
   } else {
     statusBadge = `<span class="badge bad">${bad} incorrecto${bad>1?"s":""}</span>`;
   }
-
   wrap.innerHTML=`
     <div class="c-hdr" onclick="toggleCard(this)">
       <span class="c-id">${esc(cl.cluster_id)}</span>
@@ -748,9 +747,9 @@ function buildSgBlock(cl,sg,sgi){
         const isMatch = sgStoreIds.has(String(m.store_id||""));
         const bg = isMatch ? "background:var(--gbg);border-left:3px solid var(--green)" : "border-left:3px solid transparent";
         return `<tr style="${bg}">
-          <td style="padding:3px 8px;font-family:monospace;font-size:10px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(m.store_id||"")}</td>
-          <td style="padding:3px 8px;font-weight:${isMatch?'600':'400'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(m.app_name||"")}${isMatch?` <span style="font-size:9px;color:var(--green);font-weight:700">✓</span>`:''}</td>
-          <td style="padding:3px 8px;color:var(--muted);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc((m.app_address||"").slice(0,50))}</td>
+          <td style="padding:2px 5px;font-family:monospace;font-size:10px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(m.store_id||"")}</td>
+          <td style="padding:2px 5px;font-weight:${isMatch?'600':'400'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(m.app_name||"")}${isMatch?` <span style="font-size:9px;color:var(--green);font-weight:700">✓</span>`:''}</td>
+          <td style="padding:2px 5px;color:var(--muted);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc((m.app_address||"").slice(0,50))}</td>
           <td style="padding:2px 4px;text-align:center;width:28px">
             <button class="btn sm" title="Anotar corrección externa"
               style="padding:2px 6px;font-size:12px;font-weight:700;width:100%;min-width:24px"
@@ -772,10 +771,10 @@ function buildSgBlock(cl,sg,sgi){
         </div>
         <table style="width:100%;border-collapse:collapse;font-size:11px;table-layout:fixed">
           <thead><tr style="background:var(--surf2)">
-            <th style="padding:3px 8px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border);width:90px;cursor:default">store_id</th>
-            <th style="padding:3px 8px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border);cursor:default">app_name</th>
-            <th style="padding:3px 8px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border);width:140px;cursor:default">app_address</th>
-            <th style="padding:3px 4px;border-bottom:1px solid var(--border);width:30px;cursor:default"></th>
+            <th style="padding:3px 5px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border);width:70px;cursor:default">store_id</th>
+            <th style="padding:3px 5px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border);cursor:default">app_name</th>
+            <th style="padding:3px 5px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border);width:120px;cursor:default">app_address</th>
+            <th style="padding:3px 4px;border-bottom:1px solid var(--border);width:28px;cursor:default"></th>
           </tr></thead>
           <tbody>${rowsHtml}</tbody>
         </table>
@@ -834,8 +833,10 @@ function buildSgBlock(cl,sg,sgi){
         <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px">Corrección</div>
         <div id="sgCorrChip_${sgKey}" style="margin-bottom:5px">${corrHtml}</div>
         <div style="display:flex;gap:5px;flex-wrap:wrap">
-          <input id="sgCorrIn_${sgKey}" class="corr-input" placeholder="cluster_index · vacío=nuevo" style="font-size:11px;padding:5px 8px">
-          <button class="btn green sm" onclick="assignSgInput('${esc(cid)}',${sgi},'${sgKey}')">✓</button>
+          ${!sg.correction && !sg.bd_results?.length ? `<div style="font-size:10px;color:var(--amber);margin-bottom:5px">⚠ La query no devolvió resultados — ingresa el cluster_index manualmente o crea uno nuevo.</div>` : ""}
+          <input ... placeholder="Pegar cluster_index aquí">
+          <button ... title="Asignar el cluster_index ingresado">✓ Asignar</button>
+          <button ... title="Crear nuevo cluster (usa el store_id del primer miembro)">+ Nuevo</button>
           <button class="btn sm" onclick="createSgNew('${esc(cid)}',${sgi})">+ Nuevo</button>
         </div>
       </div>
@@ -1075,8 +1076,15 @@ async function assignSgInput(cid,sgi,sgKey){
 }
 async function createSgNew(cid,sgi){
   const sgs=SUBGROUPS[cid];if(!sgs||!sgs[sgi])return;
-  const minItem=sgs[sgi].members.slice().sort()[0];
-  await saveSgCorr(cid,sgi,"NUEVO:"+minItem,true);
+  const cl=getCl(cid);if(!cl)return;
+  const firstIi = sgs[sgi].members.slice().sort()[0];
+  const member  = cl.members.find(m=>m.item_index===firstIi);
+  if(!member){toast("No se encontró el miembro para crear el cluster"); return;}
+  const appId   = (member.scraper_source||"").trim();
+  const storeId = (member.store_id||"").trim();
+  if(!appId||!storeId){toast("Faltan app_id o store_id para crear el cluster"); return;}
+  const newCluster = appId + "_" + storeId;
+  await saveSgCorr(cid,sgi,newCluster,true);
 }
 async function saveSgCorr(cid,sgi,correction,is_new){
   const sgs=SUBGROUPS[cid];if(!sgs||!sgs[sgi])return;
