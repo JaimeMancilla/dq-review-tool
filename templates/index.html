@@ -604,22 +604,24 @@ function buildCard(cl){
   const bad=cl.members.filter(m=>m.revision===0).length;
   const prog = clusterProgress(cl);
 
-  let statusBadge;
-  if (bad === 0) {
-    statusBadge = `<span class="badge ok">✓ Sin incorrectos</span>`;
-  } else if (prog.done) {
-    statusBadge = `<span class="badge ok">✓ ${prog.corrected}/${prog.total} corregidos</span>`;
-  } else if (prog.total > 0) {
-    statusBadge = `<span class="badge bad">${prog.corrected}/${prog.total} corregidos</span>`;
-  } else {
-    statusBadge = `<span class="badge bad">${bad} incorrecto${bad>1?"s":""}</span>`;
+  const okCount = cl.members.filter(m => m.revision === 1).length;
+  const badBadge = bad > 0
+    ? `<span class="badge bad">${bad} incorrecto${bad>1?"s":""}</span>`
+    : `<span class="badge ok">✓ Sin incorrectos</span>`;
+  let corrBadge = "";
+  if (prog.total > 0) {
+    corrBadge = prog.done
+      ? `<span class="badge ok">✓ ${prog.corrected}/${prog.total} corregidos</span>`
+      : `<span class="badge bad">${prog.corrected}/${prog.total} corregidos</span>`;
   }
   wrap.innerHTML=`
     <div class="c-hdr" onclick="toggleCard(this)">
       <span class="c-id">${esc(cl.cluster_id)}</span>
       <span class="c-anchor">${esc(cl.anchor_name)}</span>
       <span class="badge n">${cl.count} stores</span>
-      ${statusBadge}
+      <span class="badge ok" style="background:var(--gbg);color:var(--green);border-color:var(--gborder)">${okCount} correcto${okCount!==1?"s":""}</span>
+      ${badBadge}
+      ${corrBadge}
       ${cl.already_reviewed?`<span class="badge" style="background:var(--surf2);color:var(--muted);font-size:9px;border:1px solid var(--border2)">ya revisado</span>`:""}
       <span class="chev">▼</span>
     </div>
@@ -1127,16 +1129,28 @@ function refreshClusterBadge(cid) {
   const card = document.getElementById("card_"+CSS.escape(cid)); if (!card) return;
   const prog = clusterProgress(cl);
   const bad  = cl.members.filter(m=>m.revision===0).length;
-  let html;
-  if (bad === 0)       html = `<span class="badge ok">✓ Sin incorrectos</span>`;
-  else if (prog.done)  html = `<span class="badge ok">✓ ${prog.corrected}/${prog.total} corregidos</span>`;
-  else if (prog.total) html = `<span class="badge bad">${prog.corrected}/${prog.total} corregidos</span>`;
-  else                 html = `<span class="badge bad">${bad} incorrecto${bad>1?"s":""}</span>`;
-  // Reemplazar solo el badge de estado (último antes del chev)
+  const okCount = cl.members.filter(m=>m.revision===1).length;
+  const badBadge = bad > 0
+    ? `<span class="badge bad">${bad} incorrecto${bad>1?"s":""}</span>`
+    : `<span class="badge ok">✓ Sin incorrectos</span>`;
+  let corrBadge = "";
+  if (prog.total > 0) {
+    corrBadge = prog.done
+      ? `<span class="badge ok">✓ ${prog.corrected}/${prog.total} corregidos</span>`
+      : `<span class="badge bad">${prog.corrected}/${prog.total} corregidos</span>`;
+  }
   const hdr = card.querySelector(".c-hdr");
   if (!hdr) return;
-  const badges = hdr.querySelectorAll(".badge:not(.n)");
-  if (badges.length) { const tmp=document.createElement("span"); tmp.innerHTML=html; badges[badges.length-1].replaceWith(tmp.firstElementChild); }
+  // Quitar badges dinámicos (todos excepto .n y "ya revisado")
+  Array.from(hdr.querySelectorAll(".badge:not(.n)"))
+    .filter(b => !b.textContent.includes("ya revisado"))
+    .forEach(b => b.remove());
+  // Insertar antes del chev
+  const chev = hdr.querySelector(".chev");
+  const ins = (html) => { const t=document.createElement("span"); t.innerHTML=html; hdr.insertBefore(t.firstElementChild, chev); };
+  if (corrBadge) ins(corrBadge);
+  ins(badBadge);
+  ins(`<span class="badge ok" style="background:var(--gbg);color:var(--green);border-color:var(--gborder)">${okCount} correcto${okCount!==1?"s":""}</span>`);
 }
 
 function rebuildBdPanel(cid){
