@@ -518,21 +518,14 @@ def build_subgroups(bad_members):
     for i, a in enumerate(bad_members):
         if used[i]: continue
         wa = set(brand_words(a.get("app_name","")))
-        ak = set(extract_addr_keys(a.get("app_address","")))
         grp = [a]; used[i] = True
         for j, b in enumerate(bad_members):
             if used[j] or i==j: continue
             wb = set(brand_words(b.get("app_name","")))
             if not wa or not wb: continue
             union = wa|wb; inter = wa&wb
-            if not union or len(inter)/len(union) < 0.60: continue
-            # Si brand_words son idénticas, usar dirección como desempate
-            if inter == wa == wb:
-                bk = set(extract_addr_keys(b.get("app_address","")))
-                # Solo agrupar si comparten al menos una clave de dirección
-                if ak and bk and not ak & bk:
-                    continue
-            grp.append(b); used[j] = True
+            if union and len(inter)/len(union) >= 0.60:
+                grp.append(b); used[j] = True
         grp.sort(key=lambda m: m.get("item_index",""))
         subgroups.append({
             "rep_name":   grp[0].get("app_name",""),
