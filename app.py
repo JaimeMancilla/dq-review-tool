@@ -1765,9 +1765,9 @@ def bd_update_execute():
 
     conn_str = (f"host={os.environ.get('PG_HOST')} "
                 f"port={os.environ.get('PG_PORT','5432')} "
-                f"dbname={os.environ.get('PG_DB')} "
+                f"dbname={os.environ.get('PG_DATABASE')} "
                 f"user={os.environ.get('PG_USER')} "
-                f"password={os.environ.get('PG_PASS')}")
+                f"password={os.environ.get('PG_PASSWORD')}")
     try:
         import psycopg2
         conn = psycopg2.connect(conn_str)
