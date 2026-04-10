@@ -518,14 +518,21 @@ def build_subgroups(bad_members):
     for i, a in enumerate(bad_members):
         if used[i]: continue
         wa = set(brand_words(a.get("app_name","")))
+        ak = set(extract_addr_keys(a.get("app_address","")))
         grp = [a]; used[i] = True
         for j, b in enumerate(bad_members):
             if used[j] or i==j: continue
             wb = set(brand_words(b.get("app_name","")))
             if not wa or not wb: continue
             union = wa|wb; inter = wa&wb
-            if union and len(inter)/len(union) >= 0.60:
-                grp.append(b); used[j] = True
+            if not union or len(inter)/len(union) < 0.60: continue
+            # Si brand_words son idénticas, usar dirección como desempate
+            if inter == wa == wb:
+                bk = set(extract_addr_keys(b.get("app_address","")))
+                # Solo agrupar si comparten al menos una clave de dirección
+                if ak and bk and not ak & bk:
+                    continue
+            grp.append(b); used[j] = True
         grp.sort(key=lambda m: m.get("item_index",""))
         subgroups.append({
             "rep_name":   grp[0].get("app_name",""),
@@ -616,10 +623,6 @@ def generate_unified_sql(bad_members, country="mx"):
         if len(bwords) < 1:
             bwords = [w for w in norm(name).split() if len(w) > 3][:2]
 
-        key = "_".join(bwords)
-        if key in seen or not bwords: continue
-        seen.add(key)
-
         sql_bwords = [w for w in bwords if len(w) > 2] or bwords
 
         # Detectar si hay sub-entidad entre las brand_words
@@ -627,12 +630,20 @@ def generate_unified_sql(bad_members, country="mx"):
         chain_words = [w for w in sql_bwords if w not in FAST_FOOD_SUBS]
 
         if sub and chain_words:
-            # Buscar por cadena AND sub-entidad (cada uno con variantes de tilde)
+            # Con sub-entidad: NO deduplicar por nombre — cada miembro puede tener
+            # dirección distinta, generar un bloque por dirección única
+            akeys = extract_addr_keys(addr)
+            key = "_".join(chain_words) + "_" + sub + "_" + "_".join(akeys)
+            if key in seen: continue
+            seen.add(key)
             chain_cond = " and ".join(word_ilike("app_name", w) for w in chain_words)
             sub_cond   = word_ilike("app_name", sub)
             name_cond  = f"({chain_cond}\n     and {sub_cond})"
         else:
-            # Condición normal: todas las palabras con AND
+            # Flujo normal: deduplicar por nombre
+            key = "_".join(bwords)
+            if key in seen or not bwords: continue
+            seen.add(key)
             name_cond = " and ".join(word_ilike("app_name", w) for w in sql_bwords)
 
         # Condición de dirección
@@ -641,7 +652,11 @@ def generate_unified_sql(bad_members, country="mx"):
             addr_cond = " and ".join(f"app_address ilike '%{w}%'" for w in akeys)
             blocks.append(f"    ({name_cond}\n     and {addr_cond})")
         else:
-            blocks.append(f"    ({name_cond})")
+            # Sin dirección útil: agregar solo condición de nombre (sin deduplicar más)
+            name_key = "_".join(sql_bwords)
+            if name_key not in seen:
+                seen.add(name_key)
+                blocks.append(f"    ({name_cond})")
 
     if not blocks: return ""
 
