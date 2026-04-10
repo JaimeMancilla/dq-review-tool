@@ -513,19 +513,35 @@ def brand_words(name):
 
 def build_subgroups(bad_members):
     if not bad_members: return []
+
+    FAST_FOOD_SUBS = {
+        "postres","desayunos","pollos","pollo","chicken",
+        "vegetal","mccafe","cafe","express","drive","thru","junior"
+    }
+
+    def has_sub_entity(name):
+        words = norm(name).split()
+        return any(w in FAST_FOOD_SUBS for w in words)
+
     used = [False]*len(bad_members)
     subgroups = []
     for i, a in enumerate(bad_members):
         if used[i]: continue
         wa = set(brand_words(a.get("app_name","")))
+        ak = set(extract_addr_keys(a.get("app_address","")))
         grp = [a]; used[i] = True
         for j, b in enumerate(bad_members):
             if used[j] or i==j: continue
             wb = set(brand_words(b.get("app_name","")))
             if not wa or not wb: continue
             union = wa|wb; inter = wa&wb
-            if union and len(inter)/len(union) >= 0.60:
-                grp.append(b); used[j] = True
+            if not union or len(inter)/len(union) < 0.60: continue
+            # Para sub-entidades: separar si las direcciones no comparten ninguna clave
+            if has_sub_entity(a.get("app_name","")) or has_sub_entity(b.get("app_name","")):
+                bk = set(extract_addr_keys(b.get("app_address","")))
+                if ak and bk and not ak & bk:
+                    continue  # direcciones distintas → subgrupos separados
+            grp.append(b); used[j] = True
         grp.sort(key=lambda m: m.get("item_index",""))
         subgroups.append({
             "rep_name":   grp[0].get("app_name",""),
