@@ -464,14 +464,37 @@ GEO_STOP = {
 def brand_words(name):
     """
     Extrae palabras de marca ignorando sufijos geográficos.
-    Para nombres genéricos de 1 sola palabra (burger, pizza...) busca más contexto.
+    Para cadenas de comida rápida, las sub-entidades (Postres, Desayunos, Pollos,
+    Chicken, Turbo, Vegetal) se tratan como parte distintiva de la marca.
     """
     func = {"la","el","los","las","de","del","en","al","por","con","que","y","e","o"}
-    generic = {"burger","pizza","tacos","taco","tortas","torta","pollo","wings",
+    generic = {"burger","pizza","tacos","taco","tortas","torta","wings",
                "alitas","sushi","coffee","cafe","grill","cocina","comida"}
 
-    # Todas las palabras sin stopwords geo, longitud > 1
-    words = [w for w in norm(name).split() if len(w) > 1 and w not in GEO_STOP]
+    # Sub-entidades de comida rápida: son palabras de marca, NO ignorar
+    FAST_FOOD_SUBS = {
+        "postres","desayunos","pollos","pollo","chicken",
+        "vegetal","mccafe","cafe","express","drive","thru","junior"
+    }
+
+    # Cadenas de comida rápida conocidas: su nombre es 1 sola palabra clave
+    FAST_FOOD_CHAINS = {
+        "mcdonald","mcdonalds","burgerkng","burgerking","kfc","subway",
+        "dominos","pizzahut","wendys","popeyes","chickfila","tacobell"
+    }
+
+    words_raw = norm(name).split()
+
+    # Detectar si el nombre contiene una cadena + sub-entidad
+    chain_word = next((w for w in words_raw if any(c in w for c in FAST_FOOD_CHAINS)), None)
+    sub_word   = next((w for w in words_raw if w in FAST_FOOD_SUBS), None)
+
+    if chain_word and sub_word:
+        # Retornar cadena + sub-entidad como las dos palabras clave
+        return [chain_word, sub_word]
+
+    # Flujo normal: palabras sin stopwords geo, longitud > 1
+    words = [w for w in words_raw if len(w) > 1 and w not in GEO_STOP]
 
     # Eliminar artículos iniciales
     while words and words[0] in func:
@@ -479,13 +502,11 @@ def brand_words(name):
 
     result = words[:3]
 
-    # Si solo queda 1 palabra genérica, incluir también artículo + siguiente si hay
+    # Si solo queda 1 palabra genérica, incluir también palabra anterior
     if len(result) == 1 and result[0] in generic:
-        all_words = norm(name).split()
-        idx = next((i for i,w in enumerate(all_words) if w == result[0]), -1)
+        idx = next((i for i,w in enumerate(words_raw) if w == result[0]), -1)
         if idx > 0:
-            # incluir la palabra anterior (probablemente "a la", "chubby", etc.)
-            prev = [w for w in all_words[max(0,idx-2):idx] if w not in GEO_STOP]
+            prev = [w for w in words_raw[max(0,idx-2):idx] if w not in GEO_STOP]
             result = prev + result
 
     return result[:3]
@@ -576,9 +597,16 @@ def generate_unified_sql(bad_members, country="mx"):
     - brand_words(name): palabras de marca sin sufijos geográficos
     - extract_addr_keys(addr): número de calle + palabra distintiva de dirección
     - accent_variants: maneja palabras con/sin tilde automáticamente
+    Para cadenas con sub-entidad (McDonald's Postres), busca por cadena Y sub-entidad
+    con OR entre ellas para mayor flexibilidad.
     """
     if not bad_members: return ""
     seen, blocks = set(), []
+
+    FAST_FOOD_SUBS = {
+        "postres","desayunos","pollos","pollo","chicken",
+        "vegetal","mccafe","cafe","express","drive","thru","junior"
+    }
 
     for m in bad_members:
         name = m.get("app_name","")
@@ -594,8 +622,18 @@ def generate_unified_sql(bad_members, country="mx"):
 
         sql_bwords = [w for w in bwords if len(w) > 2] or bwords
 
-        # Condición de nombre con variantes de tilde
-        name_cond = " and ".join(word_ilike("app_name", w) for w in sql_bwords)
+        # Detectar si hay sub-entidad entre las brand_words
+        sub = next((w for w in sql_bwords if w in FAST_FOOD_SUBS), None)
+        chain_words = [w for w in sql_bwords if w not in FAST_FOOD_SUBS]
+
+        if sub and chain_words:
+            # Buscar por cadena AND sub-entidad (cada uno con variantes de tilde)
+            chain_cond = " and ".join(word_ilike("app_name", w) for w in chain_words)
+            sub_cond   = word_ilike("app_name", sub)
+            name_cond  = f"({chain_cond}\n     and {sub_cond})"
+        else:
+            # Condición normal: todas las palabras con AND
+            name_cond = " and ".join(word_ilike("app_name", w) for w in sql_bwords)
 
         # Condición de dirección
         akeys = extract_addr_keys(addr)
