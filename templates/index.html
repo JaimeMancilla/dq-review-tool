@@ -918,7 +918,7 @@ function buildSgBlock(cl,sg,sgi){
       <div style="padding:8px 10px;background:var(--surf2);border-top:1px solid var(--border)">
         <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px">Corrección</div>
         <div id="sgCorrChip_${sgKey}" style="margin-bottom:5px">${corrHtml}</div>
-        ${!sg.correction && !sg.bd_results?.length ? `<div style="font-size:10px;color:var(--amber);margin-bottom:5px">⚠ La query no devolvió resultados — ingresa el cluster_index manualmente o crea uno nuevo.</div>` : ""}
+        ${!sg.correction && Array.isArray(sg.bd_results) && sg.bd_results.length===0 ? `<div style="font-size:10px;color:var(--amber);margin-bottom:5px">⚠ Sin resultados — ingresa manualmente o crea nuevo.</div>` : ""}
         <div style="display:flex;gap:5px;flex-wrap:wrap">
           <input id="sgCorrIn_${sgKey}" class="corr-input" placeholder="Pegar cluster_index aquí" style="font-size:11px;padding:5px 8px">
           <button class="btn green sm" onclick="assignSgInput('${esc(cid)}',${sgi},'${sgKey}')">✓</button>
@@ -966,7 +966,7 @@ async function addNewSubgroup(cid){
   const sgs = SUBGROUPS[cid];
   if(!sgs||!sgs.length){ toast("Genera subgrupos primero"); return; }
   // Crear subgrupo vacío con rep_name placeholder
-  sgs.push({members:[], rep_name:"Nuevo subgrupo", sql:"", bd_results:[], correction:"", is_new:false});
+  sgs.push({members:[], rep_name:"Nuevo subgrupo", sql:"", bd_results:null, correction:"", is_new:false});
   rebuildBdPanel(cid);
   api("/save_subgroups", {subgroups: SUBGROUPS});
   toast("Subgrupo vacío creado — arrastra stores aquí");
@@ -1103,7 +1103,7 @@ async function genSql(cid){
   const d=await api("/get_subgroups",{cluster_id:cid,members_data:badMembers,country:COUNTRY});
   if(btn){btn.innerHTML="⚡ Generar subgrupos";btn.disabled=false;}
   if(!d.subgroups?.length){toast("No se pudieron generar subgrupos");return}
-  SUBGROUPS[cid]=d.subgroups.map(sg=>({...sg,bd_results:[],correction:"",is_new:false}));
+  SUBGROUPS[cid]=d.subgroups.map(sg=>({...sg,bd_results:null,correction:"",is_new:false}));
   api("/save_subgroups", {subgroups: SUBGROUPS});
   openSgModal(cid);
 }
@@ -1996,11 +1996,7 @@ function buildSgGroupCard(cid, sg, sgi) {
     const m = clMembers.find(m => m.item_index === ii);
     const name = m ? m.app_name : ii.slice(-12);
     const addr = m ? (m.app_address||'').slice(0,55) : '';
-    return `<div class="sg-chip" draggable="true"
-      data-ii="${esc(ii)}" data-from-sgi="${sgi}" data-cid="${esc(cid)}"
-      ondragstart="onSgChipDragStart(event)"
-      ondragend="onSgChipDragEnd(event)"
-      title="${esc(ii)}">
+    return `<div class="sg-chip" title="${esc(ii)}">
       <div class="sg-chip-name">${esc(name)}</div>
       ${addr ? `<div class="sg-chip-addr">${esc(addr)}</div>` : ''}
       <span class="sg-chip-x" onclick="removeSgChip('${esc(cid)}',${sgi},'${esc(ii)}')">✕</span>
@@ -2090,7 +2086,7 @@ function buildSgGroupCard(cid, sg, sgi) {
         <div class="sg-corr-section">
           <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Corrección</div>
           <div style="margin-bottom:6px">${corrHtml}</div>
-          ${!sg.correction && !sg.bd_results?.length ? `<div style="font-size:10px;color:var(--amber);margin-bottom:6px">⚠ Sin resultados — ingresa manualmente o crea nuevo.</div>` : ''}
+          ${!sg.correction && Array.isArray(sg.bd_results) && sg.bd_results.length===0 ? `<div style="font-size:10px;color:var(--amber);margin-bottom:6px">⚠ Sin resultados — ingresa manualmente o crea nuevo.</div>` : ''}
           <div style="display:flex;gap:5px;flex-wrap:wrap">
             <input id="sgModalCorrIn_${CSS.escape(cid)}_${sgi}" class="corr-input" placeholder="Pegar cluster_index aquí" style="font-size:11px;padding:5px 8px">
             <button class="btn green sm" onclick="assignSgInputModal('${esc(cid)}',${sgi})">✓</button>
