@@ -131,6 +131,47 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
 .dash-tab{padding:8px 18px;font-size:13px;font-weight:500;border:none;background:none;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-2px;transition:all .15s}
 .dash-tab:hover{color:var(--text)}
 .dash-tab.active{color:var(--blue);border-bottom-color:var(--blue);font-weight:700}
+
+/* ── Subgroups Modal ── */
+.sg-modal-box{background:var(--bg);border-radius:var(--rl);width:100%;max-width:1200px;height:90vh;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,.14);overflow:hidden}
+.sg-modal-hdr{display:flex;align-items:center;gap:12px;padding:14px 20px;border-bottom:1px solid var(--border);background:var(--surf);flex-shrink:0}
+.sg-modal-title{font-size:15px;font-weight:700;flex:1}
+.sg-modal-meta{font-size:11px;color:var(--muted);margin-right:8px}
+.sg-modal-body{flex:1;overflow-y:auto;padding:16px 20px}
+.sg-grid{display:flex;flex-direction:column;gap:12px}
+.sg-group-card{background:var(--surf);border:2px solid var(--border);border-radius:var(--rl);overflow:hidden;transition:all .15s}
+.sg-group-card.corrected{border-color:var(--gborder)}
+.sg-group-card.drag-over{border-color:var(--blue);border-style:dashed;background:var(--bbg)}
+.sg-group-hdr{display:flex;align-items:center;gap:8px;padding:9px 14px;border-bottom:1px solid var(--border);background:var(--surf2);flex-shrink:0;cursor:pointer;user-select:none}
+.sg-group-hdr.corrected{background:rgba(15,123,62,.06);border-bottom-color:var(--gborder)}
+.sg-group-num{width:22px;height:22px;border-radius:50%;background:var(--rbg);border:1.5px solid var(--rborder);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;color:var(--red);flex-shrink:0}
+.sg-group-num.corrected{background:var(--gbg);border-color:var(--gborder);color:var(--green)}
+.sg-group-name{font-size:12px;font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sg-group-count{font-size:10px;color:var(--muted);white-space:nowrap}
+.sg-group-corr-badge{font-family:monospace;font-size:9px;color:var(--green);font-weight:700;background:var(--gbg);border:1px solid var(--gborder);border-radius:4px;padding:1px 6px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sg-group-body{display:flex;min-height:0}
+.sg-group-stores{width:340px;flex-shrink:0;border-right:1px solid var(--border);padding:10px;display:flex;flex-direction:column;gap:4px;background:var(--surf2)}
+.sg-group-right{flex:1;padding:10px 14px;display:flex;flex-direction:column;gap:8px;overflow-y:auto;max-height:360px}
+.sg-drop-zone{min-height:40px;border:2px dashed var(--border2);border-radius:var(--r);padding:6px;display:flex;flex-direction:column;gap:4px;transition:all .15s;background:var(--surf);flex:1}
+.sg-drop-zone.drag-over{border-color:var(--blue);background:var(--bbg)}
+.sg-drop-zone:empty::after{content:"Arrastra stores aquí";font-size:10px;color:var(--muted);text-align:center;padding:8px 0}
+.sg-chip{display:flex;flex-direction:column;background:var(--surf);border:1px solid var(--border2);border-radius:5px;padding:5px 24px 5px 8px;font-size:10px;cursor:grab;transition:all .12s;position:relative}
+.sg-chip:hover{background:var(--rbg);border-color:var(--rborder)}
+.sg-chip-name{font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sg-chip-addr{color:var(--muted);font-size:9px;white-space:normal;line-height:1.3;margin-top:2px}
+.sg-chip-x{position:absolute;top:4px;right:6px;cursor:pointer;opacity:.4;font-size:11px;line-height:1}
+.sg-chip-x:hover{opacity:1;color:var(--red)}
+.sg-bd-cluster{border:1px solid var(--border);border-radius:var(--r);overflow:hidden;margin-bottom:4px}
+.sg-bd-cluster-hdr{display:flex;align-items:center;gap:6px;padding:5px 8px;background:var(--surf2);border-bottom:1px solid var(--border)}
+.sg-bd-cluster-id{font-family:monospace;font-size:10px;font-weight:700;color:var(--blue);flex:1;overflow:hidden;text-overflow:ellipsis}
+.sg-bd-member{display:flex;align-items:center;gap:6px;padding:4px 8px;border-bottom:1px solid var(--border);font-size:11px}
+.sg-bd-member:last-child{border-bottom:none}
+.sg-bd-member.match{background:var(--gbg)}
+.sg-corr-section{background:var(--surf2);border-radius:var(--r);padding:8px 10px;border:1px solid var(--border)}
+.sg-modal-footer{padding:12px 20px;border-top:1px solid var(--border);background:var(--surf);display:flex;gap:8px;justify-content:flex-end;align-items:center;flex-shrink:0}
+.sg-modal-progress{flex:1;font-size:11px;color:var(--muted)}
+.sg-add-group{border:2px dashed var(--border2);border-radius:var(--rl);padding:16px;text-align:center;cursor:pointer;font-size:12px;color:var(--muted);transition:all .15s;background:var(--surf)}
+.sg-add-group:hover{border-color:var(--blue);color:var(--blue);background:var(--bbg)}
 </style>
 </head>
 <body>
@@ -248,6 +289,27 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
 
 
 <!-- Modal corrección externa -->
+<!-- ── Modal Subgrupos ── -->
+<div class="modal-bg" id="sgModal" onclick="if(event.target===this)closeSgModal()">
+  <div class="sg-modal-box">
+    <div class="sg-modal-hdr">
+      <div style="flex:1">
+        <div class="sg-modal-title" id="sgModalTitle">Subgrupos</div>
+        <div class="sg-modal-meta" id="sgModalMeta"></div>
+      </div>
+      <button class="btn sm" onclick="sgModalAddGroup()">+ Grupo</button>
+      <button class="btn sm" onclick="closeSgModal()">✕ Cerrar</button>
+    </div>
+    <div class="sg-modal-body">
+      <div class="sg-grid" id="sgGroupsPanel"></div>
+    </div>
+    <div class="sg-modal-footer">
+      <div class="sg-modal-progress" id="sgModalProgress"></div>
+      <button class="btn primary" onclick="sgModalSave()">✓ Guardar y cerrar</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-bg" id="extCorrModal" onclick="if(event.target===this)closeExtCorr()">
   <div class="modal-box" style="max-width:580px">
     <div class="modal-hdr">
@@ -605,7 +667,12 @@ function buildCard(cl){
   const wrap=document.createElement("div");
   wrap.className="cluster-wrap";wrap.id="card_"+CSS.escape(cl.cluster_id);
   const bad=cl.members.filter(m=>m.revision===0).length;
+  const badModel=cl.members.filter(m=>!m.is_anchor && m.score!=null && m.score < (cl.threshold_used||0.80)).length;
   const prog = clusterProgress(cl);
+
+  const modelBadge = badModel > 0
+    ? `<span class="badge" style="background:var(--abg);color:var(--amber);border:1px solid var(--aborder)" title="Stores marcados como incorrectos por el modelo">⚙ ${badModel} modelo</span>`
+    : "";
 
   let statusBadge;
   if (bad === 0) {
@@ -622,6 +689,7 @@ function buildCard(cl){
       <span class="c-id">${esc(cl.cluster_id)}</span>
       <span class="c-anchor">${esc(cl.anchor_name)}</span>
       <span class="badge n">${cl.count} stores</span>
+      ${modelBadge}
       ${statusBadge}
       ${cl.already_reviewed?`<span class="badge" style="background:var(--surf2);color:var(--muted);font-size:9px;border:1px solid var(--border2)">ya revisado</span>`:""}
       <span class="chev">▼</span>
@@ -1031,15 +1099,13 @@ async function genSql(cid){
   });
   if(!badMembers.length){toast("No hay stores marcados como incorrectos");return}
   const btn=card.querySelector(".btn.blue.sm");
-  if(btn)btn.innerHTML='<span class="spinner"></span>';
+  if(btn){btn.innerHTML='<span class="spinner"></span>';btn.disabled=true;}
   const d=await api("/get_subgroups",{cluster_id:cid,members_data:badMembers,country:COUNTRY});
-  if(btn)btn.innerHTML="⚡ Generar subgrupos";
+  if(btn){btn.innerHTML="⚡ Generar subgrupos";btn.disabled=false;}
   if(!d.subgroups?.length){toast("No se pudieron generar subgrupos");return}
   SUBGROUPS[cid]=d.subgroups.map(sg=>({...sg,bd_results:[],correction:"",is_new:false}));
-  rebuildBdPanel(cid);
-  // Guardar subgrupos en disco
   api("/save_subgroups", {subgroups: SUBGROUPS});
-  toast(`${d.subgroups.length} subgrupo${d.subgroups.length!==1?"s":""} ✓`);
+  openSgModal(cid);
 }
 
 // ── subgrupos ─────────────────────────────────────────────────────────────────
@@ -1107,38 +1173,26 @@ async function saveSgCorr(cid,sgi,correction,is_new){
   const sgs=SUBGROUPS[cid];if(!sgs||!sgs[sgi])return;
   sgs[sgi].correction=correction;sgs[sgi].is_new=is_new;
   await api("/set_correction",{cluster_id:cid,item_indexes:sgs[sgi].members,correction});
-
-  // Solo actualizar el sg-block afectado, sin reconstruir todo el panel
-  const panel=document.querySelector(`.col-bd[data-cid="${cid}"]`);
-  const allBlocks=panel?panel.querySelectorAll(".sg-block"):[];
-  const block=allBlocks[sgi];
-  if(block){
-    const cl=getCl(cid);
-    if(cl){
-      const tmp=document.createElement("div");
-      tmp.innerHTML=buildSgBlock(cl,sgs[sgi],sgi);
-      block.replaceWith(tmp.firstElementChild);
-    }
-  }
-  // Actualizar contador global del panel
-  const hdrRight=document.querySelector(`.col-bd[data-cid="${cid}"] .bd-hdr span:last-child`);
-  if(hdrRight){
-    const total=sgs.length;const corrected=sgs.filter(s=>s.correction).length;
-    hdrRight.textContent=`${corrected}/${total} corregidos`;
-    hdrRight.style.color=corrected===total?"var(--green)":"var(--muted)";
-  }
   refreshClusterBadge(cid);
   renderFilterBar();
   api("/save_subgroups", {subgroups: SUBGROUPS});
   toast("Corrección guardada ✓");
+  // Refrescar modal si está abierto
+  if(_sgModalCid===cid){
+    renderSgGroupsPanel(cid);
+    updateSgModalProgress(cid);
+  } else {
+    rebuildBdPanel(getCl(cid)||{cluster_id:cid});
+  }
 }
 function clearSgCorr(cid,sgi){
   const sgs=SUBGROUPS[cid];if(sgs&&sgs[sgi]){sgs[sgi].correction="";sgs[sgi].is_new=false}
   api("/set_correction",{cluster_id:cid,item_indexes:sgs[sgi].members,correction:""});
-  rebuildBdPanel(cid);
   refreshClusterBadge(cid);
   renderFilterBar();
   api("/save_subgroups", {subgroups: SUBGROUPS});
+  if(_sgModalCid===cid) renderSgGroupsPanel(cid);
+  else rebuildBdPanel(getCl(cid)||{cluster_id:cid});
 }
 function refreshClusterBadge(cid) {
   const cl  = getCl(cid); if (!cl) return;
@@ -1889,6 +1943,285 @@ function closeFusionModal(){
   document.getElementById("fusionModal").classList.remove("open");
   _fusionGi=null;
 }
+// ── Modal de Subgrupos ────────────────────────────────────────────────────────
+let _sgModalCid = null;
+
+function openSgModal(cid) {
+  _sgModalCid = cid;
+  const cl = getCl(cid); if (!cl) return;
+  const sgs = SUBGROUPS[cid] || [];
+
+  document.getElementById("sgModalTitle").textContent =
+    `Subgrupos — ${cl.anchor_name || cid}`;
+  document.getElementById("sgModalMeta").textContent =
+    `${sgs.length} subgrupo${sgs.length!==1?"s":""} · ${cl.members.filter(m=>m.revision===0).length} stores incorrectos`;
+
+  renderSgGroupsPanel(cid);
+  updateSgModalProgress(cid);
+  document.getElementById("sgModal").classList.add("open");
+}
+
+function closeSgModal() {
+  document.getElementById("sgModal").classList.remove("open");
+  if (_sgModalCid) {
+    rebuildBdPanel(getCl(_sgModalCid)||{cluster_id:_sgModalCid});
+    refreshClusterBadge(_sgModalCid);
+    renderFilterBar();
+  }
+  _sgModalCid = null;
+}
+
+function sgModalSave() {
+  if (!_sgModalCid) return;
+  api("/save_subgroups", {subgroups: SUBGROUPS});
+  closeSgModal();
+  toast("Subgrupos guardados ✓");
+}
+
+function renderSgGroupsPanel(cid) {
+  const sgs = SUBGROUPS[cid] || [];
+  const el = document.getElementById("sgGroupsPanel");
+  if (!el) return;
+  el.innerHTML = sgs.map((sg, sgi) => buildSgGroupCard(cid, sg, sgi)).join("") +
+    `<div class="sg-add-group" onclick="sgModalAddGroup()">+ Añadir grupo vacío</div>`;
+}
+
+function buildSgGroupCard(cid, sg, sgi) {
+  const cl = getCl(cid);
+  const isCorr = !!sg.correction;
+  const clMembers = cl ? cl.members : [];
+
+  // Chips de stores con nombre + dirección
+  const chipsHtml = sg.members.map(ii => {
+    const m = clMembers.find(m => m.item_index === ii);
+    const name = m ? m.app_name : ii.slice(-12);
+    const addr = m ? (m.app_address||'').slice(0,55) : '';
+    return `<div class="sg-chip" title="${esc(ii)}">
+      <div class="sg-chip-name">${esc(name)}</div>
+      ${addr ? `<div class="sg-chip-addr">${esc(addr)}</div>` : ''}
+      <span class="sg-chip-x" onclick="removeSgChip('${esc(cid)}',${sgi},'${esc(ii)}')">✕</span>
+    </div>`;
+  }).join("");
+
+  // Resultados BD
+  let bdHtml = "";
+  if (sg.bd_results && sg.bd_results.length) {
+    const sgStoreIds = new Set(sg.members.map(ii => { const idx=ii.indexOf("_"); return idx>=0?ii.slice(idx+1):ii; }));
+    bdHtml = sg.bd_results.map((bdc, bi) => {
+      const rowsHtml = bdc.members.map(m => {
+        const isMatch = sgStoreIds.has(String(m.store_id||""));
+        return `<div class="sg-bd-member ${isMatch?'match':''}">
+          <span style="font-family:monospace;font-size:10px;color:var(--muted);min-width:70px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex-shrink:0">${esc((m.store_id||'').slice(0,14))}</span>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(m.app_name||'')}${isMatch?` <span style="color:var(--green);font-size:9px">✓</span>`:''}</div>
+            <div style="font-size:9px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc((m.app_address||'').slice(0,60))}</div>
+          </div>
+          <button class="btn sm" style="padding:1px 6px;font-size:11px;flex-shrink:0"
+            onclick="openExtCorr('${esc(m.store_id||"")}','${esc(m.app_name||"")}','${esc(m.app_address||"")}','${esc(bdc.cluster_index)}','${esc(m.cluster_name||"")}','${esc(m.cluster_address||"")}','${esc(m.scraper_source||"")}','${esc(cid)}',${sgi})">+</button>
+        </div>`;
+      }).join("");
+      return `<div class="sg-bd-cluster">
+        <div class="sg-bd-cluster-hdr">
+          <span class="sg-bd-cluster-id">${esc(bdc.cluster_index)}</span>
+          <span style="font-size:10px;color:var(--muted)">${bdc.members.length} stores</span>
+          <label style="display:flex;align-items:center;gap:4px;font-size:10px;cursor:pointer;margin-left:8px">
+            <input type="checkbox" ${bdc.is_clean?"checked":""} style="width:11px;height:11px"
+              onchange="setSgClean('${esc(cid)}',${sgi},${bi},this.checked)"> limpio
+          </label>
+        </div>
+        ${rowsHtml}
+      </div>`;
+    }).join("");
+    const cleanCount = sg.bd_results.filter(b=>b.is_clean).length;
+    bdHtml += `<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
+      <button class="btn green sm" onclick="assignSgClean('${esc(cid)}',${sgi});renderSgGroupsPanel('${esc(cid)}')">✓ Asignar limpio</button>
+      ${cleanCount>=2?`<button class="btn sm" style="border-color:var(--amber);color:var(--amber)" onclick="fusionSgClean('${esc(cid)}',${sgi});renderSgGroupsPanel('${esc(cid)}')">⇄ Fusionar (${cleanCount})</button>`:""}
+    </div>`;
+  }
+
+  // SQL viewer
+  const sqlId = `sgModalSql_${CSS.escape(cid)}_${sgi}`;
+
+  // Corrección
+  const corrHtml = sg.correction
+    ? `<div class="corr-chip ${sg.is_new?'new':''}">
+        <span>${esc(sg.correction)}</span>
+        <span class="chip-x" onclick="clearSgCorr('${esc(cid)}',${sgi});renderSgGroupsPanel('${esc(cid)}')">✕</span>
+      </div>`
+    : `<span style="font-size:11px;color:var(--muted)">Sin asignar</span>`;
+
+  return `<div class="sg-group-card ${isCorr?'corrected':''}"
+    ondragover="onSgGroupDragOver(event,'${esc(cid)}',${sgi})"
+    ondragleave="onSgGroupDragLeave(event)"
+    ondrop="onSgGroupDrop(event,'${esc(cid)}',${sgi})">
+    <div class="sg-group-hdr ${isCorr?'corrected':''}">
+      <div class="sg-group-num ${isCorr?'corrected':''}">${isCorr?'✓':sgi+1}</div>
+      <div class="sg-group-name">${esc(sg.rep_name||"Grupo "+(sgi+1))}</div>
+      <div class="sg-group-count">${sg.members.length} store${sg.members.length!==1?"s":""}</div>
+      ${isCorr?`<div class="sg-group-corr-badge" title="${esc(sg.correction)}">${esc(sg.correction)}</div>`:''}
+    </div>
+    <div class="sg-group-body">
+      <!-- Izquierda: stores -->
+      <div class="sg-group-stores">
+        <div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Stores del grupo</div>
+        <div class="sg-drop-zone" id="sgDrop_${CSS.escape(cid)}_${sgi}">${chipsHtml}</div>
+      </div>
+      <!-- Derecha: BD + corrección -->
+      <div class="sg-group-right">
+        <!-- BD actions -->
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          ${PG_READY
+            ?`<button class="btn blue sm" onclick="runSgQueryModal('${esc(cid)}',${sgi})">▶ Ejecutar BD</button>`
+            :`<label class="btn sm" style="cursor:pointer"><input type="file" accept=".csv,.xlsx" onchange="uploadSgBd(this,'${esc(cid)}',${sgi})" style="display:none">↑ CSV</label>`
+          }
+          <button class="btn sm" onclick="document.getElementById('${sqlId}').style.display=document.getElementById('${sqlId}').style.display==='none'?'block':'none'">Ver SQL</button>
+          <button class="btn sm" onclick="navigator.clipboard.writeText(document.getElementById('${sqlId}').textContent.trim()).then(()=>toast('SQL copiada ✓'))">Copiar SQL</button>
+        </div>
+        <div id="${sqlId}" style="display:none;background:#1a1a2e;border-radius:6px;padding:8px 10px;font-family:monospace;font-size:10px;color:#a8b3cf;white-space:pre-wrap;line-height:1.6;max-height:90px;overflow-y:auto">${esc(sg.sql||'')}</div>
+
+        <!-- BD results -->
+        ${bdHtml ? `<div class="sg-bd-results">${bdHtml}</div>` : ''}
+
+        <!-- Corrección -->
+        <div class="sg-corr-section">
+          <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Corrección</div>
+          <div style="margin-bottom:6px">${corrHtml}</div>
+          ${!sg.correction && !sg.bd_results?.length ? `<div style="font-size:10px;color:var(--amber);margin-bottom:6px">⚠ Sin resultados — ingresa manualmente o crea nuevo.</div>` : ''}
+          <div style="display:flex;gap:5px;flex-wrap:wrap">
+            <input id="sgModalCorrIn_${CSS.escape(cid)}_${sgi}" class="corr-input" placeholder="Pegar cluster_index aquí" style="font-size:11px;padding:5px 8px">
+            <button class="btn green sm" onclick="assignSgInputModal('${esc(cid)}',${sgi})">✓</button>
+            <button class="btn sm" onclick="createSgNew('${esc(cid)}',${sgi});renderSgGroupsPanel('${esc(cid)}')">+ Nuevo</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+// Drag desde panel izquierdo
+let _sgModalDrag = null;
+function onSgModalDragStart(e) {
+  _sgModalDrag = {ii: e.target.dataset.ii, fromSgi: null};
+  e.target.classList.add("dragging");
+  e.dataTransfer.effectAllowed = "move";
+}
+function onSgModalDragEnd(e) { e.target.classList.remove("dragging"); }
+
+// Drag desde chip dentro de grupo
+function onSgChipDragStart(e) {
+  _sgModalDrag = {ii: e.target.dataset.ii, fromSgi: parseInt(e.target.dataset.fromSgi), cid: e.target.dataset.cid};
+  e.target.classList.add("dragging");
+  e.dataTransfer.effectAllowed = "move";
+}
+function onSgChipDragEnd(e) { e.target.classList.remove("dragging"); }
+
+function onSgGroupDragOver(e, cid, toSgi) {
+  e.preventDefault();
+  e.currentTarget.classList.add("drag-over");
+}
+function onSgGroupDragLeave(e) { e.currentTarget.classList.remove("drag-over"); }
+
+function onSgGroupDrop(e, cid, toSgi) {
+  e.preventDefault(); e.currentTarget.classList.remove("drag-over");
+  if (!_sgModalDrag) return;
+  const {ii, fromSgi} = _sgModalDrag; _sgModalDrag = null;
+  const sgs = SUBGROUPS[cid]; if (!sgs) return;
+  // Quitar de origen si viene de otro grupo
+  if (fromSgi !== null && fromSgi !== undefined) {
+    sgs[fromSgi].members = sgs[fromSgi].members.filter(m => m !== ii);
+    if (sgs[fromSgi].members.length === 0) {
+      sgs.splice(fromSgi, 1);
+      // Ajustar toSgi si era posterior al eliminado
+      // (se maneja al re-renderizar)
+    }
+  }
+  // Agregar al destino si no está ya
+  const targetSgi = sgs.findIndex((_, i) => i === toSgi);
+  const realSgi = targetSgi >= 0 ? targetSgi : toSgi;
+  if (sgs[realSgi] && !sgs[realSgi].members.includes(ii)) {
+    sgs[realSgi].members.push(ii);
+    // Actualizar rep_name
+    const cl = getCl(cid);
+    if (cl) {
+      const m = cl.members.find(m => m.item_index === sgs[realSgi].members[0]);
+      if (m) sgs[realSgi].rep_name = m.app_name;
+    }
+  }
+  SUBGROUPS[cid] = sgs.filter(sg => sg.members.length > 0);
+  regenerateSgSql(cid).then(() => renderSgGroupsPanel(cid));
+  renderSgStoresList(cid);
+  updateSgModalProgress(cid);
+}
+
+function removeSgChip(cid, sgi, ii) {
+  const sgs = SUBGROUPS[cid]; if (!sgs || !sgs[sgi]) return;
+  sgs[sgi].members = sgs[sgi].members.filter(m => m !== ii);
+  if (sgs[sgi].members.length === 0) sgs.splice(sgi, 1);
+  SUBGROUPS[cid] = sgs;
+  renderSgGroupsPanel(cid);
+  renderSgStoresList(cid);
+  updateSgModalProgress(cid);
+}
+
+function sgModalAddGroup() {
+  if (!_sgModalCid) return;
+  const sgs = SUBGROUPS[_sgModalCid] || [];
+  sgs.push({members:[], rep_name:"Nuevo grupo", sql:"", bd_results:[], correction:"", is_new:false});
+  SUBGROUPS[_sgModalCid] = sgs;
+  renderSgGroupsPanel(_sgModalCid);
+}
+
+async function runSgQueryModal(cid, sgi) {
+  const sgs = SUBGROUPS[cid]; if (!sgs || !sgs[sgi]) return;
+  const sql = sgs[sgi].sql;
+  if (!sql) { toast("Sin SQL — regenerando…"); await regenerateSgSql(cid); return; }
+  // Encontrar botón y mostrar spinner
+  const groupCards = document.querySelectorAll("#sgGroupsPanel .sg-group-card");
+  const btn = groupCards[sgi] ? groupCards[sgi].querySelector(".btn.blue.sm") : null;
+  if (btn) { btn.innerHTML = '<span class="spinner"></span>'; btn.disabled = true; }
+  try {
+    const d = await api("/pg_query", {sql});
+    if (d.error) { toast("Error BD: " + d.error); }
+    else {
+      sgs[sgi].bd_results = d.clusters_found || [];
+      if (!d.clusters_found?.length) toast("Sin resultados — intenta reagrupar o ingresa manualmente");
+      else toast(`${d.clusters_found.length} cluster(s) encontrados`);
+    }
+  } catch(e) { toast("Error: " + e.message); }
+  if (btn) { btn.innerHTML = "▶ Ejecutar BD"; btn.disabled = false; }
+  renderSgGroupsPanel(cid);
+}
+
+async function assignSgInputModal(cid, sgi) {
+  const panel = document.getElementById("sgGroupsPanel");
+  const cards = panel ? panel.querySelectorAll(".sg-group-card") : [];
+  const card = cards[sgi];
+  const inp = card ? card.querySelector(".corr-input") : null;
+  const val = (inp?.value||"").trim();
+  if (!val) { toast("Escribe el cluster_index"); return; }
+  await saveSgCorr(cid, sgi, val, false);
+  if (inp) inp.value = "";
+  renderSgGroupsPanel(cid);
+  updateSgModalProgress(cid);
+}
+
+function updateSgModalProgress(cid) {
+  const sgs = SUBGROUPS[cid] || [];
+  const total = sgs.length;
+  const corrected = sgs.filter(sg => sg.correction).length;
+  const el = document.getElementById("sgModalProgress");
+  if (el) {
+    el.innerHTML = total
+      ? `<span style="color:${corrected===total?'var(--green)':'var(--muted)'};font-weight:${corrected===total?'700':'400'}">
+          ${corrected===total?'✓ ':''} ${corrected}/${total} grupos corregidos
+         </span>`
+      : "";
+  }
+}
+</script>
+</body>
+</html>
+
 </script>
 </body>
 </html>
