@@ -788,24 +788,22 @@ function buildBdPanel(cl){
   const sgs=SUBGROUPS[cid]||[];
   if(!sgs.length){
     return`<div class="col-bd" id="bdPanel_${CSS.escape(cid)}" data-cid="${esc(cid)}">
-      <div class="bd-hdr"><span>Subgrupos y correcciones</span></div>
       <div style="padding:24px 14px;font-size:12px;color:var(--muted);text-align:center;line-height:2">
         Marca incorrectos y haz clic<br><strong>⚡ Generar subgrupos</strong>
       </div>
     </div>`;
   }
-
   const corrCount=sgs.filter(sg=>sg.correction).length;
-  const sgBlocks=sgs.map((sg,sgi)=>buildSgBlock(cl,sg,sgi)).join("");
-
-  return`<div class="col-bd" id="bdPanel_${CSS.escape(cid)}" data-cid="${esc(cid)}">
-    <div class="bd-hdr">
-      <span>${sgs.length} subgrupo${sgs.length!==1?"s":""}</span>
-      <button class="btn sm" style="font-size:10px;padding:2px 7px;margin-left:8px"
-        onclick="addNewSubgroup('${esc(cid)}')">+ Subgrupo</button>
-      <span style="margin-left:auto;font-size:10px;font-weight:700;color:var(--green)">${corrCount===sgs.length?`✓ ${corrCount}/${sgs.length} corregidos`:""}</span>
+  const total=sgs.length;
+  const allDone=corrCount===total;
+  return`<div class="col-bd" id="bdPanel_${CSS.escape(cid)}" data-cid="${esc(cid)}"
+    style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:20px">
+    <div style="font-size:28px">${allDone?'✅':'🗂️'}</div>
+    <div style="font-size:13px;font-weight:700;text-align:center">${total} subgrupo${total!==1?"s":""}</div>
+    <div style="font-size:11px;color:${allDone?'var(--green)':'var(--muted)'};font-weight:${allDone?'700':'400'}">
+      ${allDone?`✓ Todos corregidos`:`${corrCount}/${total} corregidos`}
     </div>
-    ${sgBlocks}
+    <button class="btn blue" onclick="openSgModal('${esc(cid)}')">✏️ Editar subgrupos</button>
   </div>`;
 }
 
@@ -2004,7 +2002,11 @@ function buildSgGroupCard(cid, sg, sgi) {
     const m = clMembers.find(m => m.item_index === ii);
     const name = m ? m.app_name : ii.slice(-12);
     const addr = m ? (m.app_address||'').slice(0,55) : '';
-    return `<div class="sg-chip" title="${esc(ii)}">
+    return `<div class="sg-chip" draggable="true"
+      data-ii="${esc(ii)}" data-from-sgi="${sgi}" data-cid="${esc(cid)}"
+      ondragstart="onSgChipDragStart(event)"
+      ondragend="onSgChipDragEnd(event)"
+      title="${esc(ii)}">
       <div class="sg-chip-name">${esc(name)}</div>
       ${addr ? `<div class="sg-chip-addr">${esc(addr)}</div>` : ''}
       <span class="sg-chip-x" onclick="removeSgChip('${esc(cid)}',${sgi},'${esc(ii)}')">✕</span>
