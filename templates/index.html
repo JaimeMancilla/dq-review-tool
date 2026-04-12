@@ -778,26 +778,27 @@ function buildToolbar(cl){
 function buildBdPanel(cl){
   const cid=cl.cluster_id;
   const sgs=SUBGROUPS[cid]||[];
+
   if(!sgs.length){
     return`<div class="col-bd" id="bdPanel_${CSS.escape(cid)}" data-cid="${esc(cid)}">
-      <div class="bd-hdr"><span>Subgrupos y correcciones</span></div>
       <div style="padding:24px 14px;font-size:12px;color:var(--muted);text-align:center;line-height:2">
         Marca incorrectos y haz clic<br><strong>⚡ Generar subgrupos</strong>
       </div>
     </div>`;
   }
 
-  const corrCount=sgs.filter(sg=>sg.correction).length;
-  const sgBlocks=sgs.map((sg,sgi)=>buildSgBlock(cl,sg,sgi)).join("");
+  const corrCount = sgs.filter(sg=>sg.correction).length;
+  const total = sgs.length;
+  const allDone = corrCount === total;
 
-  return`<div class="col-bd" id="bdPanel_${CSS.escape(cid)}" data-cid="${esc(cid)}">
-    <div class="bd-hdr">
-      <span>${sgs.length} subgrupo${sgs.length!==1?"s":""}</span>
-      <button class="btn sm" style="font-size:10px;padding:2px 7px;margin-left:8px"
-        onclick="addNewSubgroup('${esc(cid)}')">+ Subgrupo</button>
-      <span style="margin-left:auto;font-size:10px;font-weight:700;color:var(--green)">${corrCount===sgs.length?`✓ ${corrCount}/${sgs.length} corregidos`:""}</span>
+  return`<div class="col-bd" id="bdPanel_${CSS.escape(cid)}" data-cid="${esc(cid)}"
+    style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:20px">
+    <div style="font-size:28px">${allDone?'✅':'🗂️'}</div>
+    <div style="font-size:13px;font-weight:700;text-align:center">${total} subgrupo${total!==1?"s":""}</div>
+    <div style="font-size:11px;color:${allDone?'var(--green)':'var(--muted)'};font-weight:${allDone?'700':'400'}">
+      ${allDone?`✓ Todos corregidos`:`${corrCount}/${total} corregidos`}
     </div>
-    ${sgBlocks}
+    <button class="btn blue" onclick="openSgModal('${esc(cid)}')">✏️ Editar subgrupos</button>
   </div>`;
 }
 
