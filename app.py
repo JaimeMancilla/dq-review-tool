@@ -277,10 +277,20 @@ def apply_session_state(clusters, state):
         saved = state_map.get(cl["cluster_id"])
         if not saved: continue
         rev_map = {m["item_index"]: m["revision"] for m in saved["members"]}
+        corrections = saved.get("corrections", {})
+        threshold = cl.get("threshold_used", 0.95)
         for m in cl["members"]:
-            if not m["is_anchor"] and m["item_index"] in rev_map:
-                m["revision"] = rev_map[m["item_index"]]
-        cl["corrections"] = saved.get("corrections", {})
+            if m["is_anchor"] or m["item_index"] not in rev_map: continue
+            saved_rev = rev_map[m["item_index"]]
+            has_correction = m["item_index"] in corrections and corrections[m["item_index"]]
+            # Restaurar revision=0 siempre (el usuario lo marcó como incorrecto)
+            # Restaurar revision=1 solo si el score lo justifica O hay corrección asignada
+            if saved_rev == 0:
+                m["revision"] = 0
+            elif saved_rev == 1 and (has_correction or m.get("score") is None or m["score"] >= threshold):
+                m["revision"] = 1
+            # Si saved_rev==1 pero score < threshold y sin corrección → dejar el score del modelo (0)
+        cl["corrections"] = corrections
         cl["ok_count"]  = sum(1 for m in cl["members"] if m["revision"]==1)
         cl["bad_count"] = sum(1 for m in cl["members"] if m["revision"]==0)
         if saved.get("subgroups"):
