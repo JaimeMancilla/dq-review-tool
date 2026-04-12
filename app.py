@@ -277,20 +277,10 @@ def apply_session_state(clusters, state):
         saved = state_map.get(cl["cluster_id"])
         if not saved: continue
         rev_map = {m["item_index"]: m["revision"] for m in saved["members"]}
-        corrections = saved.get("corrections", {})
-        threshold = cl.get("threshold_used", 0.80)
         for m in cl["members"]:
-            if m["is_anchor"] or m["item_index"] not in rev_map: continue
-            saved_rev = rev_map[m["item_index"]]
-            has_correction = m["item_index"] in corrections and corrections[m["item_index"]]
-            # Restaurar revision=0 siempre (el usuario lo marcó como incorrecto)
-            # Restaurar revision=1 solo si el score lo justifica O hay corrección asignada
-            if saved_rev == 0:
-                m["revision"] = 0
-            elif saved_rev == 1 and (has_correction or m.get("score") is None or m["score"] >= threshold):
-                m["revision"] = 1
-            # Si saved_rev==1 pero score < threshold y sin corrección → dejar el score del modelo (0)
-        cl["corrections"] = corrections
+            if not m["is_anchor"] and m["item_index"] in rev_map:
+                m["revision"] = rev_map[m["item_index"]]
+        cl["corrections"] = saved.get("corrections", {})
         cl["ok_count"]  = sum(1 for m in cl["members"] if m["revision"]==1)
         cl["bad_count"] = sum(1 for m in cl["members"] if m["revision"]==0)
         if saved.get("subgroups"):
@@ -344,8 +334,8 @@ def get_model():
 def batch_semantic_sim(anchor_name, anchor_addr, members):
     m = get_model()
     if m is None:
-        return [round(jaccard_sim(mem.get("app_name",""), anchor_name) *
-                      jaccard_sim(mem.get("app_address",""), anchor_addr), 3)
+        return [jaccard_sim(mem.get("app_name",""), anchor_name)*0.85 +
+                jaccard_sim(mem.get("app_address",""), anchor_addr)*0.15
                 for mem in members]
     from sentence_transformers import util
     ea_n = m.encode(anchor_name, convert_to_tensor=True, show_progress_bar=False)
@@ -354,8 +344,7 @@ def batch_semantic_sim(anchor_name, anchor_addr, members):
     addrs = [mem.get("app_address","") for mem in members]
     en = m.encode(names, convert_to_tensor=True, show_progress_bar=False)
     ea = m.encode(addrs, convert_to_tensor=True, show_progress_bar=False)
-    return [round(float(util.cos_sim(ea_n,en[i])) *
-                  float(util.cos_sim(ea_a,ea[i])), 3)
+    return [round(float(util.cos_sim(ea_n,en[i]))*0.85 + float(util.cos_sim(ea_a,ea[i]))*0.15, 3)
             for i in range(len(members))]
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -397,7 +386,7 @@ def detect_country(df):
 
 def get_threshold():
     fb = load_feedback()
-    return round(0.80 + fb.get("threshold_adj", 0.0), 4)
+    return round(0.95 + fb.get("threshold_adj", 0.0), 4)
 
 # ── feedback ──────────────────────────────────────────────────────────────────
 
@@ -524,19 +513,36 @@ def brand_words(name):
 
 def build_subgroups(bad_members):
     if not bad_members: return []
+
+    FAST_FOOD_SUBS = {
+        "postres","desayunos","pollos","pollo","chicken",
+        "vegetal","mccafe","cafe","express","drive","thru","junior"
+    }
+
+    def has_sub_entity(name):
+        return any(w in FAST_FOOD_SUBS for w in norm(name).split())
+
     used = [False]*len(bad_members)
     subgroups = []
     for i, a in enumerate(bad_members):
         if used[i]: continue
         wa = set(brand_words(a.get("app_name","")))
+        ak = set(extract_addr_keys(a.get("app_address","")))
         grp = [a]; used[i] = True
+        # Marca genérica: 1 sola palabra → separar por dirección siempre
+        generic_brand = len(wa) <= 1
         for j, b in enumerate(bad_members):
             if used[j] or i==j: continue
             wb = set(brand_words(b.get("app_name","")))
             if not wa or not wb: continue
             union = wa|wb; inter = wa&wb
-            if union and len(inter)/len(union) >= 0.60:
-                grp.append(b); used[j] = True
+            if not union or len(inter)/len(union) < 0.60: continue
+            # Separar por dirección si: marca genérica O tiene sub-entidad
+            if generic_brand or has_sub_entity(a.get("app_name","")) or has_sub_entity(b.get("app_name","")):
+                bk = set(extract_addr_keys(b.get("app_address","")))
+                if ak and bk and not ak & bk:
+                    continue  # direcciones distintas → subgrupos separados
+            grp.append(b); used[j] = True
         grp.sort(key=lambda m: m.get("item_index",""))
         subgroups.append({
             "rep_name":   grp[0].get("app_name",""),
@@ -1253,7 +1259,6 @@ def upload():
     session["clusters"]    = clusters
     session["country"]     = country
     session["filename"]    = f.filename
-    session["is_reviewed"] = False  # resetear al cargar nuevo archivo
     return jsonify({"clusters":clusters, "meta":meta, "country":country,
                     "restored": restored,
                     "review_type": review_type,
@@ -1265,14 +1270,22 @@ def upload():
 @app.route("/update_revisions", methods=["POST"])
 def update_revisions():
     data=request.json; cid=data["cluster_id"]; revisions=data["revisions"]
+    record_fb=data.get("record_feedback",True)
     clusters=session.get("clusters",[])
     sql,bad=("",0)
     for cl in clusters:
         if cl["cluster_id"]!=cid: continue
+        anchor=next((m for m in cl["members"] if m["is_anchor"]),None)
         for m in cl["members"]:
             ii=m["item_index"]
             if ii not in revisions: continue
-            m["revision"]=revisions[ii]
+            new_rev=revisions[ii]
+            if record_fb and not m["is_anchor"] and new_rev!=m["revision"]:
+                record_feedback(anchor["app_name"] if anchor else "",
+                                anchor["app_address"] if anchor else "",
+                                m["app_name"],m["app_address"],
+                                m.get("score"),m["revision"],new_rev)
+            m["revision"]=new_rev
         cl["ok_count"]=sum(1 for m in cl["members"] if m["revision"]==1)
         cl["bad_count"]=sum(1 for m in cl["members"] if m["revision"]==0)
         bads=[m for m in cl["members"] if m["revision"]==0]
@@ -1280,6 +1293,7 @@ def update_revisions():
         sql,bad=cl["sql"],cl["bad_count"]
         break
     session["clusters"]=clusters; session.modified=True
+    # Guardar estado en disco en tiempo real
     save_session_state(session.get("filename",""), clusters)
     fb=load_feedback()
     return jsonify({"sql":sql,"bad_count":bad,"threshold":get_threshold(),"fb_stats":fb["stats"]})
@@ -1371,8 +1385,6 @@ def reset_feedback():
 
 @app.route("/export")
 def export():
-    if not session.get("is_reviewed"):
-        return jsonify({"error": "Debes marcar el archivo como revisado antes de descargar"}), 403
     review_path=session.get("review_path")
     clusters=session.get("clusters",[])
     filename=session.get("filename","archivo")
@@ -1577,7 +1589,7 @@ def dishes_export():
 
 @app.route("/mark_as_reviewed", methods=["POST"])
 def mark_as_reviewed():
-    """Registra el archivo como revisado. Guarda feedback final en store_pairs y ajusta umbral."""
+    """Registra el archivo como revisado en memoria sin descargar."""
     review_type = session.get("review_type","stores_restaurant")
     if review_type == "dishes":
         groups   = session.get("dishes_groups",[])
@@ -1594,55 +1606,7 @@ def mark_as_reviewed():
         bad = sum(c["bad_count"] for c in clusters)
         save_reviewed_clusters(clusters, filename)
         save_reviewed_file(filename, review_type, len(clusters), ok, bad)
-
-        # ── Registrar feedback final (estado definitivo del usuario) ──
-        fb = load_feedback()
-        pairs_added = 0
-        for cl in clusters:
-            anchor = next((m for m in cl["members"] if m["is_anchor"]), None)
-            if not anchor: continue
-            for m in cl["members"]:
-                if m["is_anchor"] or m.get("score") is None: continue
-                model_rev = 1 if m["score"] >= cl.get("threshold_used", 0.95) else 0
-                human_rev = m["revision"]
-                # Guardar par en store_pairs solo si el usuario difiere del modelo
-                if model_rev != human_rev:
-                    save_store_pair(
-                        anchor["app_name"], anchor["app_address"], cl["cluster_id"],
-                        m["app_name"], m["app_address"], cl["cluster_id"],
-                        label=human_rev, source="reviewed", file_name=filename
-                    )
-                    # Agregar a feedback.json para ajuste de umbral
-                    fb["pairs"].append({
-                        "anchor_name": anchor["app_name"],
-                        "anchor_addr": anchor["app_address"],
-                        "member_name": m["app_name"],
-                        "member_addr": m["app_address"],
-                        "model_score": m["score"],
-                        "model_rev":   model_rev,
-                        "human_rev":   human_rev,
-                        "ts":          time.time()
-                    })
-                    fb["stats"]["total"] += 1
-                    if human_rev == 1: fb["stats"]["overrides_to_1"] += 1
-                    else:              fb["stats"]["overrides_to_0"] += 1
-                    pairs_added += 1
-
-        # Recalcular ajuste de umbral con los últimos 30 pares
-        recent = fb["pairs"][-30:]
-        if len(recent) >= 5:
-            fp  = sum(1 for p in recent if p["model_rev"]==1 and p["human_rev"]==0)
-            fn  = sum(1 for p in recent if p["model_rev"]==0 and p["human_rev"]==1)
-            adj = max(-0.10, min(0.10, (fp-fn)/len(recent)*0.10))
-            fb["threshold_adj"] = round(adj, 4)
-        save_feedback(fb)
-
-        # Marcar sesión como revisada para habilitar Descargar y Actualizar BD
-        session["is_reviewed"] = True
-        session.modified = True
-
-    return jsonify({"ok": True, "filename": filename,
-                    "pairs_added": pairs_added if review_type != "dishes" else 0})
+    return jsonify({"ok": True, "filename": filename})
 
 @app.route("/reset_session", methods=["POST"])
 def reset_session():
@@ -1812,8 +1776,6 @@ def clean_correction(corr):
 @app.route("/bd_update/preview", methods=["POST"])
 def bd_update_preview():
     """Genera preview de los INSERTs que se harían en ctrl_restaurant_homologation."""
-    if not session.get("is_reviewed"):
-        return jsonify({"error": "Debes marcar el archivo como revisado antes de actualizar la BD"}), 403
     clusters   = session.get("clusters", [])
     country    = session.get("country", "mx")
     rt         = session.get("review_type", "stores_restaurant")
