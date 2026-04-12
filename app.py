@@ -278,7 +278,7 @@ def apply_session_state(clusters, state):
         if not saved: continue
         rev_map = {m["item_index"]: m["revision"] for m in saved["members"]}
         corrections = saved.get("corrections", {})
-        threshold = cl.get("threshold_used", 0.95)
+        threshold = cl.get("threshold_used", 0.80)
         for m in cl["members"]:
             if m["is_anchor"] or m["item_index"] not in rev_map: continue
             saved_rev = rev_map[m["item_index"]]
@@ -344,8 +344,8 @@ def get_model():
 def batch_semantic_sim(anchor_name, anchor_addr, members):
     m = get_model()
     if m is None:
-        return [jaccard_sim(mem.get("app_name",""), anchor_name)*0.85 +
-                jaccard_sim(mem.get("app_address",""), anchor_addr)*0.15
+        return [round(jaccard_sim(mem.get("app_name",""), anchor_name) *
+                      jaccard_sim(mem.get("app_address",""), anchor_addr), 3)
                 for mem in members]
     from sentence_transformers import util
     ea_n = m.encode(anchor_name, convert_to_tensor=True, show_progress_bar=False)
@@ -354,7 +354,8 @@ def batch_semantic_sim(anchor_name, anchor_addr, members):
     addrs = [mem.get("app_address","") for mem in members]
     en = m.encode(names, convert_to_tensor=True, show_progress_bar=False)
     ea = m.encode(addrs, convert_to_tensor=True, show_progress_bar=False)
-    return [round(float(util.cos_sim(ea_n,en[i]))*0.85 + float(util.cos_sim(ea_a,ea[i]))*0.15, 3)
+    return [round(float(util.cos_sim(ea_n,en[i])) *
+                  float(util.cos_sim(ea_a,ea[i])), 3)
             for i in range(len(members))]
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -396,7 +397,7 @@ def detect_country(df):
 
 def get_threshold():
     fb = load_feedback()
-    return round(0.95 + fb.get("threshold_adj", 0.0), 4)
+    return round(0.80 + fb.get("threshold_adj", 0.0), 4)
 
 # ── feedback ──────────────────────────────────────────────────────────────────
 
