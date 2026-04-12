@@ -545,9 +545,6 @@ def extract_addr_keys(addr):
         "sur","norte","oriente","poniente","ote","pte","col","colonia",
         "fracc","fraccionamiento","local","plaza","paseo","zona","barrio",
         "mexico","latam","cp","sin","nombre","entre",
-        # Nombres de cadenas — no usar como clave de dirección
-        "mcdonald","mcdonalds","burger","burgerking","starbucks","dominos",
-        "pizzahut","subway","wendys","kfc","popeyes","tacobell",
     }
     words = re.split(r"[,\s]+", norm(addr))
     keys = []
@@ -1245,6 +1242,7 @@ def upload():
     session["clusters"]    = clusters
     session["country"]     = country
     session["filename"]    = f.filename
+    session["is_reviewed"] = False  # resetear al cargar nuevo archivo
     return jsonify({"clusters":clusters, "meta":meta, "country":country,
                     "restored": restored,
                     "review_type": review_type,
@@ -1256,22 +1254,14 @@ def upload():
 @app.route("/update_revisions", methods=["POST"])
 def update_revisions():
     data=request.json; cid=data["cluster_id"]; revisions=data["revisions"]
-    record_fb=data.get("record_feedback",True)
     clusters=session.get("clusters",[])
     sql,bad=("",0)
     for cl in clusters:
         if cl["cluster_id"]!=cid: continue
-        anchor=next((m for m in cl["members"] if m["is_anchor"]),None)
         for m in cl["members"]:
             ii=m["item_index"]
             if ii not in revisions: continue
-            new_rev=revisions[ii]
-            if record_fb and not m["is_anchor"] and new_rev!=m["revision"]:
-                record_feedback(anchor["app_name"] if anchor else "",
-                                anchor["app_address"] if anchor else "",
-                                m["app_name"],m["app_address"],
-                                m.get("score"),m["revision"],new_rev)
-            m["revision"]=new_rev
+            m["revision"]=revisions[ii]
         cl["ok_count"]=sum(1 for m in cl["members"] if m["revision"]==1)
         cl["bad_count"]=sum(1 for m in cl["members"] if m["revision"]==0)
         bads=[m for m in cl["members"] if m["revision"]==0]
@@ -1279,7 +1269,6 @@ def update_revisions():
         sql,bad=cl["sql"],cl["bad_count"]
         break
     session["clusters"]=clusters; session.modified=True
-    # Guardar estado en disco en tiempo real
     save_session_state(session.get("filename",""), clusters)
     fb=load_feedback()
     return jsonify({"sql":sql,"bad_count":bad,"threshold":get_threshold(),"fb_stats":fb["stats"]})
@@ -1371,6 +1360,8 @@ def reset_feedback():
 
 @app.route("/export")
 def export():
+    if not session.get("is_reviewed"):
+        return jsonify({"error": "Debes marcar el archivo como revisado antes de descargar"}), 403
     review_path=session.get("review_path")
     clusters=session.get("clusters",[])
     filename=session.get("filename","archivo")
@@ -1575,7 +1566,7 @@ def dishes_export():
 
 @app.route("/mark_as_reviewed", methods=["POST"])
 def mark_as_reviewed():
-    """Registra el archivo como revisado en memoria sin descargar."""
+    """Registra el archivo como revisado. Guarda feedback final en store_pairs y ajusta umbral."""
     review_type = session.get("review_type","stores_restaurant")
     if review_type == "dishes":
         groups   = session.get("dishes_groups",[])
@@ -1592,7 +1583,55 @@ def mark_as_reviewed():
         bad = sum(c["bad_count"] for c in clusters)
         save_reviewed_clusters(clusters, filename)
         save_reviewed_file(filename, review_type, len(clusters), ok, bad)
-    return jsonify({"ok": True, "filename": filename})
+
+        # ── Registrar feedback final (estado definitivo del usuario) ──
+        fb = load_feedback()
+        pairs_added = 0
+        for cl in clusters:
+            anchor = next((m for m in cl["members"] if m["is_anchor"]), None)
+            if not anchor: continue
+            for m in cl["members"]:
+                if m["is_anchor"] or m.get("score") is None: continue
+                model_rev = 1 if m["score"] >= cl.get("threshold_used", 0.95) else 0
+                human_rev = m["revision"]
+                # Guardar par en store_pairs solo si el usuario difiere del modelo
+                if model_rev != human_rev:
+                    save_store_pair(
+                        anchor["app_name"], anchor["app_address"], cl["cluster_id"],
+                        m["app_name"], m["app_address"], cl["cluster_id"],
+                        label=human_rev, source="reviewed", file_name=filename
+                    )
+                    # Agregar a feedback.json para ajuste de umbral
+                    fb["pairs"].append({
+                        "anchor_name": anchor["app_name"],
+                        "anchor_addr": anchor["app_address"],
+                        "member_name": m["app_name"],
+                        "member_addr": m["app_address"],
+                        "model_score": m["score"],
+                        "model_rev":   model_rev,
+                        "human_rev":   human_rev,
+                        "ts":          time.time()
+                    })
+                    fb["stats"]["total"] += 1
+                    if human_rev == 1: fb["stats"]["overrides_to_1"] += 1
+                    else:              fb["stats"]["overrides_to_0"] += 1
+                    pairs_added += 1
+
+        # Recalcular ajuste de umbral con los últimos 30 pares
+        recent = fb["pairs"][-30:]
+        if len(recent) >= 5:
+            fp  = sum(1 for p in recent if p["model_rev"]==1 and p["human_rev"]==0)
+            fn  = sum(1 for p in recent if p["model_rev"]==0 and p["human_rev"]==1)
+            adj = max(-0.10, min(0.10, (fp-fn)/len(recent)*0.10))
+            fb["threshold_adj"] = round(adj, 4)
+        save_feedback(fb)
+
+        # Marcar sesión como revisada para habilitar Descargar y Actualizar BD
+        session["is_reviewed"] = True
+        session.modified = True
+
+    return jsonify({"ok": True, "filename": filename,
+                    "pairs_added": pairs_added if review_type != "dishes" else 0})
 
 @app.route("/reset_session", methods=["POST"])
 def reset_session():
@@ -1762,6 +1801,8 @@ def clean_correction(corr):
 @app.route("/bd_update/preview", methods=["POST"])
 def bd_update_preview():
     """Genera preview de los INSERTs que se harían en ctrl_restaurant_homologation."""
+    if not session.get("is_reviewed"):
+        return jsonify({"error": "Debes marcar el archivo como revisado antes de actualizar la BD"}), 403
     clusters   = session.get("clusters", [])
     country    = session.get("country", "mx")
     rt         = session.get("review_type", "stores_restaurant")

@@ -475,10 +475,13 @@ async function doUpload(file){
       document.getElementById("uploadScreen").classList.add("hidden");
       document.getElementById("mainScreen").classList.remove("hidden");
       document.getElementById("hdrFile").textContent=file.name;
-      document.getElementById("btnExport").style.display="";
+      // Export y BdUpdate deshabilitados hasta "Marcar revisado"
+      const btnExp=document.getElementById("btnExport");
+      const btnBd=document.getElementById("btnBdUpdate");
+      btnExp.style.display="";btnExp.disabled=true;btnExp.style.opacity="0.45";btnExp.title="Marca como revisado primero";
+      btnBd.style.display="";btnBd.disabled=true;btnBd.style.opacity="0.45";btnBd.title="Marca como revisado primero";
       document.getElementById("btnMarkReviewed").style.display="";
       document.getElementById("btnMemory").style.display="";
-      document.getElementById("btnBdUpdate").style.display="";
       document.getElementById("btnDashboard").style.display="";
       if(d.meta)updateFbBar(d.meta.fb_stats,d.meta.threshold,0);
       if(d.restored){
@@ -601,34 +604,24 @@ function getCl(id){return CLUSTERS.find(c=>c.cluster_id===id)}
 function buildCard(cl){
   const wrap=document.createElement("div");
   wrap.className="cluster-wrap";wrap.id="card_"+CSS.escape(cl.cluster_id);
-  const badUser=cl.members.filter(m=>m.revision===0).length;
-  const badModel=cl.members.filter(m=>!m.is_anchor && m.score!=null && m.score < (cl.threshold_used||0.95)).length;
+  const bad=cl.members.filter(m=>m.revision===0).length;
   const prog = clusterProgress(cl);
 
-  // Badge de incorrectos: modelo (fijo) vs usuario (dinámico)
   let statusBadge;
-  if (badUser === 0 && badModel === 0) {
+  if (bad === 0) {
     statusBadge = `<span class="badge ok">✓ Sin incorrectos</span>`;
   } else if (prog.done) {
     statusBadge = `<span class="badge ok">✓ ${prog.corrected}/${prog.total} corregidos</span>`;
   } else if (prog.total > 0) {
     statusBadge = `<span class="badge bad">${prog.corrected}/${prog.total} corregidos</span>`;
   } else {
-    statusBadge = badUser > 0
-      ? `<span class="badge bad">${badUser} incorrecto${badUser>1?"s":""}</span>`
-      : `<span class="badge ok">✓ Sin incorrectos</span>`;
+    statusBadge = `<span class="badge bad">${bad} incorrecto${bad>1?"s":""}</span>`;
   }
-  // Badge del modelo (siempre fijo, lo que propuso el algoritmo)
-  const modelBadge = badModel > 0
-    ? `<span class="badge" style="background:var(--abg);color:var(--amber);border:1px solid var(--aborder)" title="Stores marcados como incorrectos por el modelo semántico">⚙ ${badModel} modelo</span>`
-    : "";
-
   wrap.innerHTML=`
     <div class="c-hdr" onclick="toggleCard(this)">
       <span class="c-id">${esc(cl.cluster_id)}</span>
       <span class="c-anchor">${esc(cl.anchor_name)}</span>
       <span class="badge n">${cl.count} stores</span>
-      ${modelBadge}
       ${statusBadge}
       ${cl.already_reviewed?`<span class="badge" style="background:var(--surf2);color:var(--muted);font-size:9px;border:1px solid var(--border2)">ya revisado</span>`:""}
       <span class="chev">▼</span>
@@ -642,23 +635,13 @@ function buildCard(cl){
   return wrap;
 }
 
-function filterTable(cid, query) {
-  const card = document.getElementById("card_"+CSS.escape(cid));
-  if (!card) return;
-  const q = query.toLowerCase();
-  card.querySelectorAll("tbody tr").forEach(tr => {
-    const text = tr.textContent.toLowerCase();
-    tr.style.display = (!q || text.includes(q)) ? "" : "none";
-  });
-}
-
 function buildTable(cl){
   const members=sortedMembers(cl);const cid=cl.cluster_id;let rows="";
   members.forEach(m=>{
     const isAnchor=m.is_anchor;
     const hasMem=m.mem_hit&&m.mem_hit.correction;
     const rowCls=isAnchor?"row-anchor":hasMem&&m.revision===0?"row-mem":m.revision===0?"row-bad":"row-ok";
-    const stickyStyle=isAnchor?"position:sticky;top:37px;z-index:1;box-shadow:0 1px 3px rgba(0,0,0,.08)":"";
+    const stickyStyle=isAnchor?"position:sticky;top:0;z-index:2;box-shadow:0 1px 3px rgba(0,0,0,.08)":"";
     const cbCell=isAnchor
       ?`<td class="cb-cell"><span class="anchor-badge">A</span></td>`
       :`<td class="cb-cell"><input type="checkbox" ${m.revision===0?"checked":""}
@@ -680,21 +663,17 @@ function buildTable(cl){
       <td style="text-align:right;white-space:nowrap">${scoreHtml}</td>
     </tr>`;
   });
-  const th=(label,col,w="")=>`<th style="position:sticky;top:0;z-index:2;${w}" onclick="toggleSort('${esc(cid)}','${col}')">${label}${sortIcon(cid,col)}</th>`;
+  const th=(label,col,w="")=>`<th style="${w}" onclick="toggleSort('${esc(cid)}','${col}')">${label}${sortIcon(cid,col)}</th>`;
   const bad=cl.members.filter(m=>m.revision===0).length;
   const tableId="tblWrap_"+CSS.escape(cid);
   return`
     <div style="display:flex;align-items:center;gap:8px;padding:7px 12px;background:var(--surf2);border-bottom:1px solid var(--border)">
       <span style="font-size:11px;color:var(--muted)">${cl.count} stores · <span style="color:var(--red);font-weight:600">${bad}</span> incorrecto${bad!==1?"s":""}</span>
-      <input type="text" placeholder="🔍 Buscar en tabla…"
-        oninput="filterTable('${esc(cid)}',this.value)"
-        style="flex:1;max-width:280px;padding:3px 8px;font-size:11px;border:1px solid var(--border2);border-radius:var(--r);background:var(--surf);color:var(--text);outline:none"
-        onfocus="this.style.borderColor='var(--blue)'" onblur="this.style.borderColor='var(--border2)'">
       <button class="btn sm" style="margin-left:auto;font-size:11px" onclick="toggleTbl(this)">▼ Ver tabla</button>
     </div>
     <div class="tbl-wrap" id="${tableId}" style="display:none;max-height:420px;overflow-y:auto"><table>
       <thead><tr>
-        <th class="cb-cell" style="position:sticky;top:0;z-index:2;cursor:default">Rev</th>
+        <th class="cb-cell" style="cursor:default">Rev</th>
         ${th("new_cluster","new_cluster")}${th("item_index","item_index")}
         ${th("cluster_index","cluster_index")}${th("app_name","app_name")}
         ${th("app_address","app_address")}${th("%","score","width:50px;text-align:right")}
@@ -1613,11 +1592,17 @@ async function markAsReviewed(){
   try{
     const d=await api("/mark_as_reviewed",{});
     if(d.ok){
-      btn.innerHTML="✓ Marcar revisado";
+      btn.innerHTML="✓ Revisado";
       btn.style.background="var(--gbg)";
       btn.style.color="var(--green)";
       btn.style.borderColor="var(--gborder)";
-      toast(`✓ "${d.filename}" marcado como revisado`);
+      // Habilitar Export y BdUpdate
+      const btnExp=document.getElementById("btnExport");
+      const btnBd=document.getElementById("btnBdUpdate");
+      btnExp.disabled=false;btnExp.style.opacity="1";btnExp.title="";
+      btnBd.disabled=false;btnBd.style.opacity="1";btnBd.title="";
+      const msg = d.pairs_added>0 ? ` · ${d.pairs_added} pares guardados` : "";
+      toast(`✓ "${d.filename}" marcado como revisado${msg}`);
     }
   }catch(e){toast("Error: "+e.message);btn.innerHTML="✓ Marcar revisado";}
 }
@@ -1657,7 +1642,10 @@ async function resetApp(){
   document.getElementById("storesSubtype").classList.add("hidden");
   document.getElementById("fileSelect").classList.add("hidden");
   document.getElementById("fbBar").classList.add("hidden");
-  ["btnExport","btnMarkReviewed","btnMemory","btnBdUpdate","btnDashboard"].forEach(id=>document.getElementById(id).style.display="none");
+  ["btnExport","btnMarkReviewed","btnMemory","btnBdUpdate","btnDashboard"].forEach(id=>{
+    const el=document.getElementById(id);
+    el.style.display="none";el.disabled=false;el.style.opacity="1";el.title="";
+  });
   document.getElementById("hdrFile").textContent="";
   document.getElementById("clusterList").innerHTML="";
   document.getElementById("dishesList").innerHTML="";
