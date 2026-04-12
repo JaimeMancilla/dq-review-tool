@@ -635,13 +635,22 @@ function buildCard(cl){
   return wrap;
 }
 
+function filterTable(cid, query) {
+  const card = document.getElementById("card_"+CSS.escape(cid));
+  if (!card) return;
+  const q = query.toLowerCase();
+  card.querySelectorAll("tbody tr").forEach(tr => {
+    tr.style.display = (!q || tr.textContent.toLowerCase().includes(q)) ? "" : "none";
+  });
+}
+
 function buildTable(cl){
   const members=sortedMembers(cl);const cid=cl.cluster_id;let rows="";
   members.forEach(m=>{
     const isAnchor=m.is_anchor;
     const hasMem=m.mem_hit&&m.mem_hit.correction;
     const rowCls=isAnchor?"row-anchor":hasMem&&m.revision===0?"row-mem":m.revision===0?"row-bad":"row-ok";
-    const stickyStyle=isAnchor?"position:sticky;top:0;z-index:2;box-shadow:0 1px 3px rgba(0,0,0,.08)":"";
+    const stickyStyle=isAnchor?"position:sticky;top:37px;z-index:1;box-shadow:0 1px 3px rgba(0,0,0,.08)":"";
     const cbCell=isAnchor
       ?`<td class="cb-cell"><span class="anchor-badge">A</span></td>`
       :`<td class="cb-cell"><input type="checkbox" ${m.revision===0?"checked":""}
@@ -663,17 +672,21 @@ function buildTable(cl){
       <td style="text-align:right;white-space:nowrap">${scoreHtml}</td>
     </tr>`;
   });
-  const th=(label,col,w="")=>`<th style="${w}" onclick="toggleSort('${esc(cid)}','${col}')">${label}${sortIcon(cid,col)}</th>`;
+  const th=(label,col,w="")=>`<th style="position:sticky;top:0;z-index:2;${w}" onclick="toggleSort('${esc(cid)}','${col}')">${label}${sortIcon(cid,col)}</th>`;
   const bad=cl.members.filter(m=>m.revision===0).length;
   const tableId="tblWrap_"+CSS.escape(cid);
   return`
     <div style="display:flex;align-items:center;gap:8px;padding:7px 12px;background:var(--surf2);border-bottom:1px solid var(--border)">
       <span style="font-size:11px;color:var(--muted)">${cl.count} stores · <span style="color:var(--red);font-weight:600">${bad}</span> incorrecto${bad!==1?"s":""}</span>
+      <input type="text" placeholder="🔍 Buscar…"
+        oninput="filterTable('${esc(cid)}',this.value)"
+        style="flex:1;max-width:260px;padding:3px 8px;font-size:11px;border:1px solid var(--border2);border-radius:var(--r);background:var(--surf);color:var(--text);outline:none"
+        onfocus="this.style.borderColor='var(--blue)'" onblur="this.style.borderColor='var(--border2)'">
       <button class="btn sm" style="margin-left:auto;font-size:11px" onclick="toggleTbl(this)">▼ Ver tabla</button>
     </div>
     <div class="tbl-wrap" id="${tableId}" style="display:none;max-height:420px;overflow-y:auto"><table>
       <thead><tr>
-        <th class="cb-cell" style="cursor:default">Rev</th>
+        <th class="cb-cell" style="position:sticky;top:0;z-index:2;cursor:default">Rev</th>
         ${th("new_cluster","new_cluster")}${th("item_index","item_index")}
         ${th("cluster_index","cluster_index")}${th("app_name","app_name")}
         ${th("app_address","app_address")}${th("%","score","width:50px;text-align:right")}
