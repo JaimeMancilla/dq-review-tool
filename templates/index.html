@@ -2,83 +2,66 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<title>DQ Matching Tool</title>
+<title>Cluster Reviewer</title>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --bg:#f5f4f0;--surf:#ffffff;--surf2:#f0efe9;--surf3:#e8e7e0;
-  --border:rgba(0,0,0,.08);--border2:rgba(0,0,0,.14);
-  --text:#18181a;--muted:#6e6e78;
-  --green:#0f7b3e;--gbg:#edf7f2;--gborder:#9fd4b8;
-  --red:#c0282a;--rbg:#fff0f0;--rborder:#f5b8b8;
-  --blue:#1a5fb4;--bbg:#eaf0fc;--bborder:#99bef5;
-  --amber:#8a5100;--abg:#fff8e6;--aborder:#f5cc6e;
-  --purple:#5c35b8;--pbg:#f2eeff;--pborder:#c4aef5;
-  --teal:#0a7c6e;--tbg:#e6f7f5;--tborder:#7dd4c8;
-  --r:8px;--rl:14px;--shadow:0 2px 8px rgba(0,0,0,.07);--shadow-lg:0 8px 32px rgba(0,0,0,.14);
+  --bg:#f2f1ed;--surf:#fff;--surf2:#f0efe9;--surf3:#e8e7e0;
+  --border:rgba(0,0,0,.09);--border2:rgba(0,0,0,.16);
+  --text:#1a1a18;--muted:#78786f;
+  --green:#1f6b3a;--gbg:#eaf4ee;--gborder:#aed9be;
+  --red:#922020;--rbg:#faeaea;--rborder:#edb8b8;
+  --blue:#1756a0;--bbg:#e5eef9;--bborder:#aac5ed;
+  --amber:#784a08;--abg:#fef2d8;--aborder:#f3cc7a;
+  --purple:#4a1da0;--pbg:#f0ecff;--pborder:#c4b5f5;
+  --r:8px;--rl:12px;
 }
-body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,sans-serif;background:var(--bg);color:var(--text);font-size:13px;line-height:1.5}
-
-/* ── Header ── */
-.hdr{background:var(--text);height:54px;display:flex;align-items:center;padding:0 24px;gap:14px;position:sticky;top:0;z-index:200;box-shadow:0 2px 8px rgba(0,0,0,.2)}
-.hdr-logo{display:flex;align-items:center;gap:8px}
-.hdr-logo-icon{width:28px;height:28px;background:linear-gradient(135deg,#4a9eff,#a855f7);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
-.hdr-title{font-size:13px;font-weight:700;color:#fff;letter-spacing:-.01em}
-.hdr-subtitle{font-size:10px;color:rgba(255,255,255,.45);font-weight:500;letter-spacing:.04em;text-transform:uppercase}
-.hdr-file{font-size:11px;color:rgba(255,255,255,.55);background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);padding:2px 10px;border-radius:20px}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:var(--text);font-size:13px;line-height:1.5}
+.hdr{background:var(--surf);border-bottom:1px solid var(--border);height:50px;display:flex;align-items:center;padding:0 20px;gap:12px;position:sticky;top:0;z-index:200;box-shadow:0 1px 4px rgba(0,0,0,.05)}
+.hdr-title{font-size:14px;font-weight:700}
+.hdr-file{font-size:12px;color:var(--muted)}
 .hdr-right{margin-left:auto;display:flex;gap:8px;align-items:center}
-.hdr .btn{background:rgba(255,255,255,.1);color:#fff;border-color:rgba(255,255,255,.18)}
-.hdr .btn:hover{background:rgba(255,255,255,.18)}
-.hdr .btn.primary{background:var(--blue);border-color:transparent}
-
-/* ── Pills ── */
 .pill{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;border:1px solid;cursor:default}
-.pill.loading{background:rgba(255,255,255,.08);color:rgba(255,255,255,.6);border-color:rgba(255,255,255,.15)}
-.pill.ready{background:rgba(168,85,247,.15);color:#c084fc;border-color:rgba(168,85,247,.3)}
-.pill.fallback{background:rgba(255,255,255,.08);color:rgba(255,255,255,.5);border-color:rgba(255,255,255,.12)}
-.pill.pg-ok{background:rgba(74,222,128,.12);color:#4ade80;border-color:rgba(74,222,128,.25)}
-.pill.pg-err{background:rgba(248,113,113,.12);color:#f87171;border-color:rgba(248,113,113,.25)}
-
-/* ── Stats ── */
-.fb-bar{background:var(--pbg);border-bottom:1px solid var(--pborder);padding:5px 24px;display:flex;align-items:center;gap:14px;font-size:11px;color:var(--purple)}
-.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;padding:18px 24px 0;max-width:1400px;margin:0 auto}
-.stat{background:var(--surf);border:1px solid var(--border);border-radius:var(--rl);padding:14px 18px;box-shadow:var(--shadow)}
-.stat-lbl{font-size:10px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.06em}
-.stat-val{font-size:24px;font-weight:800;margin-top:3px;letter-spacing:-.02em}
+.pill.loading{background:var(--abg);color:var(--amber);border-color:var(--aborder)}
+.pill.ready{background:var(--pbg);color:var(--purple);border-color:var(--pborder)}
+.pill.fallback{background:var(--surf2);color:var(--muted);border-color:var(--border2)}
+.pill.pg-ok{background:var(--gbg);color:var(--green);border-color:var(--gborder)}
+.pill.pg-err{background:var(--rbg);color:var(--red);border-color:var(--rborder)}
+.fb-bar{background:var(--pbg);border-bottom:1px solid var(--pborder);padding:5px 20px;display:flex;align-items:center;gap:14px;font-size:11px;color:var(--purple)}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:14px 20px 0;max-width:1400px;margin:0 auto}
+.stat{background:var(--surf);border:1px solid var(--border);border-radius:var(--r);padding:10px 14px}
+.stat-lbl{font-size:10px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.05em}
+.stat-val{font-size:21px;font-weight:700;margin-top:2px}
 .stat-val.g{color:var(--green)}.stat-val.r{color:var(--red)}
-
-/* ── Cluster cards ── */
-.clusters{max-width:1400px;margin:0 auto;padding:14px 24px 80px}
-.cluster-wrap{background:var(--surf);border:1px solid var(--border);border-radius:var(--rl);margin-bottom:10px;overflow:hidden;box-shadow:var(--shadow);transition:box-shadow .15s}
-.cluster-wrap:hover{box-shadow:0 4px 16px rgba(0,0,0,.1)}
-.c-hdr{display:flex;align-items:center;gap:10px;padding:11px 16px;background:var(--surf2);border-bottom:1px solid var(--border);cursor:pointer;user-select:none;transition:background .12s}
+.clusters{max-width:1600px;margin:0 auto;padding:12px 20px 60px}
+.cluster-wrap{background:var(--surf);border:1px solid var(--border);border-radius:var(--rl);margin-bottom:12px;overflow:hidden}
+.c-hdr{display:flex;align-items:center;gap:10px;padding:10px 16px;background:var(--surf2);border-bottom:1px solid var(--border);cursor:pointer;user-select:none}
 .c-hdr:hover{background:var(--surf3)}
-.c-id{font-family:"SF Mono",Monaco,monospace;font-size:11px;font-weight:700;color:var(--blue)}
-.c-anchor{font-size:12px;color:var(--muted);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
-.chev{font-size:10px;color:var(--muted);transition:transform .18s;margin-left:4px}
+.c-id{font-family:monospace;font-size:12px;font-weight:700}
+.c-anchor{font-size:12px;color:var(--muted);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chev{font-size:10px;color:var(--muted);transition:transform .18s}
 .collapsed .chev{transform:rotate(-90deg)}
 .collapsed .c-body{display:none}
 .tbl-wrap{overflow-x:auto}
 table{width:100%;border-collapse:collapse;font-size:12px}
-th{text-align:left;padding:7px 10px;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;background:var(--surf2);border-bottom:1px solid var(--border);white-space:nowrap;cursor:pointer;user-select:none}
+th{text-align:left;padding:6px 10px;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;background:var(--surf2);border-bottom:1px solid var(--border);white-space:nowrap;cursor:pointer;user-select:none}
 th:hover{background:var(--surf3)}
 td{padding:7px 10px;border-bottom:1px solid var(--border);vertical-align:middle}
 tr:last-child td{border-bottom:none}
 tr.row-anchor td{background:var(--abg)}
 tr.row-bad td{background:var(--rbg)}
 tr.row-ok td{background:var(--surf)}
-tr.row-mem td{background:var(--pbg)}
+tr.row-mem td{background:#f0ecff}
 .cb-cell{width:30px;text-align:center}
 input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--red)}
 .anchor-badge{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:var(--abg);color:var(--amber);font-size:10px;font-weight:700;border:1.5px solid var(--aborder)}
 .mem-tag{font-size:9px;background:var(--pbg);color:var(--purple);border:1px solid var(--pborder);border-radius:3px;padding:1px 5px;margin-left:4px;font-weight:700;cursor:help}
-.toolbar{display:flex;align-items:center;gap:8px;padding:9px 16px;border-top:1px solid var(--border);background:var(--surf2);flex-wrap:wrap}
+.toolbar{display:flex;align-items:center;gap:8px;padding:8px 14px;border-top:1px solid var(--border);background:var(--surf2);flex-wrap:wrap}
 .thr-info{font-size:10px;color:var(--purple);font-weight:600;margin-left:auto}
 .c-body-inner{display:flex}
 .col-table{flex:1;min-width:0}
-
-/* col-bd eliminado — reemplazado por modal */
-
+.col-bd{width:480px;flex-shrink:0;border-left:1px solid var(--border);background:#fafaf8;display:flex;flex-direction:column;overflow-y:auto}
+.bd-hdr{padding:8px 14px;border-bottom:1px solid var(--border);font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;display:flex;align-items:center;gap:8px;position:sticky;top:0;background:#fafaf8;z-index:2}
 .bd-upload{margin:8px 14px;border:1.5px dashed var(--border2);border-radius:var(--r);padding:10px;text-align:center;cursor:pointer;font-size:12px;color:var(--muted);transition:all .15s;display:block}
 .bd-upload:hover{border-color:var(--blue);color:var(--blue);background:var(--bbg)}
 .bd-upload input{display:none}
@@ -96,184 +79,66 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
 .corr-row{display:flex;gap:6px;flex-wrap:wrap}
 .corr-input{flex:1;min-width:140px;padding:5px 8px;font-family:monospace;font-size:12px;border:1px solid var(--border2);border-radius:var(--r);background:var(--surf);color:var(--text)}
 .corr-input:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 2px var(--bbg)}
-
-/* ── Buttons ── */
-.btn{display:inline-flex;align-items:center;gap:5px;padding:6px 13px;font-size:12px;font-weight:600;border:1px solid var(--border2);border-radius:var(--r);background:var(--surf);color:var(--text);cursor:pointer;transition:all .12s;white-space:nowrap}
-.btn:hover{background:var(--surf2);transform:translateY(-1px)}
-.btn:active{transform:translateY(0)}
+.btn{display:inline-flex;align-items:center;gap:5px;padding:6px 12px;font-size:12px;font-weight:600;border:1px solid var(--border2);border-radius:var(--r);background:var(--surf);color:var(--text);cursor:pointer;transition:background .12s;white-space:nowrap}
+.btn:hover{background:var(--surf2)}
 .btn.primary{background:var(--text);color:#fff;border-color:transparent}
-.btn.primary:hover{opacity:.88}
+.btn.primary:hover{opacity:.85}
 .btn.green{background:var(--gbg);color:var(--green);border-color:var(--gborder)}
-.btn.green:hover{background:#d4eddf}
 .btn.blue{background:var(--bbg);color:var(--blue);border-color:var(--bborder)}
-.btn.blue:hover{background:#d5e6fb}
 .btn.red{background:var(--rbg);color:var(--red);border-color:var(--rborder)}
 .btn.sm{padding:4px 10px;font-size:11px}
-.btn.sm:hover{transform:none}
-
-/* ── Badges ── */
-.badge{font-size:10px;font-weight:700;padding:2px 9px;border-radius:20px;white-space:nowrap}
+.badge{font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;white-space:nowrap}
 .badge.ok{background:var(--gbg);color:var(--green);border:1px solid var(--gborder)}
 .badge.bad{background:var(--rbg);color:var(--red);border:1px solid var(--rborder)}
 .badge.n{background:var(--surf2);color:var(--muted);border:1px solid var(--border)}
-
-/* ── Subgroup pills (inline) ── */
-.sg-pill{font-family:monospace;font-size:10px;background:var(--surf2);border:1px solid var(--border);border-radius:4px;padding:2px 7px;cursor:move;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;transition:all .12s}
-.sg-pill:hover{background:var(--bbg);border-color:var(--bborder)}
-.sg-pill.dragging{opacity:.35;transform:scale(.95)}
-.sg-pill.drag-over-sg{outline:2px dashed var(--blue);background:var(--bbg)}
-.drop-zone-target{border:2px dashed transparent;border-radius:var(--r);padding:4px;transition:all .15s}
+.sg-block{border:1px solid var(--border);border-radius:var(--r);margin:8px 14px}
+.sg-hdr{background:var(--rbg);border-bottom:1px solid var(--rborder);padding:8px 10px;border-radius:var(--r) var(--r) 0 0}
+.sg-hdr-top{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+.sg-pills{display:flex;flex-wrap:wrap;gap:3px}
+.sg-pill{font-family:monospace;font-size:10px;background:var(--surf2);border:1px solid var(--border);border-radius:4px;padding:2px 7px;cursor:move;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sg-pill.dragging{opacity:.4}
+.sg-pill.drag-over-sg{outline:2px dashed var(--blue)}
+.sg-sql{position:relative;background:#1e1e1e;border-radius:6px;padding:8px 10px 8px 10px;font-family:monospace;font-size:10px;color:#ccc;white-space:pre-wrap;line-height:1.6;max-height:80px;overflow-y:auto;margin:8px 10px 0}
+.sg-copy-btn{position:absolute;top:5px;right:5px;padding:2px 7px;font-size:10px;background:#333;color:#aaa;border:1px solid #555;border-radius:4px;cursor:pointer}
+.drop-zone-target{border:2px dashed transparent;border-radius:var(--r);padding:4px;transition:border-color .15s}
 .drop-zone-target.drag-active{border-color:var(--blue);background:var(--bbg)}
-
-/* ── Upload screen ── */
 .upload-screen{max-width:520px;margin:80px auto;padding:0 20px}
-.drop-zone{border:2px dashed var(--border2);border-radius:var(--rl);padding:52px 32px;text-align:center;cursor:pointer;background:var(--surf);transition:all .15s;box-shadow:var(--shadow)}
-.drop-zone:hover,.drop-zone.over{border-color:var(--blue);background:var(--bbg);box-shadow:0 4px 20px rgba(26,95,180,.1)}
+.drop-zone{border:2px dashed var(--border2);border-radius:var(--rl);padding:52px 32px;text-align:center;cursor:pointer;background:var(--surf);transition:all .15s}
+.drop-zone:hover,.drop-zone.over{border-color:var(--blue);background:var(--bbg)}
 .drop-zone input{display:none}
 .drop-title{font-size:16px;font-weight:700;margin-bottom:6px}
 .drop-sub{font-size:12px;color:var(--muted);margin-bottom:20px}
 .spinner{display:inline-block;width:13px;height:13px;border:2px solid var(--border2);border-top-color:var(--blue);border-radius:50%;animation:spin .7s linear infinite;vertical-align:middle}
 @keyframes spin{to{transform:rotate(360deg)}}
-.toast{position:fixed;bottom:22px;right:22px;background:var(--text);color:#fff;padding:10px 18px;border-radius:var(--r);font-size:13px;font-weight:500;box-shadow:var(--shadow-lg);z-index:9998;opacity:0;transform:translateY(8px);transition:all .2s;pointer-events:none}
+.toast{position:fixed;bottom:22px;right:22px;background:var(--text);color:#fff;padding:9px 16px;border-radius:var(--r);font-size:13px;font-weight:500;box-shadow:0 4px 14px rgba(0,0,0,.18);z-index:9998;opacity:0;transform:translateY(6px);transition:all .2s;pointer-events:none}
 .toast.show{opacity:1;transform:translateY(0)}
 .hidden{display:none!important}
 
-/* ── Modal base ── */
-.modal-bg{position:fixed;inset:0;background:rgba(10,10,20,.55);backdrop-filter:blur(4px);z-index:9999;display:none;align-items:center;justify-content:center;padding:20px}
+/* Modal memoria */
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:none;align-items:center;justify-content:center;padding:20px}
 .modal-bg.open{display:flex}
-.modal-box{background:var(--surf);border-radius:var(--rl);width:100%;max-width:700px;max-height:80vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:var(--shadow-lg)}
-.modal-hdr{display:flex;align-items:center;padding:16px 20px;border-bottom:1px solid var(--border);gap:10px}
+.modal-box{background:var(--surf);border-radius:var(--rl);width:100%;max-width:700px;max-height:80vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 12px 50px rgba(0,0,0,.3)}
+.modal-hdr{display:flex;align-items:center;padding:14px 18px;border-bottom:1px solid var(--border);gap:10px}
 .modal-hdr h2{font-size:14px;font-weight:700;flex:1}
-.modal-body{padding:16px 20px;overflow-y:auto;flex:1}
+.modal-body{padding:16px 18px;overflow-y:auto;flex:1}
 .mem-row{padding:8px 0;border-bottom:1px solid var(--border);font-size:12px}
 .mem-row:last-child{border-bottom:none}
-.type-card{border:2px solid var(--border2);border-radius:var(--rl);padding:28px 36px;cursor:pointer;background:var(--surf);transition:all .15s;min-width:180px;box-shadow:var(--shadow)}
-.type-card:hover{border-color:var(--blue);background:var(--bbg);transform:translateY(-3px);box-shadow:0 8px 24px rgba(26,95,180,.12)}
+.type-card{border:2px solid var(--border2);border-radius:var(--rl);padding:28px 36px;cursor:pointer;background:var(--surf);transition:all .15s;min-width:180px}
+.type-card:hover{border-color:var(--blue);background:var(--bbg);transform:translateY(-2px);box-shadow:0 4px 16px rgba(0,0,0,.08)}
 .dish-card{background:var(--surf);border:1px solid var(--border);border-radius:var(--rl);margin-bottom:10px;overflow:hidden}
 .dish-hdr{display:flex;align-items:center;gap:10px;padding:10px 16px;background:var(--surf2);border-bottom:1px solid var(--border)}
 .dish-body{padding:0}
 .dash-tab{padding:8px 18px;font-size:13px;font-weight:500;border:none;background:none;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-2px;transition:all .15s}
 .dash-tab:hover{color:var(--text)}
 .dash-tab.active{color:var(--blue);border-bottom-color:var(--blue);font-weight:700}
-
-/* ── Subgroups Modal (nuevo) ── */
-.sg-modal-box{
-  background:var(--bg);border-radius:var(--rl);
-  width:100%;max-width:1200px;height:90vh;
-  display:flex;flex-direction:column;
-  box-shadow:var(--shadow-lg);overflow:hidden;
-}
-.sg-modal-hdr{
-  display:flex;align-items:center;gap:12px;
-  padding:14px 20px;border-bottom:1px solid var(--border);
-  background:var(--surf);flex-shrink:0;
-}
-.sg-modal-title{font-size:15px;font-weight:700;flex:1}
-.sg-modal-meta{font-size:11px;color:var(--muted);margin-right:8px}
-.sg-modal-body{
-  flex:1;overflow-y:auto;padding:16px 20px;
-}
-/* Grilla de grupos — layout vertical, una fila por grupo */
-.sg-grid{
-  display:flex;flex-direction:column;gap:12px;
-}
-.sg-group-card{
-  background:var(--surf);border:2px solid var(--border);border-radius:var(--rl);
-  overflow:hidden;transition:all .15s;
-}
-.sg-group-card.corrected{border-color:var(--gborder);}
-.sg-group-card.drag-over{border-color:var(--blue);border-style:dashed;background:var(--bbg)}
-.sg-group-hdr{
-  display:flex;align-items:center;gap:8px;
-  padding:9px 14px;border-bottom:1px solid var(--border);
-  background:var(--surf2);flex-shrink:0;cursor:pointer;user-select:none;
-}
-.sg-group-hdr.corrected{background:rgba(15,123,62,.06);border-bottom-color:var(--gborder)}
-.sg-group-num{
-  width:22px;height:22px;border-radius:50%;
-  background:var(--rbg);border:1.5px solid var(--rborder);
-  display:flex;align-items:center;justify-content:center;
-  font-size:10px;font-weight:800;color:var(--red);flex-shrink:0;
-}
-.sg-group-num.corrected{background:var(--gbg);border-color:var(--gborder);color:var(--green)}
-.sg-group-name{font-size:12px;font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.sg-group-count{font-size:10px;color:var(--muted);white-space:nowrap}
-.sg-group-corr-badge{font-family:monospace;font-size:9px;color:var(--green);font-weight:700;
-  background:var(--gbg);border:1px solid var(--gborder);border-radius:4px;
-  padding:1px 6px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-/* Body horizontal: stores | BD+corrección */
-.sg-group-body{
-  display:flex;min-height:0;
-}
-.sg-group-stores{
-  width:340px;flex-shrink:0;border-right:1px solid var(--border);
-  padding:10px;display:flex;flex-direction:column;gap:4px;
-  background:var(--surf2);
-}
-.sg-group-right{
-  flex:1;padding:10px 14px;display:flex;flex-direction:column;gap:8px;overflow-y:auto;max-height:360px;
-}
-/* Drop zone horizontal */
-.sg-drop-zone{
-  min-height:40px;border:2px dashed var(--border2);border-radius:var(--r);
-  padding:6px;display:flex;flex-direction:column;gap:4px;
-  transition:all .15s;background:var(--surf);flex:1;
-}
-.sg-drop-zone.drag-over{border-color:var(--blue);background:var(--bbg)}
-.sg-drop-zone:empty::after{
-  content:"Arrastra stores aquí";
-  font-size:10px;color:var(--muted);
-  text-align:center;padding:8px 0;
-}
-/* Chip con nombre + dirección */
-.sg-chip{
-  display:flex;flex-direction:column;
-  background:var(--surf);border:1px solid var(--border2);
-  border-radius:5px;padding:5px 24px 5px 8px;font-size:10px;
-  cursor:grab;transition:all .12s;position:relative;
-}
-.sg-chip:hover{background:var(--rbg);border-color:var(--rborder)}
-.sg-chip-name{font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.sg-chip-addr{color:var(--muted);font-size:9px;white-space:normal;line-height:1.3;margin-top:2px}
-.sg-chip-x{position:absolute;top:4px;right:6px;cursor:pointer;opacity:.4;font-size:11px;line-height:1}
-.sg-chip-x:hover{opacity:1;color:var(--red)}
-/* BD results */
-.sg-bd-cluster{border:1px solid var(--border);border-radius:var(--r);overflow:hidden;margin-bottom:4px}
-.sg-bd-cluster-hdr{display:flex;align-items:center;gap:6px;padding:5px 8px;background:var(--surf2);border-bottom:1px solid var(--border)}
-.sg-bd-cluster-id{font-family:monospace;font-size:10px;font-weight:700;color:var(--blue);flex:1;overflow:hidden;text-overflow:ellipsis}
-.sg-bd-member{display:flex;align-items:center;gap:6px;padding:4px 8px;border-bottom:1px solid var(--border);font-size:11px}
-.sg-bd-member:last-child{border-bottom:none}
-.sg-bd-member.match{background:var(--gbg)}
-/* Sección corrección */
-.sg-corr-section{background:var(--surf2);border-radius:var(--r);padding:8px 10px;border:1px solid var(--border)}
-/* Footer */
-.sg-modal-footer{
-  padding:12px 20px;border-top:1px solid var(--border);
-  background:var(--surf);display:flex;gap:8px;
-  justify-content:flex-end;align-items:center;flex-shrink:0;
-}
-.sg-modal-progress{flex:1;font-size:11px;color:var(--muted)}
-/* Añadir grupo */
-.sg-add-group{
-  border:2px dashed var(--border2);border-radius:var(--rl);
-  padding:16px;text-align:center;cursor:pointer;
-  font-size:12px;color:var(--muted);transition:all .15s;
-  background:var(--surf);
-}
-.sg-add-group:hover{border-color:var(--blue);color:var(--blue);background:var(--bbg)}
 </style>
 </head>
 <body>
 
 <header class="hdr">
-  <div class="hdr-logo">
-    <div class="hdr-logo-icon">🔗</div>
-    <div>
-      <div class="hdr-title">DQ Matching Tool</div>
-    </div>
-  </div>
-  <div class="hdr-file" id="hdrFile" style="display:none"></div>
-  <div id="modelPill" class="pill loading"><span class="spinner"></span> Modelo…</div>
+  <div class="hdr-title">Cluster Reviewer</div>
+  <div class="hdr-file" id="hdrFile"></div>
+  <div id="modelPill" class="pill loading"><span class="spinner"></span> Cargando modelo…</div>
   <div id="pgPill" class="pill loading"><span class="spinner"></span> BD…</div>
   <div class="hdr-right">
     <button class="btn sm" id="btnMemory" onclick="openMemory()" style="display:none">🧠 Memoria</button>
@@ -383,27 +248,6 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
 
 
 <!-- Modal corrección externa -->
-<!-- ── Modal Subgrupos (nuevo) ── -->
-<div class="modal-bg" id="sgModal" onclick="if(event.target===this)closeSgModal()">
-  <div class="sg-modal-box">
-    <div class="sg-modal-hdr">
-      <div style="flex:1">
-        <div class="sg-modal-title" id="sgModalTitle">Subgrupos</div>
-        <div class="sg-modal-meta" id="sgModalMeta"></div>
-      </div>
-      <button class="btn sm" onclick="sgModalAddGroup()">+ Grupo</button>
-      <button class="btn sm" onclick="closeSgModal()">✕ Cerrar</button>
-    </div>
-    <div class="sg-modal-body">
-      <div class="sg-grid" id="sgGroupsPanel"></div>
-    </div>
-    <div class="sg-modal-footer">
-      <div class="sg-modal-progress" id="sgModalProgress"></div>
-      <button class="btn primary" onclick="sgModalSave()">✓ Guardar y cerrar</button>
-    </div>
-  </div>
-</div>
-
 <div class="modal-bg" id="extCorrModal" onclick="if(event.target===this)closeExtCorr()">
   <div class="modal-box" style="max-width:580px">
     <div class="modal-hdr">
@@ -631,7 +475,6 @@ async function doUpload(file){
       document.getElementById("uploadScreen").classList.add("hidden");
       document.getElementById("mainScreen").classList.remove("hidden");
       document.getElementById("hdrFile").textContent=file.name;
-      document.getElementById("hdrFile").style.display="";
       document.getElementById("btnExport").style.display="";
       document.getElementById("btnMarkReviewed").style.display="";
       document.getElementById("btnMemory").style.display="";
@@ -758,24 +601,34 @@ function getCl(id){return CLUSTERS.find(c=>c.cluster_id===id)}
 function buildCard(cl){
   const wrap=document.createElement("div");
   wrap.className="cluster-wrap";wrap.id="card_"+CSS.escape(cl.cluster_id);
-  const bad=cl.members.filter(m=>m.revision===0).length;
+  const badUser=cl.members.filter(m=>m.revision===0).length;
+  const badModel=cl.members.filter(m=>!m.is_anchor && m.score!=null && m.score < (cl.threshold_used||0.95)).length;
   const prog = clusterProgress(cl);
 
+  // Badge de incorrectos: modelo (fijo) vs usuario (dinámico)
   let statusBadge;
-  if (bad === 0) {
+  if (badUser === 0 && badModel === 0) {
     statusBadge = `<span class="badge ok">✓ Sin incorrectos</span>`;
   } else if (prog.done) {
     statusBadge = `<span class="badge ok">✓ ${prog.corrected}/${prog.total} corregidos</span>`;
   } else if (prog.total > 0) {
     statusBadge = `<span class="badge bad">${prog.corrected}/${prog.total} corregidos</span>`;
   } else {
-    statusBadge = `<span class="badge bad">${bad} incorrecto${bad>1?"s":""}</span>`;
+    statusBadge = badUser > 0
+      ? `<span class="badge bad">${badUser} incorrecto${badUser>1?"s":""}</span>`
+      : `<span class="badge ok">✓ Sin incorrectos</span>`;
   }
+  // Badge del modelo (siempre fijo, lo que propuso el algoritmo)
+  const modelBadge = badModel > 0
+    ? `<span class="badge" style="background:var(--abg);color:var(--amber);border:1px solid var(--aborder)" title="Stores marcados como incorrectos por el modelo semántico">⚙ ${badModel} modelo</span>`
+    : "";
+
   wrap.innerHTML=`
     <div class="c-hdr" onclick="toggleCard(this)">
       <span class="c-id">${esc(cl.cluster_id)}</span>
       <span class="c-anchor">${esc(cl.anchor_name)}</span>
       <span class="badge n">${cl.count} stores</span>
+      ${modelBadge}
       ${statusBadge}
       ${cl.already_reviewed?`<span class="badge" style="background:var(--surf2);color:var(--muted);font-size:9px;border:1px solid var(--border2)">ya revisado</span>`:""}
       <span class="chev">▼</span>
@@ -789,13 +642,23 @@ function buildCard(cl){
   return wrap;
 }
 
+function filterTable(cid, query) {
+  const card = document.getElementById("card_"+CSS.escape(cid));
+  if (!card) return;
+  const q = query.toLowerCase();
+  card.querySelectorAll("tbody tr").forEach(tr => {
+    const text = tr.textContent.toLowerCase();
+    tr.style.display = (!q || text.includes(q)) ? "" : "none";
+  });
+}
+
 function buildTable(cl){
   const members=sortedMembers(cl);const cid=cl.cluster_id;let rows="";
   members.forEach(m=>{
     const isAnchor=m.is_anchor;
     const hasMem=m.mem_hit&&m.mem_hit.correction;
     const rowCls=isAnchor?"row-anchor":hasMem&&m.revision===0?"row-mem":m.revision===0?"row-bad":"row-ok";
-    const stickyStyle=isAnchor?"position:sticky;top:0;z-index:2;box-shadow:0 1px 3px rgba(0,0,0,.08)":"";
+    const stickyStyle=isAnchor?"position:sticky;top:37px;z-index:1;box-shadow:0 1px 3px rgba(0,0,0,.08)":"";
     const cbCell=isAnchor
       ?`<td class="cb-cell"><span class="anchor-badge">A</span></td>`
       :`<td class="cb-cell"><input type="checkbox" ${m.revision===0?"checked":""}
@@ -817,17 +680,21 @@ function buildTable(cl){
       <td style="text-align:right;white-space:nowrap">${scoreHtml}</td>
     </tr>`;
   });
-  const th=(label,col,w="")=>`<th style="${w}" onclick="toggleSort('${esc(cid)}','${col}')">${label}${sortIcon(cid,col)}</th>`;
+  const th=(label,col,w="")=>`<th style="position:sticky;top:0;z-index:2;${w}" onclick="toggleSort('${esc(cid)}','${col}')">${label}${sortIcon(cid,col)}</th>`;
   const bad=cl.members.filter(m=>m.revision===0).length;
   const tableId="tblWrap_"+CSS.escape(cid);
   return`
     <div style="display:flex;align-items:center;gap:8px;padding:7px 12px;background:var(--surf2);border-bottom:1px solid var(--border)">
       <span style="font-size:11px;color:var(--muted)">${cl.count} stores · <span style="color:var(--red);font-weight:600">${bad}</span> incorrecto${bad!==1?"s":""}</span>
+      <input type="text" placeholder="🔍 Buscar en tabla…"
+        oninput="filterTable('${esc(cid)}',this.value)"
+        style="flex:1;max-width:280px;padding:3px 8px;font-size:11px;border:1px solid var(--border2);border-radius:var(--r);background:var(--surf);color:var(--text);outline:none"
+        onfocus="this.style.borderColor='var(--blue)'" onblur="this.style.borderColor='var(--border2)'">
       <button class="btn sm" style="margin-left:auto;font-size:11px" onclick="toggleTbl(this)">▼ Ver tabla</button>
     </div>
     <div class="tbl-wrap" id="${tableId}" style="display:none;max-height:420px;overflow-y:auto"><table>
       <thead><tr>
-        <th class="cb-cell" style="cursor:default">Rev</th>
+        <th class="cb-cell" style="position:sticky;top:0;z-index:2;cursor:default">Rev</th>
         ${th("new_cluster","new_cluster")}${th("item_index","item_index")}
         ${th("cluster_index","cluster_index")}${th("app_name","app_name")}
         ${th("app_address","app_address")}${th("%","score","width:50px;text-align:right")}
@@ -837,11 +704,9 @@ function buildTable(cl){
 
 function buildToolbar(cl){
   const bad=cl.members.filter(m=>m.revision===0).length;
-  const hasSgs = (SUBGROUPS[cl.cluster_id]||[]).length > 0;
   return`<div class="toolbar" id="tb_${CSS.escape(cl.cluster_id)}">
     <span style="font-size:11px;color:var(--muted)" id="tbInfo_${CSS.escape(cl.cluster_id)}">${bad} marcado${bad!==1?"s":""} como incorrecto${bad!==1?"s":""}</span>
-    <button class="btn blue sm" onclick="genSql('${esc(cl.cluster_id)}')">⚡ Subgrupos</button>
-    ${hasSgs?`<button class="btn sm" onclick="openSgModal('${esc(cl.cluster_id)}')">✏️ Editar</button>`:""}
+    <button class="btn blue sm" onclick="genSql('${esc(cl.cluster_id)}')">⚡ Generar subgrupos</button>
     <button class="btn sm" onclick="markAll('${esc(cl.cluster_id)}',0)">Marcar todos ✕</button>
     <button class="btn sm" onclick="markAll('${esc(cl.cluster_id)}',1)">Desmarcar todos</button>
     <span class="thr-info">umbral: ${cl.threshold_used||0.95}</span>
@@ -851,24 +716,26 @@ function buildToolbar(cl){
 function buildBdPanel(cl){
   const cid=cl.cluster_id;
   const sgs=SUBGROUPS[cid]||[];
-  const corrCount=sgs.filter(sg=>sg.correction).length;
   if(!sgs.length){
     return`<div class="col-bd" id="bdPanel_${CSS.escape(cid)}" data-cid="${esc(cid)}">
+      <div class="bd-hdr"><span>Subgrupos y correcciones</span></div>
       <div style="padding:24px 14px;font-size:12px;color:var(--muted);text-align:center;line-height:2">
-        Marca incorrectos y haz clic<br><strong>⚡ Subgrupos</strong>
+        Marca incorrectos y haz clic<br><strong>⚡ Generar subgrupos</strong>
       </div>
     </div>`;
   }
+
+  const corrCount=sgs.filter(sg=>sg.correction).length;
+  const sgBlocks=sgs.map((sg,sgi)=>buildSgBlock(cl,sg,sgi)).join("");
+
   return`<div class="col-bd" id="bdPanel_${CSS.escape(cid)}" data-cid="${esc(cid)}">
-    <div style="padding:14px;display:flex;flex-direction:column;gap:10px;height:100%;justify-content:center;align-items:center;text-align:center">
-      <div style="font-size:28px">🗂️</div>
-      <div style="font-size:13px;font-weight:700">${sgs.length} subgrupo${sgs.length!==1?"s":""}</div>
-      <div style="font-size:11px;color:var(--muted)">${corrCount} de ${sgs.length} corregido${sgs.length!==1?"s":""}</div>
-      <button class="btn blue" onclick="openSgModal('${esc(cid)}')">
-        ✏️ Editar subgrupos
-      </button>
-      ${corrCount===sgs.length?`<div style="font-size:11px;color:var(--green);font-weight:700">✓ Todos corregidos</div>`:""}
+    <div class="bd-hdr">
+      <span>${sgs.length} subgrupo${sgs.length!==1?"s":""}</span>
+      <button class="btn sm" style="font-size:10px;padding:2px 7px;margin-left:8px"
+        onclick="addNewSubgroup('${esc(cid)}')">+ Subgrupo</button>
+      <span style="margin-left:auto;font-size:10px;font-weight:700;color:var(--green)">${corrCount===sgs.length?`✓ ${corrCount}/${sgs.length} corregidos`:""}</span>
     </div>
+    ${sgBlocks}
   </div>`;
 }
 
@@ -1151,21 +1018,9 @@ async function markAll(cid,rev){
   const revMap={};
   cl.members.forEach(m=>{if(!m.is_anchor){m.revision=rev;revMap[m.item_index]=rev}});
   delete SUBGROUPS[cid];
-  // Actualizar solo los badges y checkboxes, sin reconstruir la card completa
   const card=document.getElementById("card_"+CSS.escape(cid));
-  if(card){
-    card.querySelectorAll("tbody input[type=checkbox]").forEach(cb=>cb.checked=(rev===0));
-    card.querySelectorAll("tbody tr").forEach(tr=>{
-      if(!tr.classList.contains("row-anchor"))
-        tr.className=rev===0?"row-bad":"row-ok";
-    });
-    const info=document.getElementById("tbInfo_"+CSS.escape(cid));
-    const bad=rev===0?cl.members.filter(m=>!m.is_anchor).length:0;
-    if(info)info.textContent=`${bad} marcado${bad!==1?"s":""} como incorrecto${bad!==1?"s":""}`;
-  }
+  if(card)card.replaceWith(buildCard(cl));
   refreshStats();
-  refreshClusterBadge(cid);
-  rebuildBdPanel(cid);
   const d=await api("/update_revisions",{cluster_id:cid,revisions:revMap,record_feedback:true});
   if(d.fb_stats)updateFbBar(d.fb_stats,d.threshold,0);
 }
@@ -1182,14 +1037,15 @@ async function genSql(cid){
   });
   if(!badMembers.length){toast("No hay stores marcados como incorrectos");return}
   const btn=card.querySelector(".btn.blue.sm");
-  if(btn){btn.innerHTML='<span class="spinner"></span> Generando…';btn.disabled=true;}
+  if(btn)btn.innerHTML='<span class="spinner"></span>';
   const d=await api("/get_subgroups",{cluster_id:cid,members_data:badMembers,country:COUNTRY});
-  if(btn){btn.innerHTML="⚡ Subgrupos";btn.disabled=false;}
+  if(btn)btn.innerHTML="⚡ Generar subgrupos";
   if(!d.subgroups?.length){toast("No se pudieron generar subgrupos");return}
   SUBGROUPS[cid]=d.subgroups.map(sg=>({...sg,bd_results:[],correction:"",is_new:false}));
+  rebuildBdPanel(cid);
+  // Guardar subgrupos en disco
   api("/save_subgroups", {subgroups: SUBGROUPS});
-  // Abrir modal de subgrupos
-  openSgModal(cid);
+  toast(`${d.subgroups.length} subgrupo${d.subgroups.length!==1?"s":""} ✓`);
 }
 
 // ── subgrupos ─────────────────────────────────────────────────────────────────
@@ -1257,17 +1113,30 @@ async function saveSgCorr(cid,sgi,correction,is_new){
   const sgs=SUBGROUPS[cid];if(!sgs||!sgs[sgi])return;
   sgs[sgi].correction=correction;sgs[sgi].is_new=is_new;
   await api("/set_correction",{cluster_id:cid,item_indexes:sgs[sgi].members,correction});
+
+  // Solo actualizar el sg-block afectado, sin reconstruir todo el panel
+  const panel=document.querySelector(`.col-bd[data-cid="${cid}"]`);
+  const allBlocks=panel?panel.querySelectorAll(".sg-block"):[];
+  const block=allBlocks[sgi];
+  if(block){
+    const cl=getCl(cid);
+    if(cl){
+      const tmp=document.createElement("div");
+      tmp.innerHTML=buildSgBlock(cl,sgs[sgi],sgi);
+      block.replaceWith(tmp.firstElementChild);
+    }
+  }
+  // Actualizar contador global del panel
+  const hdrRight=document.querySelector(`.col-bd[data-cid="${cid}"] .bd-hdr span:last-child`);
+  if(hdrRight){
+    const total=sgs.length;const corrected=sgs.filter(s=>s.correction).length;
+    hdrRight.textContent=`${corrected}/${total} corregidos`;
+    hdrRight.style.color=corrected===total?"var(--green)":"var(--muted)";
+  }
   refreshClusterBadge(cid);
   renderFilterBar();
   api("/save_subgroups", {subgroups: SUBGROUPS});
   toast("Corrección guardada ✓");
-  // Si el modal está abierto, refrescar
-  if (_sgModalCid === cid) {
-    renderSgGroupsPanel(cid);
-    updateSgModalProgress(cid);
-  } else {
-    rebuildBdPanel(getCl(cid)||{cluster_id:cid});
-  }
 }
 function clearSgCorr(cid,sgi){
   const sgs=SUBGROUPS[cid];if(sgs&&sgs[sgi]){sgs[sgi].correction="";sgs[sgi].is_new=false}
@@ -2016,282 +1885,6 @@ async function selectFusion(targetGroupId) {
 function closeFusionModal(){
   document.getElementById("fusionModal").classList.remove("open");
   _fusionGi=null;
-}
-
-// ── Modal de Subgrupos ────────────────────────────────────────────────────────
-let _sgModalCid = null;
-
-function openSgModal(cid) {
-  _sgModalCid = cid;
-  const cl = getCl(cid); if (!cl) return;
-  const sgs = SUBGROUPS[cid] || [];
-
-  document.getElementById("sgModalTitle").textContent =
-    `Subgrupos — ${cl.anchor_name || cid}`;
-  document.getElementById("sgModalMeta").textContent =
-    `${sgs.length} subgrupo${sgs.length!==1?"s":""} · ${cl.members.filter(m=>m.revision===0).length} stores incorrectos`;
-
-  renderSgGroupsPanel(cid);
-  updateSgModalProgress(cid);
-  document.getElementById("sgModal").classList.add("open");
-}
-
-function closeSgModal() {
-  document.getElementById("sgModal").classList.remove("open");
-  if (_sgModalCid) {
-    rebuildBdPanel(getCl(_sgModalCid)||{cluster_id:_sgModalCid});
-    refreshClusterBadge(_sgModalCid);
-    renderFilterBar();
-  }
-  _sgModalCid = null;
-}
-
-function sgModalSave() {
-  if (!_sgModalCid) return;
-  api("/save_subgroups", {subgroups: SUBGROUPS});
-  closeSgModal();
-  toast("Subgrupos guardados ✓");
-}
-
-function renderSgGroupsPanel(cid) {
-  const sgs = SUBGROUPS[cid] || [];
-  const el = document.getElementById("sgGroupsPanel");
-  if (!el) return;
-  el.innerHTML = sgs.map((sg, sgi) => buildSgGroupCard(cid, sg, sgi)).join("") +
-    `<div class="sg-add-group" onclick="sgModalAddGroup()">+ Añadir grupo vacío</div>`;
-}
-
-function buildSgGroupCard(cid, sg, sgi) {
-  const cl = getCl(cid);
-  const isCorr = !!sg.correction;
-  const clMembers = cl ? cl.members : [];
-
-  // Chips de stores con nombre + dirección
-  const chipsHtml = sg.members.map(ii => {
-    const m = clMembers.find(m => m.item_index === ii);
-    const name = m ? m.app_name : ii.slice(-12);
-    const addr = m ? (m.app_address||'').slice(0,55) : '';
-    return `<div class="sg-chip" title="${esc(ii)}">
-      <div class="sg-chip-name">${esc(name)}</div>
-      ${addr ? `<div class="sg-chip-addr">${esc(addr)}</div>` : ''}
-      <span class="sg-chip-x" onclick="removeSgChip('${esc(cid)}',${sgi},'${esc(ii)}')">✕</span>
-    </div>`;
-  }).join("");
-
-  // Resultados BD
-  let bdHtml = "";
-  if (sg.bd_results && sg.bd_results.length) {
-    const sgStoreIds = new Set(sg.members.map(ii => { const idx=ii.indexOf("_"); return idx>=0?ii.slice(idx+1):ii; }));
-    bdHtml = sg.bd_results.map((bdc, bi) => {
-      const rowsHtml = bdc.members.map(m => {
-        const isMatch = sgStoreIds.has(String(m.store_id||""));
-        return `<div class="sg-bd-member ${isMatch?'match':''}">
-          <span style="font-family:monospace;font-size:10px;color:var(--muted);min-width:70px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex-shrink:0">${esc((m.store_id||'').slice(0,14))}</span>
-          <div style="flex:1;min-width:0">
-            <div style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(m.app_name||'')}${isMatch?` <span style="color:var(--green);font-size:9px">✓</span>`:''}</div>
-            <div style="font-size:9px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc((m.app_address||'').slice(0,60))}</div>
-          </div>
-          <button class="btn sm" style="padding:1px 6px;font-size:11px;flex-shrink:0"
-            onclick="openExtCorr('${esc(m.store_id||"")}','${esc(m.app_name||"")}','${esc(m.app_address||"")}','${esc(bdc.cluster_index)}','${esc(m.cluster_name||"")}','${esc(m.cluster_address||"")}','${esc(m.scraper_source||"")}','${esc(cid)}',${sgi})">+</button>
-        </div>`;
-      }).join("");
-      return `<div class="sg-bd-cluster">
-        <div class="sg-bd-cluster-hdr">
-          <span class="sg-bd-cluster-id">${esc(bdc.cluster_index)}</span>
-          <span style="font-size:10px;color:var(--muted)">${bdc.members.length} stores</span>
-          <label style="display:flex;align-items:center;gap:4px;font-size:10px;cursor:pointer;margin-left:8px">
-            <input type="checkbox" ${bdc.is_clean?"checked":""} style="width:11px;height:11px"
-              onchange="setSgClean('${esc(cid)}',${sgi},${bi},this.checked)"> limpio
-          </label>
-        </div>
-        ${rowsHtml}
-      </div>`;
-    }).join("");
-    const cleanCount = sg.bd_results.filter(b=>b.is_clean).length;
-    bdHtml += `<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
-      <button class="btn green sm" onclick="assignSgClean('${esc(cid)}',${sgi});renderSgGroupsPanel('${esc(cid)}')">✓ Asignar limpio</button>
-      ${cleanCount>=2?`<button class="btn sm" style="border-color:var(--amber);color:var(--amber)" onclick="fusionSgClean('${esc(cid)}',${sgi});renderSgGroupsPanel('${esc(cid)}')">⇄ Fusionar (${cleanCount})</button>`:""}
-    </div>`;
-  }
-
-  // SQL viewer
-  const sqlId = `sgModalSql_${CSS.escape(cid)}_${sgi}`;
-
-  // Corrección
-  const corrHtml = sg.correction
-    ? `<div class="corr-chip ${sg.is_new?'new':''}">
-        <span>${esc(sg.correction)}</span>
-        <span class="chip-x" onclick="clearSgCorr('${esc(cid)}',${sgi});renderSgGroupsPanel('${esc(cid)}')">✕</span>
-      </div>`
-    : `<span style="font-size:11px;color:var(--muted)">Sin asignar</span>`;
-
-  return `<div class="sg-group-card ${isCorr?'corrected':''}"
-    ondragover="onSgGroupDragOver(event,'${esc(cid)}',${sgi})"
-    ondragleave="onSgGroupDragLeave(event)"
-    ondrop="onSgGroupDrop(event,'${esc(cid)}',${sgi})">
-    <div class="sg-group-hdr ${isCorr?'corrected':''}">
-      <div class="sg-group-num ${isCorr?'corrected':''}">${isCorr?'✓':sgi+1}</div>
-      <div class="sg-group-name">${esc(sg.rep_name||"Grupo "+(sgi+1))}</div>
-      <div class="sg-group-count">${sg.members.length} store${sg.members.length!==1?"s":""}</div>
-      ${isCorr?`<div class="sg-group-corr-badge" title="${esc(sg.correction)}">${esc(sg.correction)}</div>`:''}
-    </div>
-    <div class="sg-group-body">
-      <!-- Izquierda: stores -->
-      <div class="sg-group-stores">
-        <div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Stores del grupo</div>
-        <div class="sg-drop-zone" id="sgDrop_${CSS.escape(cid)}_${sgi}">${chipsHtml}</div>
-      </div>
-      <!-- Derecha: BD + corrección -->
-      <div class="sg-group-right">
-        <!-- BD actions -->
-        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-          ${PG_READY
-            ?`<button class="btn blue sm" onclick="runSgQueryModal('${esc(cid)}',${sgi})">▶ Ejecutar BD</button>`
-            :`<label class="btn sm" style="cursor:pointer"><input type="file" accept=".csv,.xlsx" onchange="uploadSgBd(this,'${esc(cid)}',${sgi})" style="display:none">↑ CSV</label>`
-          }
-          <button class="btn sm" onclick="document.getElementById('${sqlId}').style.display=document.getElementById('${sqlId}').style.display==='none'?'block':'none'">Ver SQL</button>
-          <button class="btn sm" onclick="navigator.clipboard.writeText(document.getElementById('${sqlId}').textContent.trim()).then(()=>toast('SQL copiada ✓'))">Copiar SQL</button>
-        </div>
-        <div id="${sqlId}" style="display:none;background:#1a1a2e;border-radius:6px;padding:8px 10px;font-family:monospace;font-size:10px;color:#a8b3cf;white-space:pre-wrap;line-height:1.6;max-height:90px;overflow-y:auto">${esc(sg.sql||'')}</div>
-
-        <!-- BD results -->
-        ${bdHtml ? `<div class="sg-bd-results">${bdHtml}</div>` : ''}
-
-        <!-- Corrección -->
-        <div class="sg-corr-section">
-          <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Corrección</div>
-          <div style="margin-bottom:6px">${corrHtml}</div>
-          ${!sg.correction && !sg.bd_results?.length ? `<div style="font-size:10px;color:var(--amber);margin-bottom:6px">⚠ Sin resultados — ingresa manualmente o crea nuevo.</div>` : ''}
-          <div style="display:flex;gap:5px;flex-wrap:wrap">
-            <input id="sgModalCorrIn_${CSS.escape(cid)}_${sgi}" class="corr-input" placeholder="Pegar cluster_index aquí" style="font-size:11px;padding:5px 8px">
-            <button class="btn green sm" onclick="assignSgInputModal('${esc(cid)}',${sgi})">✓</button>
-            <button class="btn sm" onclick="createSgNew('${esc(cid)}',${sgi});renderSgGroupsPanel('${esc(cid)}')">+ Nuevo</button>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>`;
-}
-
-// Drag desde panel izquierdo
-let _sgModalDrag = null;
-function onSgModalDragStart(e) {
-  _sgModalDrag = {ii: e.target.dataset.ii, fromSgi: null};
-  e.target.classList.add("dragging");
-  e.dataTransfer.effectAllowed = "move";
-}
-function onSgModalDragEnd(e) { e.target.classList.remove("dragging"); }
-
-// Drag desde chip dentro de grupo
-function onSgChipDragStart(e) {
-  _sgModalDrag = {ii: e.target.dataset.ii, fromSgi: parseInt(e.target.dataset.fromSgi), cid: e.target.dataset.cid};
-  e.target.classList.add("dragging");
-  e.dataTransfer.effectAllowed = "move";
-}
-function onSgChipDragEnd(e) { e.target.classList.remove("dragging"); }
-
-function onSgGroupDragOver(e, cid, toSgi) {
-  e.preventDefault();
-  e.currentTarget.classList.add("drag-over");
-}
-function onSgGroupDragLeave(e) { e.currentTarget.classList.remove("drag-over"); }
-
-function onSgGroupDrop(e, cid, toSgi) {
-  e.preventDefault(); e.currentTarget.classList.remove("drag-over");
-  if (!_sgModalDrag) return;
-  const {ii, fromSgi} = _sgModalDrag; _sgModalDrag = null;
-  const sgs = SUBGROUPS[cid]; if (!sgs) return;
-  // Quitar de origen si viene de otro grupo
-  if (fromSgi !== null && fromSgi !== undefined) {
-    sgs[fromSgi].members = sgs[fromSgi].members.filter(m => m !== ii);
-    if (sgs[fromSgi].members.length === 0) {
-      sgs.splice(fromSgi, 1);
-      // Ajustar toSgi si era posterior al eliminado
-      // (se maneja al re-renderizar)
-    }
-  }
-  // Agregar al destino si no está ya
-  const targetSgi = sgs.findIndex((_, i) => i === toSgi);
-  const realSgi = targetSgi >= 0 ? targetSgi : toSgi;
-  if (sgs[realSgi] && !sgs[realSgi].members.includes(ii)) {
-    sgs[realSgi].members.push(ii);
-    // Actualizar rep_name
-    const cl = getCl(cid);
-    if (cl) {
-      const m = cl.members.find(m => m.item_index === sgs[realSgi].members[0]);
-      if (m) sgs[realSgi].rep_name = m.app_name;
-    }
-  }
-  SUBGROUPS[cid] = sgs.filter(sg => sg.members.length > 0);
-  regenerateSgSql(cid).then(() => renderSgGroupsPanel(cid));
-  renderSgStoresList(cid);
-  updateSgModalProgress(cid);
-}
-
-function removeSgChip(cid, sgi, ii) {
-  const sgs = SUBGROUPS[cid]; if (!sgs || !sgs[sgi]) return;
-  sgs[sgi].members = sgs[sgi].members.filter(m => m !== ii);
-  if (sgs[sgi].members.length === 0) sgs.splice(sgi, 1);
-  SUBGROUPS[cid] = sgs;
-  renderSgGroupsPanel(cid);
-  renderSgStoresList(cid);
-  updateSgModalProgress(cid);
-}
-
-function sgModalAddGroup() {
-  if (!_sgModalCid) return;
-  const sgs = SUBGROUPS[_sgModalCid] || [];
-  sgs.push({members:[], rep_name:"Nuevo grupo", sql:"", bd_results:[], correction:"", is_new:false});
-  SUBGROUPS[_sgModalCid] = sgs;
-  renderSgGroupsPanel(_sgModalCid);
-}
-
-async function runSgQueryModal(cid, sgi) {
-  const sgs = SUBGROUPS[cid]; if (!sgs || !sgs[sgi]) return;
-  const sql = sgs[sgi].sql;
-  if (!sql) { toast("Sin SQL — regenerando…"); await regenerateSgSql(cid); return; }
-  // Encontrar botón y mostrar spinner
-  const groupCards = document.querySelectorAll("#sgGroupsPanel .sg-group-card");
-  const btn = groupCards[sgi] ? groupCards[sgi].querySelector(".btn.blue.sm") : null;
-  if (btn) { btn.innerHTML = '<span class="spinner"></span>'; btn.disabled = true; }
-  try {
-    const d = await api("/pg_query", {sql});
-    if (d.error) { toast("Error BD: " + d.error); }
-    else {
-      sgs[sgi].bd_results = d.clusters_found || [];
-      if (!d.clusters_found?.length) toast("Sin resultados — intenta reagrupar o ingresa manualmente");
-      else toast(`${d.clusters_found.length} cluster(s) encontrados`);
-    }
-  } catch(e) { toast("Error: " + e.message); }
-  if (btn) { btn.innerHTML = "▶ Ejecutar BD"; btn.disabled = false; }
-  renderSgGroupsPanel(cid);
-}
-
-async function assignSgInputModal(cid, sgi) {
-  const panel = document.getElementById("sgGroupsPanel");
-  const cards = panel ? panel.querySelectorAll(".sg-group-card") : [];
-  const card = cards[sgi];
-  const inp = card ? card.querySelector(".corr-input") : null;
-  const val = (inp?.value||"").trim();
-  if (!val) { toast("Escribe el cluster_index"); return; }
-  await saveSgCorr(cid, sgi, val, false);
-  if (inp) inp.value = "";
-  renderSgGroupsPanel(cid);
-  updateSgModalProgress(cid);
-}
-
-function updateSgModalProgress(cid) {
-  const sgs = SUBGROUPS[cid] || [];
-  const total = sgs.length;
-  const corrected = sgs.filter(sg => sg.correction).length;
-  const el = document.getElementById("sgModalProgress");
-  if (el) {
-    el.innerHTML = total
-      ? `<span style="color:${corrected===total?'var(--green)':'var(--muted)'};font-weight:${corrected===total?'700':'400'}">
-          ${corrected===total?'✓ ':''} ${corrected}/${total} grupos corregidos
-         </span>`
-      : "";
-  }
 }
 </script>
 </body>
