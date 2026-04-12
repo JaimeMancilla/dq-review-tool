@@ -650,7 +650,7 @@ function buildTable(cl){
     const isAnchor=m.is_anchor;
     const hasMem=m.mem_hit&&m.mem_hit.correction;
     const rowCls=isAnchor?"row-anchor":hasMem&&m.revision===0?"row-mem":m.revision===0?"row-bad":"row-ok";
-    const stickyStyle=isAnchor?"position:sticky;top:37px;z-index:1;box-shadow:0 1px 3px rgba(0,0,0,.08)":"";
+    const stickyStyle=isAnchor?"box-shadow:0 1px 3px rgba(0,0,0,.08)":"";
     const cbCell=isAnchor
       ?`<td class="cb-cell"><span class="anchor-badge">A</span></td>`
       :`<td class="cb-cell"><input type="checkbox" ${m.revision===0?"checked":""}
@@ -678,10 +678,6 @@ function buildTable(cl){
   return`
     <div style="display:flex;align-items:center;gap:8px;padding:7px 12px;background:var(--surf2);border-bottom:1px solid var(--border)">
       <span style="font-size:11px;color:var(--muted)">${cl.count} stores · <span style="color:var(--red);font-weight:600">${bad}</span> incorrecto${bad!==1?"s":""}</span>
-      <input type="text" placeholder="🔍 Buscar…"
-        oninput="filterTable('${esc(cid)}',this.value)"
-        style="flex:1;max-width:260px;padding:3px 8px;font-size:11px;border:1px solid var(--border2);border-radius:var(--r);background:var(--surf);color:var(--text);outline:none"
-        onfocus="this.style.borderColor='var(--blue)'" onblur="this.style.borderColor='var(--border2)'">
       <button class="btn sm" style="margin-left:auto;font-size:11px" onclick="toggleTbl(this)">▼ Ver tabla</button>
     </div>
     <div class="tbl-wrap" id="${tableId}" style="display:none;max-height:420px;overflow-y:auto"><table>
@@ -696,9 +692,15 @@ function buildTable(cl){
 
 function buildToolbar(cl){
   const bad=cl.members.filter(m=>m.revision===0).length;
+  const hasSgs = (SUBGROUPS[cl.cluster_id]||[]).length > 0;
   return`<div class="toolbar" id="tb_${CSS.escape(cl.cluster_id)}">
-    <span style="font-size:11px;color:var(--muted)" id="tbInfo_${CSS.escape(cl.cluster_id)}">${bad} marcado${bad!==1?"s":""} como incorrecto${bad!==1?"s":""}</span>
+    <span style="font-size:11px;color:var(--muted);white-space:nowrap" id="tbInfo_${CSS.escape(cl.cluster_id)}">${bad} marcado${bad!==1?"s":""} como incorrecto${bad!==1?"s":""}</span>
+    <input type="text" placeholder="🔍 Buscar en tabla…"
+      oninput="filterTable('${esc(cl.cluster_id)}',this.value)"
+      style="flex:1;max-width:220px;padding:3px 8px;font-size:11px;border:1px solid var(--border2);border-radius:var(--r);background:var(--surf);color:var(--text);outline:none"
+      onfocus="this.style.borderColor='var(--blue)'" onblur="this.style.borderColor='var(--border2)'">
     <button class="btn blue sm" onclick="genSql('${esc(cl.cluster_id)}')">⚡ Generar subgrupos</button>
+    ${hasSgs?`<button class="btn sm" onclick="openSgModal('${esc(cl.cluster_id)}')">✏️ Editar</button>`:""}
     <button class="btn sm" onclick="markAll('${esc(cl.cluster_id)}',0)">Marcar todos ✕</button>
     <button class="btn sm" onclick="markAll('${esc(cl.cluster_id)}',1)">Desmarcar todos</button>
     <span class="thr-info">umbral: ${cl.threshold_used||0.95}</span>
