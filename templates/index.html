@@ -1563,26 +1563,31 @@ async function openBdUpdate() {
   document.getElementById("btnConfirmBdUpdate").style.display = "none";
   document.getElementById("bdUpdateBody").innerHTML =
     '<div style="padding:20px;text-align:center;color:var(--muted)"><span class="spinner"></span> Cargando preview…</div>';
-
+ 
   const d = await api("/bd_update/preview", {});
   if(d.error){ document.getElementById("bdUpdateBody").innerHTML=`<div style="color:var(--red);padding:16px">${esc(d.error)}</div>`; return; }
   _bdUpdateRows = d.rows;
-
+ 
   if(!d.rows.length){
     document.getElementById("bdUpdateBody").innerHTML =
       '<div style="padding:20px;text-align:center;color:var(--muted)">No hay correcciones pendientes para insertar.</div>';
     return;
   }
-
+ 
   const srcLabel = {"file":"📄 Archivo","external":"📝 Anotar"};
-  const rows = d.rows.map(r=>`<tr>
+  const rows = d.rows.map((r,i)=>`<tr>
     <td style="padding:5px 10px;font-size:11px;color:var(--muted)">${srcLabel[r.source]||r.source}</td>
     <td style="padding:5px 10px;font-family:monospace;font-size:10px;color:var(--muted)">${esc(r.store_id)}</td>
-    <td style="padding:5px 10px;font-size:11px">${esc(r.scraper_source||"—")}</td>
+    <td style="padding:3px 6px;font-size:11px">${r.scraper_source
+      ? esc(r.scraper_source)
+      : `<input data-row="${i}" class="ss-input" value="" placeholder="scraper_source"
+           style="width:110px;padding:3px 6px;font-size:11px;border:1px solid var(--rborder);border-radius:4px;background:var(--rbg);color:var(--text)"
+           oninput="_bdUpdateRows[${i}].scraper_source=this.value">`
+    }</td>
     <td style="padding:5px 10px;font-family:monospace;font-size:10px;color:var(--red)">${esc(r.old_cluster)}</td>
     <td style="padding:5px 10px;font-family:monospace;font-size:10px;color:var(--green)">${esc(r.new_cluster)}</td>
   </tr>`).join("");
-
+ 
   document.getElementById("bdUpdateBody").innerHTML = `
     <div style="padding:10px 16px;background:var(--surf2);border-bottom:1px solid var(--border);font-size:12px">
       <strong>${d.total}</strong> fila${d.total!==1?"s":""} a insertar ·
