@@ -1872,8 +1872,8 @@ function renderFusionOpts(opts) {
         <span style="font-weight:600;font-size:12px">${esc(o.names)}</span>
         <span style="font-size:11px;color:var(--muted);margin-left:auto">${o.count} plato${o.count!==1?"s":""}</span>
       </div>
-      ${o.desc?`<div style="font-size:11px;color:var(--muted)">${esc(o.desc)}</div>`
-               :o.prices?`<div style="font-size:11px;color:var(--muted)">💰 ${esc(o.prices)}</div>`:""}
+      ${o.desc?`<div style="font-size:11px;color:var(--muted)">${esc(o.desc)}</div>`:""}
+      ${o.prices?`<div style="font-size:11px;color:var(--muted)">💰 ${esc(o.prices)}</div>`:""}
     </div>`).join("");
 }
 
