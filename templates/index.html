@@ -100,7 +100,7 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
 .sg-hdr{background:var(--rbg);border-bottom:1px solid var(--rborder);padding:8px 10px;border-radius:var(--r) var(--r) 0 0}
 .sg-hdr-top{display:flex;align-items:center;gap:8px;margin-bottom:4px}
 .sg-pills{display:flex;flex-wrap:wrap;gap:3px}
-.sg-pill{font-family:monospace;font-size:10px;background:var(--surf2);border:1px solid var(--border);border-radius:4px;padding:2px 7px;cursor:move;max-width:none;overflow:visible;text-overflow:unset;white-space:normal;word-break:break-word}
+.sg-pill{font-family:monospace;font-size:10px;background:var(--surf2);border:1px solid var(--border);border-radius:4px;padding:2px 7px;cursor:move;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sg-pill.dragging{opacity:.4}
 .sg-pill.drag-over-sg{outline:2px dashed var(--blue)}
 .sg-sql{position:relative;background:#1e1e1e;border-radius:6px;padding:8px 10px 8px 10px;font-family:monospace;font-size:10px;color:#ccc;white-space:pre-wrap;line-height:1.6;max-height:80px;overflow-y:auto;margin:8px 10px 0}
@@ -151,18 +151,18 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
 .sg-group-hdr.corrected{background:rgba(15,123,62,.06);border-bottom-color:var(--gborder)}
 .sg-group-num{width:22px;height:22px;border-radius:50%;background:var(--rbg);border:1.5px solid var(--rborder);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;color:var(--red);flex-shrink:0}
 .sg-group-num.corrected{background:var(--gbg);border-color:var(--gborder);color:var(--green)}
-.sg-group-name{font-size:12px;font-weight:600;flex:1;white-space:normal;overflow:visible;word-break:break-word}
+.sg-group-name{font-size:12px;font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sg-group-count{font-size:10px;color:var(--muted);white-space:nowrap}
 .sg-group-corr-badge{font-family:monospace;font-size:9px;color:var(--green);font-weight:700;background:var(--gbg);border:1px solid var(--gborder);border-radius:4px;padding:1px 6px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sg-group-body{display:flex;min-height:0}
-.sg-group-stores{width:600px;flex-shrink:0;border-right:1px solid var(--border);padding:10px;display:flex;flex-direction:column;gap:4px;background:var(--surf2)}
+.sg-group-stores{width:340px;flex-shrink:0;border-right:1px solid var(--border);padding:10px;display:flex;flex-direction:column;gap:4px;background:var(--surf2)}
 .sg-group-right{flex:1;padding:10px 14px;display:flex;flex-direction:column;gap:8px;overflow-y:auto;max-height:360px}
 .sg-drop-zone{min-height:40px;border:2px dashed var(--border2);border-radius:var(--r);padding:6px;display:flex;flex-direction:column;gap:4px;transition:all .15s;background:var(--surf);flex:1}
 .sg-drop-zone.drag-over{border-color:var(--blue);background:var(--bbg)}
 .sg-drop-zone:empty::after{content:"Arrastra stores aquí";font-size:10px;color:var(--muted);text-align:center;padding:8px 0}
 .sg-chip{display:flex;flex-direction:column;background:var(--surf);border:1px solid var(--border2);border-radius:5px;padding:5px 24px 5px 8px;font-size:10px;cursor:grab;transition:all .12s;position:relative}
 .sg-chip:hover{background:var(--rbg);border-color:var(--rborder)}
-.sg-chip-name{font-weight:600;color:var(--text);white-space:normal;overflow:visible;word-break:break-word}
+.sg-chip-name{font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sg-chip-addr{color:var(--muted);font-size:9px;white-space:normal;line-height:1.3;margin-top:2px}
 .sg-chip-x{position:absolute;top:4px;right:6px;cursor:pointer;opacity:.4;font-size:11px;line-height:1}
 .sg-chip-x:hover{opacity:1;color:var(--red)}
@@ -177,7 +177,6 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
 .sg-modal-progress{flex:1;font-size:11px;color:var(--muted)}
 .sg-add-group{border:2px dashed var(--border2);border-radius:var(--rl);padding:16px;text-align:center;cursor:pointer;font-size:12px;color:var(--muted);transition:all .15s;background:var(--surf)}
 .sg-add-group:hover{border-color:var(--blue);color:var(--blue);background:var(--bbg)}
-#fusionModalList *{white-space:normal!important;overflow:visible!important;text-overflow:unset!important;word-break:break-word}
 </style>
 </head>
 <body>
@@ -1870,10 +1869,10 @@ function renderFusionOpts(opts) {
       onmouseover="this.style.background='var(--bbg)'" onmouseout="this.style.background=''">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:${o.desc||o.prices?"3px":"0"}">
         <span style="font-family:monospace;font-size:10px;color:var(--muted);white-space:nowrap">grupo ${esc(o.group_id)}</span>
-        <span style="font-weight:600;font-size:12px">${esc(o.names.slice(0,70))}${o.names.length>70?"…":""}</span>
-        <span style="font-size:11px;color:var(--muted);margin-left:auto;white-space:nowrap">${o.count} plato${o.count!==1?"s":""}</span>
+        <span style="font-weight:600;font-size:12px">${esc(o.names)}</span>
+        <span style="font-size:11px;color:var(--muted);margin-left:auto">${o.count} plato${o.count!==1?"s":""}</span>
       </div>
-      ${o.desc?`<div style="font-size:11px;color:var(--muted)">${esc(o.desc.slice(0,90))}${o.desc.length>90?"…":""}</div>`
+      ${o.desc?`<div style="font-size:11px;color:var(--muted)">${esc(o.desc)}</div>`
                :o.prices?`<div style="font-size:11px;color:var(--muted)">💰 ${esc(o.prices)}</div>`:""}
     </div>`).join("");
 }
