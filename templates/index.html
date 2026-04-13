@@ -1913,10 +1913,10 @@ function openFusionModal(gi) {
             onmouseover="this.style.background='var(--bbg)'" onmouseout="this.style.background='var(--surf)'">
             <div style="display:flex;align-items:center;gap:8px">
               <span style="font-family:monospace;font-size:10px;color:var(--muted)">grupo ${esc(s.group_id)}</span>
-              <span style="font-weight:600;font-size:12px">${esc((s.members[0]?.product_name||"").slice(0,50))}</span>
+              <span style="font-weight:600;font-size:12px">${esc(s.members[0]?.product_name||"")}</span>
               <span style="margin-left:auto;font-size:11px;font-weight:700;color:${s.sim>=0.8?"var(--green)":s.sim>=0.6?"var(--amber)":"var(--muted)"}">${Math.round(s.sim*100)}%</span>
             </div>
-            ${s.members[0]?.product_description?`<div style="font-size:11px;color:var(--muted);margin-top:2px">${esc(s.members[0].product_description.slice(0,60))}…</div>`:""}
+            ${s.members[0]?.product_description?`<div style="font-size:11px;color:var(--muted);margin-top:2px">${esc(s.members[0].product_description)}</div>`:""}${s.members[0]?.price?`<div style="font-size:11px;color:var(--muted)">💰 ${esc(s.members[0].price)}</div>`:""}
           </div>`).join("")}
       </div>` : "";
     const restOpts = _fusionOpts.filter(o=>!sugIds.has(o.group_id));
