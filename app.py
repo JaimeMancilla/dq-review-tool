@@ -659,7 +659,7 @@ def generate_unified_sql(bad_members, country="mx"):
         # Condición de dirección
         akeys = extract_addr_keys(addr)
         if akeys:
-            addr_cond = " and ".join(f"app_address ilike '%{w}%'" for w in akeys)
+            addr_cond = " and ".join(word_ilike("app_address", w) for w in akeys)
             blocks.append(f"    ({name_cond}\n     and {addr_cond})")
         else:
             # Sin dirección útil: agregar solo condición de nombre (sin deduplicar más)
