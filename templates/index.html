@@ -2690,17 +2690,15 @@ async function onBdDrop(e, targetCluster, cid, sgi) {
   const m = _bdDragData;
   _bdDragData = null;
 
-  // Si suelta en el mismo cluster de origen, no hacer nada
   if (m.from_cluster === targetCluster) return;
 
-  // Determinar el new_cluster
+  // Determinar new_cluster
   let newCluster = targetCluster;
   let isNew = false;
 
   if (targetCluster === "NEW") {
-    // Crear nuevo cluster: usar el menor item_index de los involucrados
-    // Por ahora usar el item_index de la store arrastrada como base
-    const appId = (m.scraper_source || m.from_cluster.split("_")[0] || "").trim();
+    // Usar scraper_source de la store arrastrada como app_id
+    const appId = (m.scraper_source||"").trim();
     newCluster = appId ? `${appId}_${m.store_id}` : `NUEVO:${m.store_id}`;
     isNew = true;
   }
@@ -2717,49 +2715,64 @@ async function onBdDrop(e, targetCluster, cid, sgi) {
     correction:      newCluster,
     is_new:          isNew,
   });
+  if (!d.ok) { toast("Error: " + (d.error||"")); return; }
 
-  if (!d.ok) { toast("Error al registrar corrección: " + (d.error||"")); return; }
-
-  // Mover la fila visualmente
-  const fromTbody = document.getElementById("bdt_" + CSS.escape(m.from_cluster));
-  if (fromTbody) {
-    // Encontrar y remover la fila del origen
-    Array.from(fromTbody.querySelectorAll("tr")).forEach(tr => {
-      if (tr.textContent.includes(m.store_id)) tr.remove();
+  // Mover chip visualmente — buscar el div con el store_id en el contenedor origen
+  const fromContainer = document.getElementById("bdt_" + CSS.escape(m.from_cluster));
+  if (fromContainer) {
+    Array.from(fromContainer.children).forEach(chip => {
+      if (chip.textContent.includes(m.store_id) || chip.textContent.includes(m.app_name)) {
+        chip.style.opacity = "0.35";
+        chip.style.textDecoration = "line-through";
+        chip.setAttribute("draggable","false");
+      }
     });
   }
 
+  // Agregar chip en destino
   if (targetCluster === "NEW") {
-    // Mostrar confirmación en la zona NEW
     const newZone = document.getElementById(`bdz_NEW_${CSS.escape(cid)}_${sgi}`);
     if (newZone) {
-      newZone.innerHTML += `<div style="font-size:11px;color:var(--green);padding:4px 8px;text-align:left">
-        ↳ ${esc(m.app_name)} → <span style="font-family:monospace">${esc(newCluster)}</span>
-      </div>`;
+      const div = document.createElement("div");
+      div.style.cssText = "font-size:11px;color:var(--green);padding:4px 8px;border:1px solid var(--gborder);border-radius:5px;margin:3px 8px";
+      div.innerHTML = `↳ <strong>${esc(m.app_name)}</strong> <span style="font-family:monospace;font-size:10px">${esc(newCluster)}</span>`;
+      newZone.appendChild(div);
     }
   } else {
-    // Agregar fila al cluster destino
-    const toTbody = document.getElementById("bdt_" + CSS.escape(targetCluster));
-    if (toTbody) {
-      const tr = document.createElement("tr");
-      tr.style.cssText = "background:var(--pbg);border-left:3px solid var(--purple)";
-      tr.innerHTML = `
-        <td style="padding:2px 5px;font-family:monospace;font-size:10px;color:var(--muted)">${esc(m.store_id)}</td>
-        <td style="padding:2px 5px;font-weight:600">${esc(m.app_name)} <span style="font-size:9px;color:var(--purple)">↳ movido</span></td>
-        <td style="padding:2px 5px;color:var(--muted);font-size:11px">${esc((m.app_address||"").slice(0,50))}</td>
-        <td></td>`;
-      toTbody.appendChild(tr);
+    const toContainer = document.getElementById("bdt_" + CSS.escape(targetCluster));
+    if (toContainer) {
+      const div = document.createElement("div");
+      div.style.cssText = "display:flex;flex-direction:column;border:1px solid var(--pborder);border-radius:5px;padding:5px 8px;font-size:10px;background:var(--pbg);margin-bottom:3px";
+      div.innerHTML = `
+        <div style="display:flex;align-items:center;gap:4px">
+          <span style="font-size:9px;color:var(--purple)">↳</span>
+          <span style="font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${esc(m.app_name)} <span style="font-size:9px;color:var(--purple)">movido</span></span>
+        </div>
+        <div style="font-size:9px;color:var(--muted);margin-top:2px">${esc((m.app_address||"").slice(0,55))}</div>`;
+      toContainer.appendChild(div);
     }
   }
 
-  // Si la store venía del subgrupo (match), también asignar corrección al subgrupo
+  // Si la store es del subgrupo → asignar corrección al subgrupo SIN re-renderizar el modal
   const sgs = SUBGROUPS[cid] || [];
   const sg  = sgs[sgi] || {};
+  // Comparar por store_id extraído del item_index (parte después del primer "_")
   const sgStoreIds = new Set(
-    (sg.members||[]).map(ii => { const idx=ii.indexOf("_"); return idx>=0?ii.slice(idx+1):ii; })
+    (sg.members||[]).map(ii => {
+      const idx = ii.indexOf("_");
+      return idx >= 0 ? ii.slice(idx+1) : ii;
+    })
   );
-  if (sgStoreIds.has(String(m.store_id))) {
-    await saveSgCorr(cid, sgi, newCluster, isNew);
+  const isFromSubgroup = sgStoreIds.has(String(m.store_id)) || sgStoreIds.has(String(m.item_index));
+
+  if (isFromSubgroup) {
+    // Guardar corrección sin re-renderizar
+    sgs[sgi].correction = newCluster;
+    sgs[sgi].is_new = isNew;
+    await api("/set_correction", {cluster_id: cid, item_indexes: sgs[sgi].members, correction: newCluster});
+    api("/save_subgroups", {subgroups: SUBGROUPS});
+    refreshClusterBadge(cid);
+    renderFilterBar();
     toast(`✓ ${m.app_name} → ${newCluster} (subgrupo + BD)`);
   } else {
     toast(`✓ ${m.app_name} → ${newCluster}`);
