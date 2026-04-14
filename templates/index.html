@@ -1609,6 +1609,40 @@ async function openBdUpdate() {
     return;
   }
 
+  // ── Construir estado simulado post-inserción ──────────────────────────────
+  // Para cada cluster, calcular qué stores salen y cuáles entran
+  const pending = d.rows;
+  const simOut = {};  // cluster_index → Set de store_ids que salen
+  const simIn  = {};  // cluster_index → array de stores que entran
+
+  pending.forEach(r => {
+    // Stores que SALEN del old_cluster
+    if(r.old_cluster) {
+      if(!simOut[r.old_cluster]) simOut[r.old_cluster] = new Set();
+      simOut[r.old_cluster].add(r.store_id);
+    }
+    // Stores que ENTRAN al new_cluster
+    if(r.new_cluster && !r.new_cluster.startsWith("NUEVO:")) {
+      if(!simIn[r.new_cluster]) simIn[r.new_cluster] = [];
+      simIn[r.new_cluster].push({
+        store_id:    r.store_id,
+        app_name:    r.app_name || r.store_id,
+        app_address: r.app_address || "",
+        is_anchor:   false,
+        is_incoming: true
+      });
+    }
+  });
+
+  function simulatedMembers(clusterIndex, ctx) {
+    const currentMembers = (ctx?.members || []);
+    const outSet = simOut[clusterIndex] || new Set();
+    const inList = simIn[clusterIndex]  || [];
+    const staying  = currentMembers.filter(m => !outSet.has(m.store_id));
+    const incoming = inList.filter(m => !currentMembers.some(e => e.store_id === m.store_id));
+    return { staying, incoming, removed: currentMembers.filter(m => outSet.has(m.store_id)) };
+  }
+
   const srcLabel = {"file":"📄 Archivo","external":"📝 Anotar"};
 
   function renderClusterCtx(ctx, label, color) {
@@ -1621,7 +1655,7 @@ async function openBdUpdate() {
       <div style="font-size:10px;font-weight:700;color:${color};margin-bottom:3px">${label}</div>
       <div style="font-size:11px;font-weight:600">${esc(ctx.name)}</div>
       ${ctx.address?`<div style="font-size:10px;color:var(--muted);margin-bottom:4px">${esc(ctx.address)}</div>`:""}
-      <div style="font-size:10px;color:var(--muted);margin-bottom:3px">${members.length} store${members.length!==1?"s":""} en este cluster</div>
+      <div style="font-size:10px;color:var(--muted);margin-bottom:3px">${members.length} store${members.length!==1?"s":""} en BD ahora</div>
       ${anchor?`<div style="font-size:10px;background:var(--abg);border:1px solid var(--aborder);border-radius:4px;padding:2px 6px;margin-bottom:2px">
         ⚓ <strong>${esc(anchor.app_name)}</strong> · ${esc((anchor.app_address||"").slice(0,50))}
       </div>`:""}
@@ -1629,12 +1663,39 @@ async function openBdUpdate() {
         ${esc(m.app_name)} · ${esc((m.app_address||"").slice(0,45))}
       </div>`).join("")}
       ${others.length>3?`<div style="font-size:10px;color:var(--muted)">…y ${others.length-3} más</div>`:""}
-      ${prevCorr.length?`<div style="font-size:10px;color:var(--amber);margin-top:4px">⚠ ${prevCorr.length} corrección${prevCorr.length!==1?"es":""} previa${prevCorr.length!==1?"s":""} en este cluster</div>`:""}`;
+      ${prevCorr.length?`<div style="font-size:10px;color:var(--amber);margin-top:4px">⚠ ${prevCorr.length} corrección${prevCorr.length!==1?"es":""} previa${prevCorr.length!==1?"s":""}</div>`:""}`;
+  }
+
+  function renderSimulatedNew(clusterIndex, ctx) {
+    if(!ctx || !ctx.name) return "";
+    const {staying, incoming, removed} = simulatedMembers(clusterIndex, ctx);
+    const anchor = staying.find(m=>m.is_anchor) || (ctx.members||[]).find(m=>m.is_anchor);
+    const total = staying.length + incoming.length;
+    if(!removed.length && !incoming.length) return ""; // sin cambios, no mostrar
+    return `
+      <div style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--gborder)">
+        <div style="font-size:10px;font-weight:700;color:var(--green);margin-bottom:4px">✦ ESTADO FINAL (tras insertar)</div>
+        <div style="font-size:10px;color:var(--muted);margin-bottom:3px">${total} store${total!==1?"s":""}</div>
+        ${anchor?`<div style="font-size:10px;background:var(--abg);border:1px solid var(--aborder);border-radius:4px;padding:2px 6px;margin-bottom:3px">
+          ⚓ <strong>${esc(anchor.app_name)}</strong> · ${esc((anchor.app_address||"").slice(0,45))}
+        </div>`:""}
+        ${staying.filter(m=>!m.is_anchor).slice(0,3).map(m=>`
+          <div style="font-size:10px;color:var(--muted);padding:1px 0;border-bottom:1px solid var(--border)">
+            ${esc(m.app_name)} · ${esc((m.app_address||"").slice(0,40))}
+          </div>`).join("")}
+        ${incoming.map(m=>`
+          <div style="font-size:10px;color:var(--green);padding:1px 0;border-bottom:1px solid var(--gborder);font-weight:500">
+            ↳ ${esc(m.app_name)} · ${esc((m.app_address||"").slice(0,40))}
+          </div>`).join("")}
+        ${removed.map(m=>`
+          <div style="font-size:10px;color:var(--red);padding:1px 0;border-bottom:1px solid var(--rborder);text-decoration:line-through;opacity:.7">
+            ${esc(m.app_name)} · ${esc((m.app_address||"").slice(0,40))}
+          </div>`).join("")}
+      </div>`;
   }
 
   const rows = d.rows.map((r,i)=>`
     <div style="border:1px solid var(--border);border-radius:8px;margin:8px 16px;overflow:hidden">
-      <!-- Header de la corrección -->
       <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--surf2);border-bottom:1px solid var(--border)">
         <span style="font-size:10px;background:var(--surf);border:1px solid var(--border2);border-radius:4px;padding:1px 6px">${srcLabel[r.source]||r.source}</span>
         <div>
@@ -1647,7 +1708,6 @@ async function openBdUpdate() {
           oninput="_bdUpdateRows[${i}].scraper_source=this.value">`
         :`<span style="font-size:10px;font-family:monospace;color:var(--muted)">${esc(r.scraper_source)}</span>`}
       </div>
-      <!-- Contexto old → new -->
       <div style="display:grid;grid-template-columns:1fr 40px 1fr;gap:0;min-height:80px">
         <div style="padding:10px 12px;border-right:1px solid var(--border);background:var(--rbg)">
           ${renderClusterCtx(r.old_ctx, "SALE DE", "var(--red)")}
@@ -1655,10 +1715,11 @@ async function openBdUpdate() {
         </div>
         <div style="display:flex;align-items:center;justify-content:center;font-size:18px;color:var(--muted)">→</div>
         <div style="padding:10px 12px;background:var(--gbg)">
-          ${r.new_cluster.startsWith("NUEVO:")||r.new_cluster.startsWith(r.store_id?.split("_")[0]||"__")
+          ${r.new_cluster.startsWith("NUEVO:")
             ? `<div style="font-size:10px;font-weight:700;color:var(--green);margin-bottom:3px">NUEVO CLUSTER</div>
                <div style="font-family:monospace;font-size:10px;color:var(--green)">${esc(r.new_cluster)}</div>`
-            : renderClusterCtx(r.new_ctx, "VA A", "var(--green)")
+            : renderClusterCtx(r.new_ctx, "VA A", "var(--green)") +
+              renderSimulatedNew(r.new_cluster, r.new_ctx)
           }
           <div style="font-family:monospace;font-size:10px;color:var(--green);margin-top:4px;opacity:.7">${esc(r.new_cluster)}</div>
         </div>
