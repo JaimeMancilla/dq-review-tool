@@ -1852,14 +1852,18 @@ def clean_correction(corr):
 
 @app.route("/bd_update/preview", methods=["POST"])
 def bd_update_preview():
-    """Genera preview de los INSERTs que se harían en ctrl_restaurant_homologation."""
+    """Genera preview enriquecido de los INSERTs que se harían en ctrl_restaurant_homologation."""
+    if not session.get("is_reviewed"):
+        return jsonify({"error": "Debes marcar el archivo como revisado antes de actualizar la BD"}), 403
+
     clusters   = session.get("clusters", [])
     country    = session.get("country", "mx")
     rt         = session.get("review_type", "stores_restaurant")
     store_type = "retail" if rt == "stores_retail" else "restaurant"
+    table      = get_pg_table()
     rows = []
 
-    # Correcciones de subgrupos (vienen en corrections del cluster)
+    # Correcciones de subgrupos
     for cl in clusters:
         for ii, corr in cl.get("corrections", {}).items():
             if not corr: continue
@@ -1868,6 +1872,8 @@ def bd_update_preview():
             if not member: continue
             rows.append({
                 "store_id":       member.get("store_id", ""),
+                "app_name":       member.get("app_name", ""),
+                "app_address":    member.get("app_address", ""),
                 "scraper_source": member.get("scraper_source", ""),
                 "old_cluster":    member.get("cluster_index", cl["cluster_id"]),
                 "new_cluster":    corr,
@@ -1883,6 +1889,8 @@ def bd_update_preview():
         if rec.get("file_name") and rec["file_name"] != current_file: continue
         rows.append({
             "store_id":       rec.get("store_id", ""),
+            "app_name":       rec.get("app_name", ""),
+            "app_address":    rec.get("app_address", ""),
             "scraper_source": rec.get("scraper_source", ""),
             "old_cluster":    rec.get("cluster_index", ""),
             "new_cluster":    clean_correction(rec.get("correction", "")),
@@ -1890,6 +1898,71 @@ def bd_update_preview():
             "store_type":     store_type,
             "source":         "external",
         })
+
+    if not rows:
+        return jsonify({"rows": [], "total": 0, "store_type": store_type, "country": country})
+
+    # Enriquecer con contexto de PostgreSQL
+    # Traer cluster_name + miembros de old y new clusters únicos
+    old_clusters = list({r["old_cluster"] for r in rows if r["old_cluster"]})
+    new_clusters = list({r["new_cluster"] for r in rows if r["new_cluster"] and not r["new_cluster"].startswith("NUEVO:")})
+    all_clusters = list(set(old_clusters + new_clusters))
+
+    cluster_ctx = {}  # cluster_index → {name, address, members, prev_corrections}
+    if all_clusters and pg_is_configured():
+        placeholders = ",".join(f"'{c}'" for c in all_clusters)
+        sql_ctx = f"""
+            SELECT cluster_index, cluster_name, cluster_address,
+                   store_id, app_name, app_address, scraper_source, item_index
+            FROM {table}
+            WHERE cluster_index IN ({placeholders})
+            AND country = '{country}'
+            ORDER BY cluster_index, item_index
+        """
+        ctx_rows, err = pg_query(sql_ctx, timeout_ms=15000)
+        if not err and ctx_rows:
+            for r in ctx_rows:
+                ci = r["cluster_index"]
+                if ci not in cluster_ctx:
+                    cluster_ctx[ci] = {
+                        "name":    r["cluster_name"] or "",
+                        "address": r["cluster_address"] or "",
+                        "members": []
+                    }
+                cluster_ctx[ci]["members"].append({
+                    "store_id":    r["store_id"],
+                    "app_name":    r["app_name"],
+                    "app_address": r["app_address"],
+                    "is_anchor":   r["item_index"] == ci
+                })
+
+        # Traer correcciones previas aplicadas a estos clusters
+        prev_sql = f"""
+            SELECT old_cluster, new_cluster, store_id, load_date
+            FROM sales_opportunity.ctrl_restaurant_homologation
+            WHERE (old_cluster IN ({placeholders}) OR new_cluster IN ({placeholders}))
+            ORDER BY load_date DESC
+            LIMIT 100
+        """
+        prev_rows, _ = pg_query(prev_sql, timeout_ms=10000)
+        prev_by_cluster = {}
+        if prev_rows:
+            for r in prev_rows:
+                for ci in [r["old_cluster"], r["new_cluster"]]:
+                    if ci in all_clusters:
+                        prev_by_cluster.setdefault(ci, []).append({
+                            "store_id":    r["store_id"],
+                            "old_cluster": r["old_cluster"],
+                            "new_cluster": r["new_cluster"],
+                            "load_date":   str(r["load_date"])[:10] if r["load_date"] else ""
+                        })
+        for ci in cluster_ctx:
+            cluster_ctx[ci]["prev_corrections"] = prev_by_cluster.get(ci, [])
+
+    # Adjuntar contexto a cada row
+    for r in rows:
+        r["old_ctx"] = cluster_ctx.get(r["old_cluster"], {})
+        r["new_ctx"] = cluster_ctx.get(r["new_cluster"], {})
 
     return jsonify({"rows": rows, "total": len(rows),
                     "store_type": store_type, "country": country})
