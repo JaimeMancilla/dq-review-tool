@@ -601,6 +601,28 @@ def word_ilike(field, word):
     conditions = " or ".join(f"{field} ilike '%{v}%'" for v in sorted(variants))
     return f"({conditions})"
 
+def addr_ilike_safe(field, word):
+    """
+    Para palabras largas con posibles tildes en cualquier posición,
+    divide en dos subcadenas cortas sin tildes que juntas identifican
+    unívocamente la palabra. Ej: 'amunategui' → '%amun%' AND '%tegui%'
+    Esto matchea tanto 'Amunategui' como 'Amunátegui' en cualquier collation.
+    Para números o palabras cortas (<= 5 chars), usa ilike directo.
+    """
+    w = norm(word)  # sin tildes, minúsculas
+    if not w: return f"{field} ilike '%{word}%'"
+    if w.isdigit() or len(w) <= 5:
+        return f"{field} ilike '%{w}%'"
+    # Dividir en dos mitades
+    mid = len(w) // 2
+    part1 = w[:mid]      # ej: 'amun'
+    part2 = w[mid:]      # ej: 'ategui'
+    # Usar solo partes de 4+ chars para evitar falsos positivos
+    parts = [p for p in [part1, part2] if len(p) >= 4]
+    if not parts:
+        return f"{field} ilike '%{w}%'"
+    return " and ".join(f"{field} ilike '%{p}%'" for p in parts)
+
 def get_pg_table():
     """Retorna la tabla correcta según el tipo de revisión de la sesión."""
     rt = session.get("review_type", "stores_restaurant")
@@ -659,7 +681,7 @@ def generate_unified_sql(bad_members, country="mx"):
         # Condición de dirección
         akeys = extract_addr_keys(addr)
         if akeys:
-            addr_cond = " and ".join(word_ilike("app_address", w) for w in akeys)
+            addr_cond = " and ".join(addr_ilike_safe("app_address", w) for w in akeys)
             blocks.append(f"    ({name_cond}\n     and {addr_cond})")
         else:
             # Sin dirección útil: agregar solo condición de nombre (sin deduplicar más)
@@ -2087,7 +2109,7 @@ def audit_cluster():
         name_cond = " and ".join(word_ilike("app_name", w) for w in disp_bwords[:2])
         addr_parts = []
         if disp_akeys:
-            addr_parts = [word_ilike("app_address", w) for w in disp_akeys[:2]]
+            addr_parts = [addr_ilike_safe("app_address", w) for w in disp_akeys[:2]]
 
         where_parts = [f"({name_cond})"]
         if addr_parts:
@@ -2105,8 +2127,11 @@ def audit_cluster():
             LIMIT 50
         """
         print(f"[audit dispersos] disp_name={disp_name!r} disp_addr={disp_addr!r}")
-        print(f"[audit dispersos] SQL: {sql_dispersos[:300]}")
+        print(f"[audit dispersos] bwords={disp_bwords} akeys={disp_akeys}")
+        print(f"[audit dispersos] where_clause={where_clause}")
+        print(f"[audit dispersos] SQL completo:\n{sql_dispersos}")
         disp_raw, err2 = pg_query(sql_dispersos, timeout_ms=15000)
+        print(f"[audit dispersos] err2={err2!r} filas={len(disp_raw) if disp_raw else 0}")
         if not err2 and disp_raw:
             # Agrupar por cluster
             disp_by_cluster = {}
