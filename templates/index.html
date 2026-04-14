@@ -1474,9 +1474,9 @@ async function loadDashTab(tab) {
         <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Revisión</div>
         <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">
           <div class="stat"><div class="stat-lbl">Clusters revisados</div><div class="stat-val g">${(d.reviewed||0).toLocaleString()}</div></div>
-          <div class="stat"><div class="stat-lbl">Clusters corregidos</div><div class="stat-val r">${(d.corrected||0).toLocaleString()}</div></div>
-          <div class="stat"><div class="stat-lbl">Tiendas migradas</div><div class="stat-val" style="color:var(--blue)">${(d.migrated_stores||0).toLocaleString()}</div></div>
-          <div class="stat"><div class="stat-lbl">Nuevo cluster</div><div class="stat-val" style="color:var(--purple)">${(d.new_cluster_stores||0).toLocaleString()}</div></div>
+          <div class="stat"><div class="stat-lbl">Clusters con errores</div><div class="stat-val r">${(d.corrected||0).toLocaleString()}</div></div>
+          <div class="stat"><div class="stat-lbl">Tiendas reasignadas</div><div class="stat-val" style="color:var(--blue)" title="Tiendas movidas a otro cluster existente">${(d.migrated_stores||0).toLocaleString()}</div></div>
+          <div class="stat"><div class="stat-lbl">Clusters nuevos</div><div class="stat-val" style="color:var(--purple)" title="Tiendas que generaron un cluster nuevo">${(d.new_cluster_stores||0).toLocaleString()}</div></div>
         </div>
         <div style="margin-bottom:24px">
           <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px">

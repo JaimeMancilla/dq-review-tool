@@ -1845,9 +1845,11 @@ def bd_update_preview():
                 "source":         "file",
             })
 
-    # Correcciones externas (Anotar) — scraper_source viene de la tabla BD
+    # Correcciones externas (Anotar) — solo del archivo actual
+    current_file = session.get("filename", "")
     for rec in ext_corr_list():
         if not rec.get("correction"): continue
+        if rec.get("file_name") and rec["file_name"] != current_file: continue
         rows.append({
             "store_id":       rec.get("store_id", ""),
             "scraper_source": rec.get("scraper_source", ""),
