@@ -865,76 +865,79 @@ function buildSgBlock(cl,sg,sgi){
   // Resultados BD
   let bdHtml="";
   if(sg.bd_results&&sg.bd_results.length){
-    // IDs del subgrupo para highlight
     const sgStoreIds = new Set(
       sg.members.map(ii => { const idx=ii.indexOf("_"); return idx>=0?ii.slice(idx+1):ii; })
     );
 
     const blocksHtml = sg.bd_results.map((bdc,bi)=>{
-      const rowsHtml = bdc.members.map(m=>{
+      const hasAnchorOfSg = bdc.members.some(m =>
+        (m.is_anchor || m.item_index === bdc.cluster_index) &&
+        sgStoreIds.has(String(m.store_id||""))
+      );
+      const hasAnchor = bdc.members.some(m => m.is_anchor || m.item_index === bdc.cluster_index);
+
+      const chipsHtml = bdc.members.map(m=>{
         const isMatch  = sgStoreIds.has(String(m.store_id||""));
         const isAnchor = m.is_anchor || (m.item_index && m.item_index === bdc.cluster_index);
-        const bg = isAnchor ? "background:var(--abg);border-left:3px solid var(--amber)"
-          : isMatch ? "background:var(--gbg);border-left:3px solid var(--green)"
-          : "border-left:3px solid transparent";
-        const anchorBadge = isAnchor
-          ? `<span style="font-size:9px;background:var(--abg);color:var(--amber);border:1px solid var(--aborder);border-radius:3px;padding:0 4px;margin-left:4px">⚓</span>` : "";
-        const dragJson = encodeURIComponent(JSON.stringify({
+        // Ancla no es arrastrable — define el cluster
+        const draggable = !isAnchor;
+        const chipBg = isAnchor
+          ? "background:var(--abg);border-color:var(--aborder);cursor:default"
+          : isMatch
+          ? "background:var(--gbg);border-color:var(--gborder);cursor:grab"
+          : "cursor:grab";
+        const dragJson = draggable ? encodeURIComponent(JSON.stringify({
           store_id: m.store_id||"", app_name: m.app_name||"",
           app_address: m.app_address||"", scraper_source: m.scraper_source||"",
           from_cluster: bdc.cluster_index, cluster_name: bdc.cluster_name||"",
           cluster_address: bdc.cluster_address||"", item_index: m.item_index||""
-        }));
-        return `<tr style="${bg};cursor:grab" draggable="true"
-          ondragstart="onBdRowDragStart(event,'${dragJson}')"
-          ondragend="event.target.style.opacity='1'">
-          <td style="padding:2px 5px;font-family:monospace;font-size:10px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(m.store_id||"")}</td>
-          <td style="padding:2px 5px;font-weight:${isMatch||isAnchor?'600':'400'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(m.app_name||"")}${isMatch?` <span style="font-size:9px;color:var(--green);font-weight:700">✓</span>`:""}${anchorBadge}</td>
-          <td style="padding:2px 5px;color:var(--muted);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc((m.app_address||"").slice(0,50))}</td>
-          <td style="padding:2px 4px;text-align:center;width:28px">
-            <button class="btn sm" style="padding:2px 6px;font-size:12px;font-weight:700;width:100%;min-width:24px"
-              onclick="openExtCorr('${esc(m.store_id||"")}','${esc(m.app_name||"")}','${esc(m.app_address||"")}','${esc(bdc.cluster_index)}','${esc(m.cluster_name||"")}','${esc(m.cluster_address||"")}','${esc(m.scraper_source||"")}','${esc(cid)}',${sgi})">+</button>
-          </td>
-        </tr>`;
+        })) : "";
+        return `<div style="display:flex;flex-direction:column;border:1px solid var(--border2);border-radius:5px;padding:5px 8px;font-size:10px;${chipBg};transition:all .12s;margin-bottom:3px"
+          ${draggable?`draggable="true" ondragstart="onBdRowDragStart(event,'${dragJson}')" ondragend="event.target.style.opacity='1'"`:""}
+          >
+          <div style="display:flex;align-items:center;gap:4px">
+            ${isAnchor?`<span style="font-size:9px;color:var(--amber);font-weight:700">⚓</span>`:`<span style="font-size:9px;color:var(--muted)">⠿</span>`}
+            <span style="font-weight:${isAnchor||isMatch?'700':'400'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${esc(m.app_name||"")}</span>
+            ${isMatch?`<span style="font-size:9px;color:var(--green);font-weight:700;flex-shrink:0">✓</span>`:""}
+          </div>
+          <div style="font-size:9px;color:var(--muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc((m.app_address||"").slice(0,55))}</div>
+        </div>`;
       }).join("");
 
-      const hasAnchor = bdc.members.some(m => m.is_anchor || m.item_index === bdc.cluster_index);
+      // Header color ámbar si tiene ancla del subgrupo
+      const hdrBg = hasAnchorOfSg
+        ? "background:rgba(237,137,54,.12);border-bottom:1px solid var(--aborder)"
+        : "background:var(--surf2);border-bottom:1px solid var(--border)";
+
       return `<div class="bdc-block bd-drop-zone" id="bdz_${CSS.escape(bdc.cluster_index)}"
-        data-cluster="${esc(bdc.cluster_index)}" data-cid="${esc(cid)}" data-sgi="${sgi}"
         ondragover="onBdDropZoneOver(event)" ondragleave="onBdDropZoneLeave(event)"
         ondrop="onBdDrop(event,'${esc(bdc.cluster_index)}','${esc(cid)}',${sgi})">
-        <div class="bdc-hdr">
-          <div>
-            <div class="bdc-id">${esc(bdc.cluster_index)}</div>
-            <div style="font-size:10px;color:var(--muted)">${bdc.members.length} store${bdc.members.length!==1?"s":""} en BD
-              ${hasAnchor?'<span style="color:var(--amber);margin-left:4px">⚓ tiene ancla</span>':''}
-            </div>
-          </div>
-          <label class="clean-lbl"><input type="checkbox" ${bdc.is_clean?"checked":""}
+        <div style="display:flex;align-items:center;gap:6px;padding:5px 8px;${hdrBg}">
+          <span class="bdc-id">${esc(bdc.cluster_index)}</span>
+          <span style="font-size:10px;color:var(--muted)">${bdc.members.length} stores</span>
+          ${hasAnchorOfSg?`<span style="font-size:9px;color:var(--amber);font-weight:700">⚓ ancla aquí</span>`
+            :hasAnchor?`<span style="font-size:9px;color:var(--muted)">⚓</span>`:""}
+          <label class="clean-lbl" style="margin-left:auto"><input type="checkbox" ${bdc.is_clean?"checked":""}
             onchange="setSgClean('${esc(cid)}',${sgi},${bi},this.checked)">limpio</label>
         </div>
-        <table style="width:100%;border-collapse:collapse;font-size:11px;table-layout:fixed">
-          <thead><tr style="background:var(--surf2)">
-            <th style="padding:3px 5px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border);width:70px">store_id</th>
-            <th style="padding:3px 5px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)">app_name</th>
-            <th style="padding:3px 5px;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border);width:120px">app_address</th>
-            <th style="padding:3px 4px;border-bottom:1px solid var(--border);width:28px"></th>
-          </tr></thead>
-          <tbody id="bdt_${CSS.escape(bdc.cluster_index)}">${rowsHtml}</tbody>
-        </table>
+        <div style="padding:5px 8px" id="bdt_${CSS.escape(bdc.cluster_index)}">${chipsHtml}</div>
+        <div style="font-size:10px;color:var(--blue);padding:3px 8px 5px;opacity:.6;font-style:italic">
+          ← Arrastra stores aquí
+        </div>
       </div>`;
     }).join("");
 
     bdHtml = blocksHtml;
     const cleanCount = (sg.bd_results||[]).filter(b=>b.is_clean).length;
+    // Zona nuevo cluster
     bdHtml += `
     <div class="bdc-block bd-drop-zone" id="bdz_NEW_${CSS.escape(cid)}_${sgi}"
-      style="border:2px dashed var(--border2);background:var(--surf);text-align:center;min-height:48px;display:flex;align-items:center;justify-content:center;margin-top:4px"
+      style="border:2px dashed var(--border2);background:var(--surf);min-height:52px;padding:6px 8px;margin-top:4px"
       ondragover="onBdDropZoneOver(event)" ondragleave="onBdDropZoneLeave(event)"
       ondrop="onBdDrop(event,'NEW','${esc(cid)}',${sgi})">
-      <span style="font-size:11px;color:var(--muted);pointer-events:none">＋ Arrastra aquí para crear nuevo cluster</span>
+      <div style="font-size:11px;color:var(--muted);text-align:center;padding:6px 0">＋ Nuevo cluster — arrastra stores aquí</div>
     </div>
-    <div style="display:flex;gap:6px;padding:4px 10px 8px;flex-wrap:wrap">
+    <div style="display:flex;gap:6px;padding:4px 0 8px;flex-wrap:wrap">
       <button class="btn green sm" onclick="assignSgClean('${esc(cid)}',${sgi})">✓ Asignar limpio</button>
       ${cleanCount>=2?`<button class="btn sm" style="border-color:var(--amber);color:var(--amber)" onclick="fusionSgClean('${esc(cid)}',${sgi})">⇄ Fusionar (${cleanCount})</button>`:""}
     </div>`;
@@ -2207,8 +2210,6 @@ function buildSgGroupCard(cid, sg, sgi) {
             <input type="checkbox" ${bdc.is_clean?"checked":""} style="width:11px;height:11px"
               onchange="setSgClean('${esc(cid)}',${sgi},${bi},this.checked)"> limpio
           </label>
-          <button class="btn sm" style="font-size:10px;padding:1px 7px;margin-left:auto"
-            onclick="openAuditModalFromSg('${esc(bdc.cluster_index)}','${esc(cid)}',${sgi})">🔍 Auditar</button>
         </div>
         ${rowsHtml}
       </div>`;

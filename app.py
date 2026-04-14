@@ -2135,12 +2135,7 @@ def audit_cluster():
             ORDER BY cluster_index
             LIMIT 50
         """
-        print(f"[audit dispersos] disp_name={disp_name!r} disp_addr={disp_addr!r}")
-        print(f"[audit dispersos] bwords={disp_bwords} akeys={disp_akeys}")
-        print(f"[audit dispersos] where_clause={where_clause}")
-        print(f"[audit dispersos] SQL completo:\n{sql_dispersos}")
         disp_raw, err2 = pg_query(sql_dispersos, timeout_ms=15000)
-        print(f"[audit dispersos] err2={err2!r} filas={len(disp_raw) if disp_raw else 0}")
         if not err2 and disp_raw:
             # Agrupar por cluster
             disp_by_cluster = {}
