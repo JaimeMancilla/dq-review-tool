@@ -1266,8 +1266,23 @@ def upload():
     session["clusters"]    = clusters
     session["country"]     = country
     session["filename"]    = f.filename
+
+    # Si el archivo ya fue marcado como revisado antes, restaurar ese estado
+    already_reviewed = False
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        row = conn.execute(
+            "SELECT COUNT(*) FROM reviewed_files WHERE file_name=?", (f.filename,)
+        ).fetchone()
+        conn.close()
+        already_reviewed = row and row[0] > 0
+    except: pass
+    session["is_reviewed"] = already_reviewed
+    session.modified = True
+
     return jsonify({"clusters":clusters, "meta":meta, "country":country,
                     "restored": restored,
+                    "already_reviewed": already_reviewed,
                     "review_type": review_type,
                     "subgroups_restored": subgroups_restored,
                     "stats":{"total_rows":len(df),"total_clusters":len(clusters),
@@ -1480,8 +1495,21 @@ def dishes_upload():
         restored = True
         meta["saved_at"] = saved_at
     session["dishes_groups"] = groups; session.modified = True
+    # Si el archivo ya fue marcado como revisado antes, restaurar ese estado
+    already_reviewed = False
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        row = conn.execute(
+            "SELECT COUNT(*) FROM reviewed_files WHERE file_name=?", (f.filename,)
+        ).fetchone()
+        conn.close()
+        already_reviewed = row and row[0] > 0
+    except: pass
+    session["is_reviewed"] = already_reviewed
+    session.modified = True
     return jsonify({"groups": groups, "meta": meta,
-                    "filename": f.filename, "restored": restored})
+                    "filename": f.filename, "restored": restored,
+                    "already_reviewed": already_reviewed})
 
 @app.route("/dishes/update", methods=["POST"])
 def dishes_update():

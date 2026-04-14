@@ -534,10 +534,16 @@ async function doUpload(file){
       document.getElementById("hdrFile").textContent=file.name;
       document.getElementById("hdrFile").style.display="";
       const btnExpD=document.getElementById("btnExport");
-      btnExpD.style.display="";btnExpD.disabled=true;btnExpD.style.opacity="0.45";btnExpD.title="Marca como revisado primero";
       const btnMR=document.getElementById("btnMarkReviewed");
-      btnMR.style.display="";btnMR.innerHTML="✓ Marcar revisado";
-      btnMR.style.background="";btnMR.style.color="";btnMR.style.borderColor="";
+      if(d.already_reviewed){
+        btnExpD.style.display="";btnExpD.disabled=false;btnExpD.style.opacity="1";btnExpD.title="";
+        btnMR.style.display="";btnMR.innerHTML="✓ Revisado";
+        btnMR.style.background="var(--gbg)";btnMR.style.color="var(--green)";btnMR.style.borderColor="var(--gborder)";
+      } else {
+        btnExpD.style.display="";btnExpD.disabled=true;btnExpD.style.opacity="0.45";btnExpD.title="Marca como revisado primero";
+        btnMR.style.display="";btnMR.innerHTML="✓ Marcar revisado";
+        btnMR.style.background="";btnMR.style.color="";btnMR.style.borderColor="";
+      }
       document.getElementById("btnMemory").style.display="";
       document.getElementById("btnDashboard").style.display="";
       if(d.restored) toast(`✓ Estado restaurado`, 3000);
@@ -558,11 +564,19 @@ async function doUpload(file){
       // Export y BdUpdate deshabilitados hasta "Marcar revisado"
       const btnExp=document.getElementById("btnExport");
       const btnBd=document.getElementById("btnBdUpdate");
-      btnExp.style.display="";btnExp.disabled=true;btnExp.style.opacity="0.45";btnExp.title="Marca como revisado primero";
-      btnBd.style.display="";btnBd.disabled=true;btnBd.style.opacity="0.45";btnBd.title="Marca como revisado primero";
-      const btnMRS=document.getElementById("btnMarkReviewed");
-      btnMRS.style.display="";btnMRS.innerHTML="✓ Marcar revisado";
-      btnMRS.style.background="";btnMRS.style.color="";btnMRS.style.borderColor="";
+      if(d.already_reviewed){
+        btnExp.style.display="";btnExp.disabled=false;btnExp.style.opacity="1";btnExp.title="";
+        btnBd.style.display="";btnBd.disabled=false;btnBd.style.opacity="1";btnBd.title="";
+        const btnMRS=document.getElementById("btnMarkReviewed");
+        btnMRS.style.display="";btnMRS.innerHTML="✓ Revisado";
+        btnMRS.style.background="var(--gbg)";btnMRS.style.color="var(--green)";btnMRS.style.borderColor="var(--gborder)";
+      } else {
+        btnExp.style.display="";btnExp.disabled=true;btnExp.style.opacity="0.45";btnExp.title="Marca como revisado primero";
+        btnBd.style.display="";btnBd.disabled=true;btnBd.style.opacity="0.45";btnBd.title="Marca como revisado primero";
+        const btnMRS=document.getElementById("btnMarkReviewed");
+        btnMRS.style.display="";btnMRS.innerHTML="✓ Marcar revisado";
+        btnMRS.style.background="";btnMRS.style.color="";btnMRS.style.borderColor="";
+      }
       document.getElementById("btnMemory").style.display="";
       document.getElementById("btnDashboard").style.display="";
       if(d.meta)updateFbBar(d.meta.fb_stats,d.meta.threshold,0);
