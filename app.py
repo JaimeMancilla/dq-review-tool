@@ -670,6 +670,10 @@ def generate_unified_sql(bad_members, country="mx"):
 
     if not blocks: return ""
 
+    # Limitar a 8 bloques máximo para evitar queries demasiado largas
+    if len(blocks) > 8:
+        blocks = blocks[:8]
+
     comment = "; ".join(m.get("app_name","")[:35] for m in bad_members[:5])
     if len(bad_members) > 5: comment += "..."
 
@@ -1458,7 +1462,8 @@ def dishes_upload():
     session["dishes_path"]     = str(path)
     session["dishes_groups"]   = groups
     session["dishes_filename"] = f.filename
-    session["review_type"]     = "dishes"  # para mark_as_reviewed
+    session["review_type"]     = "dishes"
+    session["is_reviewed"]     = False
     # Intentar restaurar estado previo
     saved_state, saved_at = load_session_state("dishes_"+f.filename)
     restored = False
@@ -1591,6 +1596,7 @@ def dishes_export():
 def mark_as_reviewed():
     """Registra el archivo como revisado en memoria sin descargar."""
     review_type = session.get("review_type","stores_restaurant")
+    pairs_added = 0
     if review_type == "dishes":
         groups   = session.get("dishes_groups",[])
         filename = session.get("dishes_filename","")
@@ -1599,6 +1605,8 @@ def mark_as_reviewed():
         inc = sum(1 for g in groups if g["revision"]==2)
         save_reviewed_file(filename, "dishes", len(groups), ok, bad, inc)
         save_reviewed_clusters_dishes(groups, filename)
+        session["is_reviewed"] = True
+        session.modified = True
     else:
         clusters = session.get("clusters",[])
         filename = session.get("filename","")
@@ -1606,7 +1614,45 @@ def mark_as_reviewed():
         bad = sum(c["bad_count"] for c in clusters)
         save_reviewed_clusters(clusters, filename)
         save_reviewed_file(filename, review_type, len(clusters), ok, bad)
-    return jsonify({"ok": True, "filename": filename})
+        # Registrar feedback final
+        fb = load_feedback()
+        for cl in clusters:
+            anchor = next((m for m in cl["members"] if m["is_anchor"]), None)
+            if not anchor: continue
+            for m in cl["members"]:
+                if m["is_anchor"] or m.get("score") is None: continue
+                model_rev = 1 if m["score"] >= cl.get("threshold_used", 0.80) else 0
+                human_rev = m["revision"]
+                if model_rev != human_rev:
+                    save_store_pair(
+                        anchor["app_name"], anchor["app_address"], cl["cluster_id"],
+                        m["app_name"], m["app_address"], cl["cluster_id"],
+                        label=human_rev, source="reviewed", file_name=filename
+                    )
+                    fb["pairs"].append({
+                        "anchor_name": anchor["app_name"],
+                        "anchor_addr": anchor["app_address"],
+                        "member_name": m["app_name"],
+                        "member_addr": m["app_address"],
+                        "model_score": m["score"],
+                        "model_rev":   model_rev,
+                        "human_rev":   human_rev,
+                        "ts":          time.time()
+                    })
+                    fb["stats"]["total"] += 1
+                    if human_rev == 1: fb["stats"]["overrides_to_1"] += 1
+                    else:              fb["stats"]["overrides_to_0"] += 1
+                    pairs_added += 1
+        recent = fb["pairs"][-30:]
+        if len(recent) >= 5:
+            fp  = sum(1 for p in recent if p["model_rev"]==1 and p["human_rev"]==0)
+            fn  = sum(1 for p in recent if p["model_rev"]==0 and p["human_rev"]==1)
+            adj = max(-0.10, min(0.10, (fp-fn)/len(recent)*0.10))
+            fb["threshold_adj"] = round(adj, 4)
+        save_feedback(fb)
+        session["is_reviewed"] = True
+        session.modified = True
+    return jsonify({"ok": True, "filename": filename, "pairs_added": pairs_added})
 
 @app.route("/reset_session", methods=["POST"])
 def reset_session():

@@ -292,7 +292,13 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
 <!-- Pantalla Dishes -->
 <div id="dishesScreen" class="hidden">
   <div class="stats" id="dishesStatsBar"></div>
-  <div style="max-width:1000px;margin:12px auto;padding:0 20px 60px" id="dishesList"></div>
+  <div style="max-width:1000px;margin:10px auto 0;padding:0 20px">
+    <input type="text" id="dishSearchInput" placeholder="🔍 Buscar grupo por nombre o descripción…"
+      oninput="filterDishes(this.value)"
+      style="width:100%;padding:7px 12px;font-size:12px;border:1px solid var(--border2);border-radius:var(--r);background:var(--surf);color:var(--text);outline:none"
+      onfocus="this.style.borderColor='var(--blue)'" onblur="this.style.borderColor='var(--border2)'">
+  </div>
+  <div style="max-width:1000px;margin:10px auto;padding:0 20px 60px" id="dishesList"></div>
 </div>
 
 
@@ -526,8 +532,12 @@ async function doUpload(file){
       document.getElementById("uploadScreen").classList.add("hidden");
       document.getElementById("dishesScreen").classList.remove("hidden");
       document.getElementById("hdrFile").textContent=file.name;
-      document.getElementById("btnExport").style.display="";
-      document.getElementById("btnMarkReviewed").style.display="";
+      document.getElementById("hdrFile").style.display="";
+      const btnExpD=document.getElementById("btnExport");
+      btnExpD.style.display="";btnExpD.disabled=true;btnExpD.style.opacity="0.45";btnExpD.title="Marca como revisado primero";
+      const btnMR=document.getElementById("btnMarkReviewed");
+      btnMR.style.display="";btnMR.innerHTML="✓ Marcar revisado";
+      btnMR.style.background="";btnMR.style.color="";btnMR.style.borderColor="";
       document.getElementById("btnMemory").style.display="";
       document.getElementById("btnDashboard").style.display="";
       if(d.restored) toast(`✓ Estado restaurado`, 3000);
@@ -550,7 +560,9 @@ async function doUpload(file){
       const btnBd=document.getElementById("btnBdUpdate");
       btnExp.style.display="";btnExp.disabled=true;btnExp.style.opacity="0.45";btnExp.title="Marca como revisado primero";
       btnBd.style.display="";btnBd.disabled=true;btnBd.style.opacity="0.45";btnBd.title="Marca como revisado primero";
-      document.getElementById("btnMarkReviewed").style.display="";
+      const btnMRS=document.getElementById("btnMarkReviewed");
+      btnMRS.style.display="";btnMRS.innerHTML="✓ Marcar revisado";
+      btnMRS.style.background="";btnMRS.style.color="";btnMRS.style.borderColor="";
       document.getElementById("btnMemory").style.display="";
       document.getElementById("btnDashboard").style.display="";
       if(d.meta)updateFbBar(d.meta.fb_stats,d.meta.threshold,0);
@@ -714,6 +726,15 @@ function buildCard(cl){
 function filterTable(cid, query) {
   const card = document.getElementById("card_"+CSS.escape(cid));
   if (!card) return;
+  // Mostrar tabla automáticamente si hay búsqueda
+  if (query) {
+    const wrap = card.querySelector(".tbl-wrap");
+    const btn  = card.querySelector(".btn.sm[onclick*='toggleTbl']");
+    if (wrap && wrap.style.display === "none") {
+      wrap.style.display = "block";
+      if (btn) btn.textContent = "▲ Ocultar tabla";
+    }
+  }
   const q = query.toLowerCase();
   card.querySelectorAll("tbody tr").forEach(tr => {
     tr.style.display = (!q || tr.textContent.toLowerCase().includes(q)) ? "" : "none";
@@ -1690,10 +1711,13 @@ async function markAsReviewed(){
 async function exportFile(){
   const btn=document.getElementById("btnExport");btn.innerHTML='<span class="spinner"></span>';
   try{
-    const url  = REVIEW_TYPE==='dishes' ? "/dishes/export" : "/export";
-    const name = REVIEW_TYPE==='dishes' ? "dishes_revisados.xlsx" : "clusters_revisados.xlsx";
+    const url = REVIEW_TYPE==='dishes' ? "/dishes/export" : "/export";
     const r=await fetch(url);
     if(!r.ok){const d=await r.json();toast("Error: "+d.error);btn.innerHTML="⬇ Descargar";return}
+    const disposition=r.headers.get("Content-Disposition")||"";
+    const match=disposition.match(/filename[^;=\n]*=["']?([^"';\n]+)["']?/);
+    const fallback=REVIEW_TYPE==='dishes'?"dishes_revisados.xlsx":"clusters_revisados.xlsx";
+    const name=match?match[1].trim():fallback;
     const blob=await r.blob();const a=document.createElement("a");
     a.href=URL.createObjectURL(blob);a.download=name;a.click();
     toast("Descargado ✓");
@@ -1743,15 +1767,26 @@ function renderDishes(d) {
   document.getElementById("dishesList").innerHTML=DISH_GROUPS.map((g,gi)=>buildDishCard(g,gi)).join("");
 }
 
+function filterDishes(query) {
+  const q = query.toLowerCase().trim();
+  document.querySelectorAll("#dishesList .dish-card").forEach((card, i) => {
+    if (!q) { card.style.display=""; return; }
+    const g = DISH_GROUPS[i];
+    if (!g) return;
+    const text = (g.members||[]).map(m=>`${m.product_name||""} ${m.description||""}`).join(" ").toLowerCase();
+    card.style.display = text.includes(q) ? "" : "none";
+  });
+}
+
 function updateDishStats() {
   const ok  = DISH_GROUPS.filter(g=>g.revision===1).length;
   const bad = DISH_GROUPS.filter(g=>g.revision===0).length;
   const inc = DISH_GROUPS.filter(g=>g.revision===2).length;
   const cats = {};
   DISH_GROUPS.filter(g=>g.revision===0).forEach(g=>(g.error_cats||[]).forEach(c=>cats[c]=(cats[c]||0)+1));
-  const catLabels = {"price":"💰 Precio","name":"🏷️ Nombre","description":"📝 Descripción","no_data":"❓ Sin datos"};
+  const catLabels = {"price":"💰 Precio","name":"🏷️ Nombre","description":"📝 Sin desc.","no_data":"❓ Sin datos"};
   const catHtml = Object.entries(cats).map(([k,v])=>
-    `<span style="font-size:11px;background:var(--rbg);color:var(--red);border:1px solid var(--rborder);border-radius:20px;padding:2px 9px">${catLabels[k]||k}: ${v}</span>`
+    `<span style="font-size:11px;background:var(--bbg);color:var(--blue);border:1px solid var(--bborder);border-radius:20px;padding:2px 9px">${catLabels[k]||k}: ${v}</span>`
   ).join(" ");
   document.getElementById("dishesStatsBar").innerHTML=`
     <div class="stats">
@@ -1867,13 +1902,13 @@ function renderFusionOpts(opts) {
     <div onclick="selectFusion('${esc(o.group_id)}')"
       style="padding:10px 14px;cursor:pointer;border-bottom:1px solid var(--border);transition:background .1s"
       onmouseover="this.style.background='var(--bbg)'" onmouseout="this.style.background=''">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:${o.desc||o.prices?"3px":"0"}">
-        <span style="font-family:monospace;font-size:10px;color:var(--muted);white-space:nowrap">grupo ${esc(o.group_id)}</span>
-        <span style="font-weight:600;font-size:12px">${esc(o.names)}</span>
-        <span style="font-size:11px;color:var(--muted);margin-left:auto">${o.count} plato${o.count!==1?"s":""}</span>
+      <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:3px">
+        <span style="font-family:monospace;font-size:10px;color:var(--muted);white-space:nowrap;flex-shrink:0">grupo ${esc(o.group_id)}</span>
+        <span style="font-weight:600;font-size:12px;flex:1">${esc(o.names)}</span>
+        ${o.prices?`<span style="font-size:11px;font-weight:600;color:var(--green);white-space:nowrap;flex-shrink:0">💰 ${esc(o.prices)}</span>`:""}
+        <span style="font-size:11px;color:var(--muted);white-space:nowrap;flex-shrink:0">${o.count} plato${o.count!==1?"s":""}</span>
       </div>
-      ${o.desc?`<div style="font-size:11px;color:var(--muted)">${esc(o.desc)}</div>`:""}
-      ${o.prices?`<div style="font-size:11px;color:var(--muted)">💰 ${esc(o.prices)}</div>`:""}
+      ${o.desc?`<div style="font-size:11px;color:var(--muted);white-space:normal;line-height:1.4;margin-top:2px">${esc(o.desc)}</div>`:""}
     </div>`).join("");
 }
 
