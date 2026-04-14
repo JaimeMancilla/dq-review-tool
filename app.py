@@ -878,7 +878,10 @@ def progress_stats(table="sales_opportunity.dim_maestra", country="mx", review_t
         {country_filter}
     """
     rows, err = pg_query(sql_total, timeout_ms=30000)
-    if err: return None, err
+    if err:
+        if "does not exist" in str(err) or "doesn't exist" in str(err):
+            return None, f"La tabla '{table}' no existe en la BD"
+        return None, err
     total_clusters = rows[0]["total_clusters"] if rows else 0
     total_stores   = rows[0]["total_stores"]   if rows else 0
 
@@ -893,7 +896,7 @@ def progress_stats(table="sales_opportunity.dim_maestra", country="mx", review_t
         SELECT COUNT(DISTINCT cluster_index) FROM reviewed_clusters
         WHERE corrections_count > 0 {rt_filter}
     """).fetchone()[0]
-    # Tiendas corregidas desde corrections
+    # Tiendas corregidas desde corrections (filtradas por review_type via file_name)
     migrated = conn.execute("""
         SELECT COUNT(*) FROM corrections WHERE is_new = 0
     """).fetchone()[0]

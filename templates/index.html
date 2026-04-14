@@ -1445,7 +1445,7 @@ async function loadDashTab(tab) {
         ? "sales_opportunity.dim_maestra_retail"
         : "sales_opportunity.dim_maestra";
       const review_type = tab;
-      const country = document.getElementById("dashCountry")?.value || "mx";
+      const country = document.getElementById("dashCountry")?.value || "all";
       d = await api(`/progress?mode=stores&table=${encodeURIComponent(table)}&country=${country}&review_type=${review_type}`);
       if(d.error){ content.innerHTML=`<div style="color:var(--red);padding:12px">${esc(d.error)}</div>`; return; }
       const pct = d.pct || 0;
@@ -1455,8 +1455,8 @@ async function loadDashTab(tab) {
           <label style="font-size:12px;color:var(--muted)">País:</label>
           <select id="dashCountry" onchange="loadDashTab('${tab}')"
             style="font-size:12px;padding:4px 8px;border:1px solid var(--border2);border-radius:var(--r);background:var(--surf)">
-            <option value="all"  ${country==="all" ?"selected":""}>🌎 Todos</option>
-            <option value="mx"   ${country==="mx"  ?"selected":""}>🇲🇽 México</option>
+            <option value="all"  ${country==="all"  ?"selected":""}>🌎 Todos</option>
+            <option value="mx"   ${country==="mx"   ?"selected":""}>🇲🇽 México</option>
             <option value="co"   ${country==="co"  ?"selected":""}>🇨🇴 Colombia</option>
             <option value="br"   ${country==="br"  ?"selected":""}>🇧🇷 Brasil</option>
             <option value="ar"   ${country==="ar"  ?"selected":""}>🇦🇷 Argentina</option>
