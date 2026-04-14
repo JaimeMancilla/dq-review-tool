@@ -603,25 +603,34 @@ def word_ilike(field, word):
 
 def addr_ilike_safe(field, word):
     """
-    Para palabras largas con posibles tildes en cualquier posición,
-    divide en dos subcadenas cortas sin tildes que juntas identifican
-    unívocamente la palabra. Ej: 'amunategui' → '%amun%' AND '%tegui%'
-    Esto matchea tanto 'Amunategui' como 'Amunátegui' en cualquier collation.
-    Para números o palabras cortas (<= 5 chars), usa ilike directo.
+    Busca una palabra robusta a tildes usando OR de segmentos de 4 chars
+    que empiezan en consonante. Para cualquier posición de tilde, al menos
+    un segmento matcheará.
+    Ej: 'amunategui' → ('%muna%' OR '%nate%' OR '%tegu%')
+        matchea 'Amunátegui', 'amunategui', 'amunAtegui', etc.
     """
-    w = norm(word)  # sin tildes, minúsculas
+    w = norm(word)
     if not w: return f"{field} ilike '%{word}%'"
-    if w.isdigit() or len(w) <= 5:
+    if w.isdigit() or len(w) <= 4:
         return f"{field} ilike '%{w}%'"
-    # Dividir en dos mitades
-    mid = len(w) // 2
-    part1 = w[:mid]      # ej: 'amun'
-    part2 = w[mid:]      # ej: 'ategui'
-    # Usar solo partes de 4+ chars para evitar falsos positivos
-    parts = [p for p in [part1, part2] if len(p) >= 4]
-    if not parts:
+
+    VOWELS = set('aeiou')
+    segments = []
+    for i in range(len(w) - 3):
+        if w[i] not in VOWELS:
+            seg = w[i:i+4]
+            if seg not in segments:
+                segments.append(seg)
+
+    if not segments:
+        # Sin consonantes (muy raro) — usar la palabra completa normalizada
         return f"{field} ilike '%{w}%'"
-    return " and ".join(f"{field} ilike '%{p}%'" for p in parts)
+
+    if len(segments) == 1:
+        return f"{field} ilike '%{segments[0]}%'"
+
+    conds = " or ".join(f"{field} ilike '%{s}%'" for s in segments)
+    return f"({conds})"
 
 def get_pg_table():
     """Retorna la tabla correcta según el tipo de revisión de la sesión."""
