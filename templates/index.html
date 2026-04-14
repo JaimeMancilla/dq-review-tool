@@ -2184,7 +2184,7 @@ function buildSgGroupCard(cid, sg, sgi) {
               onchange="setSgClean('${esc(cid)}',${sgi},${bi},this.checked)"> limpio
           </label>
           <button class="btn sm" style="font-size:10px;padding:1px 7px;margin-left:auto"
-            onclick="openAuditModal('${esc(bdc.cluster_index)}','${esc(sg.rep_name||"")}','${esc(sg.rep_addr||"")}')">🔍 Auditar</button>
+            onclick="openAuditModalFromSg('${esc(bdc.cluster_index)}','${esc(cid)}',${sgi})">🔍 Auditar</button>
         </div>
         ${rowsHtml}
       </div>`;
@@ -2426,6 +2426,13 @@ let _auditData = null;
 let _auditClusterIndex = null;
 let _auditSearchName = "";
 let _auditSearchAddr = "";
+
+function openAuditModalFromSg(clusterIndex, cid, sgi) {
+  // Leer rep_name y rep_addr desde SUBGROUPS — evita problemas con comillas en onclick
+  const sgs = SUBGROUPS[cid] || [];
+  const sg  = sgs[sgi] || {};
+  openAuditModal(clusterIndex, sg.rep_name || "", sg.rep_addr || "");
+}
 
 async function openAuditModal(clusterIndex, searchName, searchAddr) {
   _auditClusterIndex = clusterIndex;

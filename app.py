@@ -2085,9 +2085,14 @@ def audit_cluster():
     dispersos = []
     if disp_bwords:
         name_cond = " and ".join(word_ilike("app_name", w) for w in disp_bwords[:2])
-        addr_cond = ""
+        addr_parts = []
         if disp_akeys:
-            addr_cond = "and " + " and ".join(word_ilike("app_address", w) for w in disp_akeys[:2])
+            addr_parts = [word_ilike("app_address", w) for w in disp_akeys[:2]]
+
+        where_parts = [f"({name_cond})"]
+        if addr_parts:
+            where_parts.append("(" + " and ".join(addr_parts) + ")")
+        where_clause = " and ".join(where_parts)
 
         sql_dispersos = f"""
             SELECT cluster_index, cluster_name, cluster_address,
@@ -2095,11 +2100,12 @@ def audit_cluster():
             FROM {table}
             WHERE country = '{country}'
             AND cluster_index != '{cluster_index}'
-            AND ({name_cond})
-            {addr_cond}
+            AND {where_clause}
             ORDER BY cluster_index
             LIMIT 50
         """
+        print(f"[audit dispersos] disp_name={disp_name!r} disp_addr={disp_addr!r}")
+        print(f"[audit dispersos] SQL: {sql_dispersos[:300]}")
         disp_raw, err2 = pg_query(sql_dispersos, timeout_ms=15000)
         if not err2 and disp_raw:
             # Agrupar por cluster
