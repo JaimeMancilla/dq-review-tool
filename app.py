@@ -1224,7 +1224,7 @@ def run_pg_query():
             if m: country = m.group(1); break
 
     full_sql = f"""select
-  cluster_index, store_id, cluster_name, main_chain,
+  cluster_index, store_id, item_index, cluster_name, main_chain,
   app_name, app_address, app_longitude, app_latitude, scraper_source
 from {get_pg_table()}
 where country = '{country}'
@@ -1240,9 +1240,9 @@ order by cluster_index, store_id"""
     by_cluster = {}
     for row in all_rows:
         ci = str(row.get("cluster_index",""))
-        by_cluster.setdefault(ci, []).append(
-            {k: str(v) if v is not None else "" for k, v in row.items()}
-        )
+        m = {k: str(v) if v is not None else "" for k, v in row.items()}
+        m["is_anchor"] = (str(row.get("item_index","")) == ci)
+        by_cluster.setdefault(ci, []).append(m)
 
     clusters_found = [
         {
