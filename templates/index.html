@@ -2684,98 +2684,86 @@ function onBdDropZoneLeave(e) {
 
 async function onBdDrop(e, targetCluster, cid, sgi) {
   e.preventDefault();
+  e.stopPropagation();
   e.currentTarget.classList.remove("drag-over");
-  if (!_bdDragData) return;
 
-  const m = _bdDragData;
-  _bdDragData = null;
-
-  if (m.from_cluster === targetCluster) return;
-
-  // Determinar new_cluster
-  let newCluster = targetCluster;
-  let isNew = false;
-
-  if (targetCluster === "NEW") {
-    // Usar scraper_source de la store arrastrada como app_id
-    const appId = (m.scraper_source||"").trim();
-    newCluster = appId ? `${appId}_${m.store_id}` : `NUEVO:${m.store_id}`;
-    isNew = true;
-  }
-
-  // Registrar corrección en external_corrections
-  const d = await api("/ext_correction/add", {
-    store_id:        m.store_id,
-    app_name:        m.app_name,
-    app_address:     m.app_address,
-    cluster_index:   m.from_cluster,
-    cluster_name:    m.cluster_name,
-    cluster_address: m.cluster_address,
-    scraper_source:  m.scraper_source,
-    correction:      newCluster,
-    is_new:          isNew,
-  });
-  if (!d.ok) { toast("Error: " + (d.error||"")); return; }
-
-  // Mover chip visualmente — buscar el div con el store_id en el contenedor origen
-  const fromContainer = document.getElementById("bdt_" + CSS.escape(m.from_cluster));
-  if (fromContainer) {
-    Array.from(fromContainer.children).forEach(chip => {
-      if (chip.textContent.includes(m.store_id) || chip.textContent.includes(m.app_name)) {
-        chip.style.opacity = "0.35";
-        chip.style.textDecoration = "line-through";
-        chip.setAttribute("draggable","false");
+  // Caso 1: drag de store BD
+  if (_bdDragData) {
+    const m = _bdDragData; _bdDragData = null;
+    if (m.from_cluster === targetCluster) return;
+    let newCluster = targetCluster, isNew = false;
+    if (targetCluster === "NEW") {
+      const appId = (m.scraper_source||"").trim();
+      newCluster = appId ? `${appId}_${m.store_id}` : `NUEVO:${m.store_id}`;
+      isNew = true;
+    }
+    const d = await api("/ext_correction/add", {
+      store_id: m.store_id, app_name: m.app_name, app_address: m.app_address,
+      cluster_index: m.from_cluster, cluster_name: m.cluster_name,
+      cluster_address: m.cluster_address, scraper_source: m.scraper_source,
+      correction: newCluster, is_new: isNew,
+    });
+    if (!d.ok) { toast("Error: " + (d.error||"")); return; }
+    const fromC = document.getElementById("bdt_" + CSS.escape(m.from_cluster));
+    if (fromC) Array.from(fromC.children).forEach(chip => {
+      if (chip.textContent.includes(m.app_name)) {
+        chip.style.opacity="0.35"; chip.style.textDecoration="line-through"; chip.setAttribute("draggable","false");
       }
     });
+    _bdDropAddChip(targetCluster, cid, sgi, m.app_name, m.app_address, newCluster);
+    const sgs=SUBGROUPS[cid]||[]; const sg=sgs[sgi]||{};
+    const sgIds=new Set((sg.members||[]).map(ii=>{const i=ii.indexOf("_");return i>=0?ii.slice(i+1):ii;}));
+    if (sgIds.has(String(m.store_id))||sgIds.has(String(m.item_index))) {
+      sgs[sgi].correction=newCluster; sgs[sgi].is_new=isNew;
+      await api("/set_correction",{cluster_id:cid,item_indexes:sg.members,correction:newCluster});
+      api("/save_subgroups",{subgroups:SUBGROUPS});
+      refreshClusterBadge(cid); renderFilterBar();
+      toast(`✓ ${m.app_name} → ${newCluster} (subgrupo + BD)`);
+    } else { toast(`✓ ${m.app_name} → ${newCluster}`); }
+    return;
   }
 
-  // Agregar chip en destino
+  // Caso 2: drag de chip de subgrupo sobre cluster BD
+  if (_sgModalDrag) {
+    const {ii, fromSgi, cid: dragCid} = _sgModalDrag;
+    _sgModalDrag = null;
+    if (!ii || dragCid !== cid) return;
+    let newCluster = targetCluster, isNew = false;
+    if (targetCluster === "NEW") {
+      const cl = getCl(cid);
+      const dragged = cl?.members.find(m=>m.item_index===ii);
+      const appId = dragged?.scraper_source?.trim()||"";
+      const storeId = ii.includes("_") ? ii.slice(ii.indexOf("_")+1) : ii;
+      newCluster = appId ? `${appId}_${storeId}` : `NUEVO:${storeId}`;
+      isNew = true;
+    }
+    const sgs=SUBGROUPS[cid]||[]; const sg=sgs[fromSgi]||{};
+    sgs[fromSgi].correction=newCluster; sgs[fromSgi].is_new=isNew;
+    await api("/set_correction",{cluster_id:cid,item_indexes:sg.members,correction:newCluster});
+    api("/save_subgroups",{subgroups:SUBGROUPS});
+    refreshClusterBadge(cid); renderFilterBar();
+    renderSgGroupsPanel(cid); updateSgModalProgress(cid);
+    toast(`✓ Subgrupo asignado → ${newCluster}`);
+  }
+}
+
+function _bdDropAddChip(targetCluster, cid, sgi, appName, appAddr, newCluster) {
   if (targetCluster === "NEW") {
-    const newZone = document.getElementById(`bdz_NEW_${CSS.escape(cid)}_${sgi}`);
-    if (newZone) {
-      const div = document.createElement("div");
-      div.style.cssText = "font-size:11px;color:var(--green);padding:4px 8px;border:1px solid var(--gborder);border-radius:5px;margin:3px 8px";
-      div.innerHTML = `↳ <strong>${esc(m.app_name)}</strong> <span style="font-family:monospace;font-size:10px">${esc(newCluster)}</span>`;
-      newZone.appendChild(div);
+    const z = document.getElementById(`bdz_NEW_${CSS.escape(cid)}_${sgi}`);
+    if (z) {
+      const d2 = document.createElement("div");
+      d2.style.cssText="font-size:11px;color:var(--green);padding:4px 8px;border:1px solid var(--gborder);border-radius:5px;margin:3px 8px";
+      d2.innerHTML=`↳ <strong>${appName}</strong> <span style="font-family:monospace;font-size:10px">${newCluster}</span>`;
+      z.appendChild(d2);
     }
   } else {
-    const toContainer = document.getElementById("bdt_" + CSS.escape(targetCluster));
-    if (toContainer) {
-      const div = document.createElement("div");
-      div.style.cssText = "display:flex;flex-direction:column;border:1px solid var(--pborder);border-radius:5px;padding:5px 8px;font-size:10px;background:var(--pbg);margin-bottom:3px";
-      div.innerHTML = `
-        <div style="display:flex;align-items:center;gap:4px">
-          <span style="font-size:9px;color:var(--purple)">↳</span>
-          <span style="font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${esc(m.app_name)} <span style="font-size:9px;color:var(--purple)">movido</span></span>
-        </div>
-        <div style="font-size:9px;color:var(--muted);margin-top:2px">${esc((m.app_address||"").slice(0,55))}</div>`;
-      toContainer.appendChild(div);
+    const t = document.getElementById("bdt_" + CSS.escape(targetCluster));
+    if (t) {
+      const d2 = document.createElement("div");
+      d2.style.cssText="display:flex;flex-direction:column;border:1px solid var(--pborder);border-radius:5px;padding:5px 8px;font-size:10px;background:var(--pbg);margin-bottom:3px";
+      d2.innerHTML=`<div style="display:flex;align-items:center;gap:4px"><span style="font-size:9px;color:var(--purple)">↳</span><span style="font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${appName} <span style="font-size:9px;color:var(--purple)">movido</span></span></div><div style="font-size:9px;color:var(--muted);margin-top:2px">${(appAddr||"").slice(0,55)}</div>`;
+      t.appendChild(d2);
     }
-  }
-
-  // Si la store es del subgrupo → asignar corrección al subgrupo SIN re-renderizar el modal
-  const sgs = SUBGROUPS[cid] || [];
-  const sg  = sgs[sgi] || {};
-  // Comparar por store_id extraído del item_index (parte después del primer "_")
-  const sgStoreIds = new Set(
-    (sg.members||[]).map(ii => {
-      const idx = ii.indexOf("_");
-      return idx >= 0 ? ii.slice(idx+1) : ii;
-    })
-  );
-  const isFromSubgroup = sgStoreIds.has(String(m.store_id)) || sgStoreIds.has(String(m.item_index));
-
-  if (isFromSubgroup) {
-    // Guardar corrección sin re-renderizar
-    sgs[sgi].correction = newCluster;
-    sgs[sgi].is_new = isNew;
-    await api("/set_correction", {cluster_id: cid, item_indexes: sgs[sgi].members, correction: newCluster});
-    api("/save_subgroups", {subgroups: SUBGROUPS});
-    refreshClusterBadge(cid);
-    renderFilterBar();
-    toast(`✓ ${m.app_name} → ${newCluster} (subgrupo + BD)`);
-  } else {
-    toast(`✓ ${m.app_name} → ${newCluster}`);
   }
 }
 </script>
