@@ -2011,9 +2011,145 @@ def bd_update_execute():
     return jsonify({"ok": True, "inserted": inserted, "errors": errors})
 
 
+@app.route("/audit_cluster", methods=["POST"])
+def audit_cluster():
+    """
+    Dado un cluster_index, trae todos sus miembros desde dim_maestra,
+    calcula scores vs el ancla, y busca stores dispersas (similares al ancla
+    en otros clusters).
+    """
+    if not pg_is_configured():
+        return jsonify({"error": "BD no configurada"}), 400
+
+    data          = request.json
+    cluster_index = data.get("cluster_index", "").strip()
+    country       = data.get("country", session.get("country", "mx"))
+    table         = get_pg_table()
+
+    if not cluster_index:
+        return jsonify({"error": "cluster_index requerido"}), 400
+
+    # 1. Traer todos los miembros del cluster
+    sql_members = f"""
+        SELECT cluster_index, cluster_name, cluster_address,
+               store_id, app_name, app_address, scraper_source, item_index,
+               cluster_latitude, cluster_longitude
+        FROM {table}
+        WHERE cluster_index = '{cluster_index}'
+        AND country = '{country}'
+        ORDER BY item_index
+    """
+    members_raw, err = pg_query(sql_members, timeout_ms=10000)
+    if err: return jsonify({"error": err}), 400
+    if not members_raw: return jsonify({"error": f"Cluster {cluster_index} no encontrado"}), 404
+
+    # Identificar ancla (item_index == cluster_index)
+    anchor = next((m for m in members_raw if m["item_index"] == cluster_index), None)
+    if not anchor:
+        anchor = members_raw[0]  # fallback: primer miembro
+
+    anchor_name = anchor.get("app_name", "")
+    anchor_addr = anchor.get("app_address", "")
+
+    # 2. Calcular scores de cada miembro vs el ancla
+    member_names  = [m.get("app_name","")    for m in members_raw]
+    member_addrs  = [m.get("app_address","") for m in members_raw]
+    scores = batch_semantic_sim(anchor_name, anchor_addr,
+                                [{"app_name": n, "app_address": a}
+                                 for n, a in zip(member_names, member_addrs)])
+
+    members = []
+    for i, m in enumerate(members_raw):
+        is_anchor = m["item_index"] == cluster_index
+        members.append({
+            "item_index":    m["item_index"],
+            "store_id":      m["store_id"],
+            "app_name":      m["app_name"],
+            "app_address":   m["app_address"],
+            "scraper_source":m.get("scraper_source",""),
+            "is_anchor":     is_anchor,
+            "score":         1.0 if is_anchor else round(scores[i], 3),
+        })
+
+    # 3. Buscar dispersos — stores similares al ancla en OTROS clusters
+    # Usar brand_words + extract_addr_keys del ancla para la búsqueda
+    anchor_bwords = brand_words(anchor_name)
+    anchor_akeys  = extract_addr_keys(anchor_addr)
+
+    dispersos = []
+    if anchor_bwords:
+        name_cond = " and ".join(word_ilike("app_name", w) for w in anchor_bwords[:2])
+        addr_cond = ""
+        if anchor_akeys:
+            addr_cond = "and " + " and ".join(word_ilike("app_address", w) for w in anchor_akeys[:2])
+
+        sql_dispersos = f"""
+            SELECT cluster_index, cluster_name, cluster_address,
+                   store_id, app_name, app_address, scraper_source, item_index
+            FROM {table}
+            WHERE country = '{country}'
+            AND cluster_index != '{cluster_index}'
+            AND ({name_cond})
+            {addr_cond}
+            ORDER BY cluster_index
+            LIMIT 50
+        """
+        disp_raw, err2 = pg_query(sql_dispersos, timeout_ms=15000)
+        if not err2 and disp_raw:
+            # Agrupar por cluster
+            disp_by_cluster = {}
+            for r in disp_raw:
+                ci = r["cluster_index"]
+                if ci not in disp_by_cluster:
+                    disp_by_cluster[ci] = {
+                        "cluster_index": ci,
+                        "cluster_name":  r.get("cluster_name",""),
+                        "cluster_address":r.get("cluster_address",""),
+                        "members": []
+                    }
+                is_anchor_disp = r["item_index"] == ci
+                disp_by_cluster[ci]["members"].append({
+                    "store_id":      r["store_id"],
+                    "app_name":      r["app_name"],
+                    "app_address":   r["app_address"],
+                    "scraper_source":r.get("scraper_source",""),
+                    "item_index":    r["item_index"],
+                    "is_anchor":     is_anchor_disp,
+                })
+            dispersos = list(disp_by_cluster.values())
+
+    # 4. Correcciones previas en este cluster
+    prev_sql = f"""
+        SELECT store_id, old_cluster, new_cluster, load_date
+        FROM sales_opportunity.ctrl_restaurant_homologation
+        WHERE old_cluster = '{cluster_index}' OR new_cluster = '{cluster_index}'
+        ORDER BY load_date DESC LIMIT 20
+    """
+    prev_rows, _ = pg_query(prev_sql, timeout_ms=10000)
+    prev_corrections = []
+    if prev_rows:
+        prev_corrections = [{"store_id": r["store_id"],
+                             "old_cluster": r["old_cluster"],
+                             "new_cluster": r["new_cluster"],
+                             "load_date":   str(r["load_date"])[:10] if r["load_date"] else ""}
+                            for r in prev_rows]
+
+    return jsonify({
+        "cluster_index":    cluster_index,
+        "cluster_name":     anchor.get("cluster_name",""),
+        "cluster_address":  anchor.get("cluster_address",""),
+        "anchor":           anchor_name,
+        "anchor_addr":      anchor_addr,
+        "members":          members,
+        "dispersos":        dispersos,
+        "prev_corrections": prev_corrections,
+        "threshold":        get_threshold(),
+    })
+
+
 if __name__=="__main__":
     print("\n"+"="*54)
-    print("  Cluster Reviewer v4")
+    print("  DQ Matching Tool")
     print(f"  PostgreSQL: {'✓ configurado' if pg_is_configured() else '✗ falta .env'}")
     print(f"  Memoria:    {DB_FILE}")
     print("  http://localhost:5000")

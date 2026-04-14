@@ -2183,6 +2183,8 @@ function buildSgGroupCard(cid, sg, sgi) {
             <input type="checkbox" ${bdc.is_clean?"checked":""} style="width:11px;height:11px"
               onchange="setSgClean('${esc(cid)}',${sgi},${bi},this.checked)"> limpio
           </label>
+          <button class="btn sm" style="font-size:10px;padding:1px 7px;margin-left:auto"
+            onclick="openAuditModal('${esc(bdc.cluster_index)}')">🔍 Auditar</button>
         </div>
         ${rowsHtml}
       </div>`;
@@ -2374,9 +2376,192 @@ function updateSgModalProgress(cid) {
   }
 }
 </script>
-</body>
-</html>
 
+<!-- ── Modal Auditoría de Cluster ── -->
+<style>
+.audit-member{display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--border);font-size:11px}
+.audit-member:last-child{border-bottom:none}
+.audit-member.suspect{background:var(--rbg)}
+.audit-member.anchor{background:var(--abg)}
+.audit-score{font-size:11px;font-weight:700;min-width:36px;text-align:right}
+.audit-disp-cluster{border:1px solid var(--border);border-radius:6px;margin-bottom:8px;overflow:hidden}
+.audit-disp-hdr{display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--surf2);border-bottom:1px solid var(--border)}
+</style>
+
+<div class="modal-bg" id="auditModal" onclick="if(event.target===this)closeAuditModal()">
+  <div class="modal-box" style="max-width:1100px;width:96vw;height:88vh;display:flex;flex-direction:column">
+    <div class="modal-hdr">
+      <div style="flex:1">
+        <div style="font-size:14px;font-weight:700" id="auditTitle">Auditoría de cluster</div>
+        <div style="font-size:11px;color:var(--muted)" id="auditMeta"></div>
+      </div>
+      <button class="btn sm" onclick="closeAuditModal()">✕ Cerrar</button>
+    </div>
+    <div style="flex:1;display:grid;grid-template-columns:1fr 1fr;overflow:hidden;min-height:0">
+      <!-- Panel izquierdo: miembros actuales -->
+      <div style="display:flex;flex-direction:column;border-right:1px solid var(--border);overflow:hidden">
+        <div style="padding:8px 12px;background:var(--surf2);border-bottom:1px solid var(--border);font-size:11px;font-weight:700;flex-shrink:0">
+          MIEMBROS ACTUALES
+          <span id="auditMemberCount" style="font-weight:400;color:var(--muted);margin-left:6px"></span>
+        </div>
+        <div id="auditMembersList" style="overflow-y:auto;flex:1"></div>
+      </div>
+      <!-- Panel derecho: dispersos -->
+      <div style="display:flex;flex-direction:column;overflow:hidden">
+        <div style="padding:8px 12px;background:var(--surf2);border-bottom:1px solid var(--border);font-size:11px;font-weight:700;flex-shrink:0;display:flex;align-items:center;gap:8px">
+          STORES DISPERSAS (otros clusters)
+          <span id="auditDispCount" style="font-weight:400;color:var(--muted)"></span>
+          <button class="btn sm blue" style="margin-left:auto;font-size:10px" id="btnAuditSearch" onclick="runAuditSearch()">🔍 Buscar dispersas</button>
+        </div>
+        <div id="auditDispersosList" style="overflow-y:auto;flex:1;padding:10px"></div>
+      </div>
+    </div>
+    <!-- Footer: correcciones previas -->
+    <div id="auditPrevCorr" style="border-top:1px solid var(--border);padding:8px 12px;font-size:11px;color:var(--muted);max-height:80px;overflow-y:auto;flex-shrink:0"></div>
+  </div>
+</div>
+
+<script>
+let _auditData = null;
+let _auditClusterIndex = null;
+
+async function openAuditModal(clusterIndex) {
+  _auditClusterIndex = clusterIndex;
+  document.getElementById("auditModal").classList.add("open");
+  document.getElementById("auditTitle").textContent = `Auditoría — ${clusterIndex}`;
+  document.getElementById("auditMeta").textContent = "Cargando…";
+  document.getElementById("auditMembersList").innerHTML = '<div style="padding:16px;text-align:center"><span class="spinner"></span></div>';
+  document.getElementById("auditDispersosList").innerHTML = '<div style="padding:16px;text-align:center;color:var(--muted);font-size:11px">Haz clic en "Buscar dispersas" para buscar stores del mismo local en otros clusters.</div>';
+  document.getElementById("auditPrevCorr").innerHTML = "";
+  document.getElementById("auditMemberCount").textContent = "";
+  document.getElementById("auditDispCount").textContent = "";
+
+  const d = await api("/audit_cluster", {cluster_index: clusterIndex, country: COUNTRY});
+  if(d.error){
+    document.getElementById("auditMembersList").innerHTML = `<div style="color:var(--red);padding:12px">${esc(d.error)}</div>`;
+    return;
+  }
+  _auditData = d;
+  renderAuditMembers(d);
+  renderAuditDispersosLoaded(d);
+  renderAuditPrevCorr(d);
+}
+
+function renderAuditMembers(d) {
+  const thr = d.threshold || 0.80;
+  document.getElementById("auditTitle").textContent = `Auditoría — ${d.cluster_name || d.cluster_index}`;
+  document.getElementById("auditMeta").textContent = `${d.cluster_index} · ${d.anchor_addr || ""}`;
+  document.getElementById("auditMemberCount").textContent = `${d.members.length} stores`;
+
+  const rows = d.members.map(m => {
+    const isAnchor  = m.is_anchor;
+    const isSuspect = !isAnchor && m.score < thr;
+    const scoreColor = m.score >= 0.80 ? "var(--green)" : m.score >= 0.50 ? "var(--amber)" : "var(--red)";
+    const cls = isAnchor ? "anchor" : isSuspect ? "suspect" : "";
+    return `<div class="audit-member ${cls}">
+      ${isAnchor
+        ? `<span style="font-size:10px;background:var(--abg);border:1px solid var(--aborder);border-radius:4px;padding:1px 5px;flex-shrink:0">⚓</span>`
+        : `<span class="audit-score" style="color:${scoreColor}">${Math.round(m.score*100)}%</span>`
+      }
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:${isAnchor?'700':'400'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(m.app_name)}</div>
+        <div style="font-size:10px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(m.app_address)}</div>
+      </div>
+      ${isSuspect ? `<span style="font-size:9px;background:var(--rbg);color:var(--red);border:1px solid var(--rborder);border-radius:4px;padding:1px 5px;flex-shrink:0">sospechoso</span>` : ""}
+    </div>`;
+  }).join("");
+  document.getElementById("auditMembersList").innerHTML = rows || '<div style="padding:12px;color:var(--muted)">Sin miembros</div>';
+}
+
+function renderAuditDispersosLoaded(d) {
+  if(!d.dispersos || !d.dispersos.length) {
+    document.getElementById("auditDispersosList").innerHTML =
+      '<div style="padding:16px;text-align:center;color:var(--muted);font-size:11px">No se encontraron stores dispersas con la misma dirección del ancla.</div>';
+    document.getElementById("auditDispCount").textContent = "0 encontradas";
+    return;
+  }
+  document.getElementById("auditDispCount").textContent = `${d.dispersos.length} cluster${d.dispersos.length!==1?"s":""}`;
+  renderAuditDispersosHtml(d.dispersos);
+}
+
+function renderAuditDispersosHtml(dispersos) {
+  const html = dispersos.map(dc => {
+    const anchor = dc.members.find(m=>m.is_anchor);
+    const others = dc.members.filter(m=>!m.is_anchor);
+    const membersHtml = dc.members.slice(0,4).map(m => `
+      <div style="display:flex;align-items:center;gap:6px;padding:4px 8px;border-bottom:1px solid var(--border);font-size:11px${m.is_anchor?';background:var(--abg)':""}">
+        ${m.is_anchor?'<span style="font-size:9px;color:var(--amber)">⚓</span>':'<span style="width:12px"></span>'}
+        <div style="flex:1;min-width:0">
+          <div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(m.app_name)}</div>
+          <div style="font-size:10px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(m.app_address)}</div>
+        </div>
+        <button class="btn sm" style="font-size:10px;padding:1px 6px;flex-shrink:0"
+          title="Anotar: mover esta store a ${_auditClusterIndex}"
+          onclick="auditAnnotate('${esc(m.store_id)}','${esc(m.app_name)}','${esc(m.app_address)}','${esc(dc.cluster_index)}','${esc(dc.cluster_name||"")}','${esc(dc.cluster_address||"")}','${esc(m.scraper_source||"")}')">
+          ↳ Traer
+        </button>
+      </div>`).join("");
+    const more = dc.members.length > 4 ? `<div style="padding:4px 8px;font-size:10px;color:var(--muted)">…y ${dc.members.length-4} más</div>` : "";
+    return `<div class="audit-disp-cluster">
+      <div class="audit-disp-hdr">
+        <span style="font-family:monospace;font-size:10px;font-weight:700;color:var(--blue);flex:1">${esc(dc.cluster_index)}</span>
+        <span style="font-size:10px;color:var(--muted)">${dc.members.length} store${dc.members.length!==1?"s":""}</span>
+        <span style="font-size:10px;font-weight:600;margin-left:6px">${esc(dc.cluster_name||"")}</span>
+      </div>
+      ${membersHtml}${more}
+    </div>`;
+  }).join("");
+  document.getElementById("auditDispersosList").innerHTML = html;
+}
+
+async function runAuditSearch() {
+  if(!_auditClusterIndex) return;
+  const btn = document.getElementById("btnAuditSearch");
+  btn.innerHTML = '<span class="spinner"></span>';
+  btn.disabled = true;
+  const d = await api("/audit_cluster", {cluster_index: _auditClusterIndex, country: COUNTRY});
+  btn.innerHTML = "🔍 Buscar dispersas";
+  btn.disabled = false;
+  if(d.error){ toast("Error: " + d.error); return; }
+  _auditData = d;
+  renderAuditDispersosLoaded(d);
+}
+
+function renderAuditPrevCorr(d) {
+  if(!d.prev_corrections || !d.prev_corrections.length) return;
+  const html = d.prev_corrections.slice(0,5).map(r=>
+    `<span style="font-size:10px;margin-right:12px">
+      ${r.load_date} · ${esc(r.store_id)} · ${esc(r.old_cluster)} → ${esc(r.new_cluster)}
+    </span>`
+  ).join("");
+  document.getElementById("auditPrevCorr").innerHTML =
+    `<span style="font-weight:600;margin-right:8px">⚠ ${d.prev_corrections.length} correcciones previas:</span>${html}`;
+}
+
+function auditAnnotate(storeId, appName, appAddress, oldCluster, clusterName, clusterAddress, scraperSource) {
+  // Registrar en external_corrections: esta store viene de oldCluster y va a _auditClusterIndex
+  const currentFile = ""; // se completará en el servidor
+  api("/ext_correction/add", {
+    store_id:        storeId,
+    app_name:        appName,
+    app_address:     appAddress,
+    cluster_index:   oldCluster,
+    cluster_name:    clusterName,
+    cluster_address: clusterAddress,
+    scraper_source:  scraperSource,
+    correction:      _auditClusterIndex,
+    is_new:          false,
+  }).then(d => {
+    if(d.ok) toast(`↳ Anotado: ${appName} → ${_auditClusterIndex} ✓`);
+    else toast("Error al anotar: " + (d.error||""));
+  });
+}
+
+function closeAuditModal() {
+  document.getElementById("auditModal").classList.remove("open");
+  _auditData = null;
+  _auditClusterIndex = null;
+}
 </script>
 </body>
 </html>
