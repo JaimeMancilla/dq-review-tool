@@ -2184,7 +2184,7 @@ function buildSgGroupCard(cid, sg, sgi) {
               onchange="setSgClean('${esc(cid)}',${sgi},${bi},this.checked)"> limpio
           </label>
           <button class="btn sm" style="font-size:10px;padding:1px 7px;margin-left:auto"
-            onclick="openAuditModal('${esc(bdc.cluster_index)}')">🔍 Auditar</button>
+            onclick="openAuditModal('${esc(bdc.cluster_index)}','${esc(sg.rep_name||"")}','${esc(sg.rep_addr||"")}')">🔍 Auditar</button>
         </div>
         ${rowsHtml}
       </div>`;
@@ -2424,19 +2424,40 @@ function updateSgModalProgress(cid) {
 <script>
 let _auditData = null;
 let _auditClusterIndex = null;
+let _auditSearchName = "";
+let _auditSearchAddr = "";
 
-async function openAuditModal(clusterIndex) {
+async function openAuditModal(clusterIndex, searchName, searchAddr) {
   _auditClusterIndex = clusterIndex;
+  // Guardar los parámetros de búsqueda del subgrupo origen
+  _auditSearchName = searchName || "";
+  _auditSearchAddr = searchAddr || "";
+
   document.getElementById("auditModal").classList.add("open");
   document.getElementById("auditTitle").textContent = `Auditoría — ${clusterIndex}`;
   document.getElementById("auditMeta").textContent = "Cargando…";
   document.getElementById("auditMembersList").innerHTML = '<div style="padding:16px;text-align:center"><span class="spinner"></span></div>';
-  document.getElementById("auditDispersosList").innerHTML = '<div style="padding:16px;text-align:center;color:var(--muted);font-size:11px">Haz clic en "Buscar dispersas" para buscar stores del mismo local en otros clusters.</div>';
+
+  // Mostrar contexto del subgrupo si viene
+  const dispHint = searchName
+    ? `<div style="padding:10px 12px;background:var(--bbg);border:1px solid var(--bborder);border-radius:6px;font-size:11px;margin-bottom:8px">
+        <strong>Buscando por store del subgrupo:</strong><br>
+        <span style="color:var(--blue)">${esc(searchName)}</span>
+        ${searchAddr?`<span style="color:var(--muted);margin-left:6px">${esc(searchAddr)}</span>`:""}
+        <div style="font-size:10px;color:var(--muted);margin-top:2px">Si hay un cluster limpio con esta store como ancla, aparecerá aquí.</div>
+       </div>`
+    : '<div style="padding:16px;text-align:center;color:var(--muted);font-size:11px">Haz clic en "Buscar dispersas" para buscar.</div>';
+  document.getElementById("auditDispersosList").innerHTML = dispHint;
   document.getElementById("auditPrevCorr").innerHTML = "";
   document.getElementById("auditMemberCount").textContent = "";
   document.getElementById("auditDispCount").textContent = "";
 
-  const d = await api("/audit_cluster", {cluster_index: clusterIndex, country: COUNTRY});
+  const d = await api("/audit_cluster", {
+    cluster_index: clusterIndex,
+    country:       COUNTRY,
+    search_name:   _auditSearchName,
+    search_addr:   _auditSearchAddr,
+  });
   if(d.error){
     document.getElementById("auditMembersList").innerHTML = `<div style="color:var(--red);padding:12px">${esc(d.error)}</div>`;
     return;
@@ -2519,7 +2540,12 @@ async function runAuditSearch() {
   const btn = document.getElementById("btnAuditSearch");
   btn.innerHTML = '<span class="spinner"></span>';
   btn.disabled = true;
-  const d = await api("/audit_cluster", {cluster_index: _auditClusterIndex, country: COUNTRY});
+  const d = await api("/audit_cluster", {
+    cluster_index: _auditClusterIndex,
+    country:       COUNTRY,
+    search_name:   _auditSearchName,
+    search_addr:   _auditSearchAddr,
+  });
   btn.innerHTML = "🔍 Buscar dispersas";
   btn.disabled = false;
   if(d.error){ toast("Error: " + d.error); return; }
@@ -2561,6 +2587,8 @@ function closeAuditModal() {
   document.getElementById("auditModal").classList.remove("open");
   _auditData = null;
   _auditClusterIndex = null;
+  _auditSearchName = "";
+  _auditSearchAddr = "";
 }
 </script>
 </body>

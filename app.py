@@ -2024,6 +2024,8 @@ def audit_cluster():
     data          = request.json
     cluster_index = data.get("cluster_index", "").strip()
     country       = data.get("country", session.get("country", "mx"))
+    search_name   = data.get("search_name", "").strip()  # store del subgrupo origen
+    search_addr   = data.get("search_addr", "").strip()
     table         = get_pg_table()
 
     if not cluster_index:
@@ -2071,17 +2073,21 @@ def audit_cluster():
             "score":         1.0 if is_anchor else round(scores[i], 3),
         })
 
-    # 3. Buscar dispersos — stores similares al ancla en OTROS clusters
-    # Usar brand_words + extract_addr_keys del ancla para la búsqueda
-    anchor_bwords = brand_words(anchor_name)
-    anchor_akeys  = extract_addr_keys(anchor_addr)
+    # 3. Buscar dispersos
+    # Si viene search_name/addr del subgrupo, usarlos — encuentran el cluster correcto
+    # aunque sea distinto al ancla del cluster BD
+    disp_name = search_name if search_name else anchor_name
+    disp_addr = search_addr if search_addr else anchor_addr
+
+    disp_bwords = brand_words(disp_name)
+    disp_akeys  = extract_addr_keys(disp_addr)
 
     dispersos = []
-    if anchor_bwords:
-        name_cond = " and ".join(word_ilike("app_name", w) for w in anchor_bwords[:2])
+    if disp_bwords:
+        name_cond = " and ".join(word_ilike("app_name", w) for w in disp_bwords[:2])
         addr_cond = ""
-        if anchor_akeys:
-            addr_cond = "and " + " and ".join(word_ilike("app_address", w) for w in anchor_akeys[:2])
+        if disp_akeys:
+            addr_cond = "and " + " and ".join(word_ilike("app_address", w) for w in disp_akeys[:2])
 
         sql_dispersos = f"""
             SELECT cluster_index, cluster_name, cluster_address,
