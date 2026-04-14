@@ -2664,6 +2664,8 @@ function closeAuditModal() {
 
 // ── Drag de stores entre clusters en resultados BD ────────────────────────────
 let _bdDragData = null;
+// Movimientos pendientes de confirmación: clave = "cid_sgi", valor = [{store_id, from_cluster, new_cluster, app_name, app_address, scraper_source, is_new}]
+const _bdPendingMoves = {};
 
 function onBdRowDragStart(e, dragJson) {
   try { _bdDragData = JSON.parse(decodeURIComponent(dragJson)); }
@@ -2686,6 +2688,7 @@ async function onBdDrop(e, targetCluster, cid, sgi) {
   e.preventDefault();
   e.stopPropagation();
   e.currentTarget.classList.remove("drag-over");
+  const key = `${cid}_${sgi}`;
 
   // Caso 1: drag de store BD
   if (_bdDragData) {
@@ -2697,29 +2700,32 @@ async function onBdDrop(e, targetCluster, cid, sgi) {
       newCluster = appId ? `${appId}_${m.store_id}` : `NUEVO:${m.store_id}`;
       isNew = true;
     }
-    const d = await api("/ext_correction/add", {
-      store_id: m.store_id, app_name: m.app_name, app_address: m.app_address,
-      cluster_index: m.from_cluster, cluster_name: m.cluster_name,
-      cluster_address: m.cluster_address, scraper_source: m.scraper_source,
-      correction: newCluster, is_new: isNew,
-    });
-    if (!d.ok) { toast("Error: " + (d.error||"")); return; }
+    // Tachar en origen
     const fromC = document.getElementById("bdt_" + CSS.escape(m.from_cluster));
     if (fromC) Array.from(fromC.children).forEach(chip => {
-      if (chip.textContent.includes(m.app_name)) {
-        chip.style.opacity="0.35"; chip.style.textDecoration="line-through"; chip.setAttribute("draggable","false");
+      if (chip.textContent.includes(m.app_name) && !chip.dataset.tachado) {
+        chip.style.opacity="0.35"; chip.style.textDecoration="line-through";
+        chip.setAttribute("draggable","false"); chip.dataset.tachado="1";
       }
     });
+    // Agregar chip en destino
     _bdDropAddChip(targetCluster, cid, sgi, m.app_name, m.app_address, newCluster);
+    // Trackear movimiento pendiente
+    if (!_bdPendingMoves[key]) _bdPendingMoves[key] = [];
+    _bdPendingMoves[key].push({
+      store_id: m.store_id, app_name: m.app_name, app_address: m.app_address,
+      scraper_source: m.scraper_source, from_cluster: m.from_cluster,
+      cluster_name: m.cluster_name, cluster_address: m.cluster_address,
+      item_index: m.item_index, new_cluster: newCluster, is_new: isNew,
+      is_subgroup: false
+    });
+    // Ver si es del subgrupo
     const sgs=SUBGROUPS[cid]||[]; const sg=sgs[sgi]||{};
     const sgIds=new Set((sg.members||[]).map(ii=>{const i=ii.indexOf("_");return i>=0?ii.slice(i+1):ii;}));
     if (sgIds.has(String(m.store_id))||sgIds.has(String(m.item_index))) {
-      sgs[sgi].correction=newCluster; sgs[sgi].is_new=isNew;
-      await api("/set_correction",{cluster_id:cid,item_indexes:sg.members,correction:newCluster});
-      api("/save_subgroups",{subgroups:SUBGROUPS});
-      refreshClusterBadge(cid); renderFilterBar();
-      toast(`✓ ${m.app_name} → ${newCluster} (subgrupo + BD)`);
-    } else { toast(`✓ ${m.app_name} → ${newCluster}`); }
+      _bdPendingMoves[key][_bdPendingMoves[key].length-1].is_subgroup = true;
+    }
+    _bdShowConfirmBtn(cid, sgi);
     return;
   }
 
@@ -2728,23 +2734,105 @@ async function onBdDrop(e, targetCluster, cid, sgi) {
     const {ii, fromSgi, cid: dragCid} = _sgModalDrag;
     _sgModalDrag = null;
     if (!ii || dragCid !== cid) return;
+    const cl = getCl(cid);
+    const dragged = cl?.members.find(m=>m.item_index===ii);
     let newCluster = targetCluster, isNew = false;
     if (targetCluster === "NEW") {
-      const cl = getCl(cid);
-      const dragged = cl?.members.find(m=>m.item_index===ii);
       const appId = dragged?.scraper_source?.trim()||"";
       const storeId = ii.includes("_") ? ii.slice(ii.indexOf("_")+1) : ii;
       newCluster = appId ? `${appId}_${storeId}` : `NUEVO:${storeId}`;
       isNew = true;
     }
-    const sgs=SUBGROUPS[cid]||[]; const sg=sgs[fromSgi]||{};
-    sgs[fromSgi].correction=newCluster; sgs[fromSgi].is_new=isNew;
-    await api("/set_correction",{cluster_id:cid,item_indexes:sg.members,correction:newCluster});
-    api("/save_subgroups",{subgroups:SUBGROUPS});
-    refreshClusterBadge(cid); renderFilterBar();
-    renderSgGroupsPanel(cid); updateSgModalProgress(cid);
-    toast(`✓ Subgrupo asignado → ${newCluster}`);
+    const appName = dragged?.app_name || ii;
+    const appAddr = dragged?.app_address || "";
+    // Agregar chip en destino
+    _bdDropAddChip(targetCluster, cid, sgi, appName, appAddr, newCluster);
+    // Trackear
+    const sgKey = `${cid}_${fromSgi}`;
+    if (!_bdPendingMoves[sgKey]) _bdPendingMoves[sgKey] = [];
+    _bdPendingMoves[sgKey].push({
+      store_id: dragged?.store_id||ii, app_name: appName, app_address: appAddr,
+      scraper_source: dragged?.scraper_source||"", from_cluster: null,
+      new_cluster: newCluster, is_new: isNew, is_subgroup: true,
+      item_index: ii
+    });
+    _bdShowConfirmBtn(cid, fromSgi);
   }
+}
+
+function _bdShowConfirmBtn(cid, sgi) {
+  const key = `${cid}_${sgi}`;
+  const moves = _bdPendingMoves[key]||[];
+  if (!moves.length) return;
+  // Buscar o crear el botón de confirmación en el subgrupo
+  const btnId = `bdConfirm_${CSS.escape(cid)}_${sgi}`;
+  let btn = document.getElementById(btnId);
+  if (!btn) {
+    // Buscar la zona de botones del subgrupo (después de zona NEW)
+    const newZone = document.getElementById(`bdz_NEW_${CSS.escape(cid)}_${sgi}`);
+    if (newZone && newZone.nextElementSibling) {
+      btn = document.createElement("button");
+      btn.id = btnId;
+      btn.className = "btn green";
+      btn.style.cssText = "margin-top:8px;width:100%;font-weight:700";
+      btn.onclick = () => confirmBdMoves(cid, sgi);
+      newZone.parentNode.insertBefore(btn, newZone.nextElementSibling);
+    }
+  }
+  if (btn) {
+    const n = moves.length;
+    btn.innerHTML = `✓ Confirmar ${n} corrección${n!==1?"es":""} — aplicar cambios`;
+    btn.style.display = "";
+  }
+}
+
+async function confirmBdMoves(cid, sgi) {
+  const key = `${cid}_${sgi}`;
+  const moves = _bdPendingMoves[key]||[];
+  if (!moves.length) return;
+
+  const btn = document.getElementById(`bdConfirm_${CSS.escape(cid)}_${sgi}`);
+  if (btn) { btn.innerHTML = '<span class="spinner"></span> Guardando…'; btn.disabled = true; }
+
+  // Determinar new_cluster del subgrupo (la store del subgrupo)
+  const sgMove = moves.find(m => m.is_subgroup);
+  const newCluster = sgMove?.new_cluster || moves[0]?.new_cluster;
+  const isNew = sgMove?.is_new || false;
+
+  // 1. Guardar corrección del subgrupo
+  const sgs = SUBGROUPS[cid]||[];
+  if (sgs[sgi]) {
+    sgs[sgi].correction = newCluster;
+    sgs[sgi].is_new = isNew;
+    await api("/set_correction", {cluster_id: cid, item_indexes: sgs[sgi].members, correction: newCluster});
+  }
+
+  // 2. Guardar correcciones externas (stores BD que no son del subgrupo)
+  for (const m of moves) {
+    if (!m.is_subgroup && m.from_cluster) {
+      await api("/ext_correction/add", {
+        store_id: m.store_id, app_name: m.app_name, app_address: m.app_address,
+        cluster_index: m.from_cluster, cluster_name: m.cluster_name||"",
+        cluster_address: m.cluster_address||"", scraper_source: m.scraper_source,
+        correction: m.new_cluster, is_new: m.is_new,
+      });
+    }
+  }
+
+  api("/save_subgroups", {subgroups: SUBGROUPS});
+  refreshClusterBadge(cid);
+  renderFilterBar();
+  delete _bdPendingMoves[key];
+
+  // Visual: botón → señal de corregido
+  if (btn) {
+    btn.innerHTML = `✅ Corregido → ${newCluster}`;
+    btn.style.background = "var(--gbg)";
+    btn.style.color = "var(--green)";
+    btn.style.borderColor = "var(--gborder)";
+    btn.disabled = true;
+  }
+  toast(`✅ ${moves.length} corrección${moves.length!==1?"es":""} guardadas`);
 }
 
 function _bdDropAddChip(targetCluster, cid, sgi, appName, appAddr, newCluster) {
@@ -2753,15 +2841,15 @@ function _bdDropAddChip(targetCluster, cid, sgi, appName, appAddr, newCluster) {
     if (z) {
       const d2 = document.createElement("div");
       d2.style.cssText="font-size:11px;color:var(--green);padding:4px 8px;border:1px solid var(--gborder);border-radius:5px;margin:3px 8px";
-      d2.innerHTML=`↳ <strong>${appName}</strong> <span style="font-family:monospace;font-size:10px">${newCluster}</span>`;
+      d2.innerHTML=`↳ <strong>${esc(appName)}</strong> <span style="font-family:monospace;font-size:10px">${esc(newCluster)}</span>`;
       z.appendChild(d2);
     }
   } else {
     const t = document.getElementById("bdt_" + CSS.escape(targetCluster));
     if (t) {
       const d2 = document.createElement("div");
-      d2.style.cssText="display:flex;flex-direction:column;border:1px solid var(--pborder);border-radius:5px;padding:5px 8px;font-size:10px;background:var(--pbg);margin-bottom:3px";
-      d2.innerHTML=`<div style="display:flex;align-items:center;gap:4px"><span style="font-size:9px;color:var(--purple)">↳</span><span style="font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${appName} <span style="font-size:9px;color:var(--purple)">movido</span></span></div><div style="font-size:9px;color:var(--muted);margin-top:2px">${(appAddr||"").slice(0,55)}</div>`;
+      d2.style.cssText="display:flex;flex-direction:column;border:1px solid var(--pborder,#c4b5fd);border-radius:5px;padding:5px 8px;font-size:10px;background:var(--pbg,#f5f3ff);margin-bottom:3px";
+      d2.innerHTML=`<div style="display:flex;align-items:center;gap:4px"><span style="font-size:9px;color:var(--purple,#7c3aed)">↳</span><span style="font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${esc(appName)} <span style="font-size:9px;color:var(--purple,#7c3aed)">movido</span></span></div><div style="font-size:9px;color:var(--muted);margin-top:2px">${esc((appAddr||"").slice(0,55))}</div>`;
       t.appendChild(d2);
     }
   }
