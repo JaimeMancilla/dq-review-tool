@@ -139,25 +139,39 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
 .dash-tab.active{color:var(--blue);border-bottom-color:var(--blue);font-weight:700}
 
 /* ── Subgroups Modal ── */
-.sg-modal-box{background:var(--bg);border-radius:var(--rl);width:100%;max-width:1200px;height:90vh;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,.14);overflow:hidden}
-.sg-modal-hdr{display:flex;align-items:center;gap:12px;padding:14px 20px;border-bottom:1px solid var(--border);background:var(--surf);flex-shrink:0}
-.sg-modal-title{font-size:15px;font-weight:700;flex:1}
-.sg-modal-meta{font-size:11px;color:var(--muted);margin-right:8px}
-.sg-modal-body{flex:1;overflow-y:auto;padding:16px 20px}
-.sg-grid{display:flex;flex-direction:column;gap:12px}
-.sg-group-card{background:var(--surf);border:2px solid var(--border);border-radius:var(--rl);overflow:hidden;transition:all .15s}
+.sg-modal-box{background:var(--bg);border-radius:var(--rl);width:100%;max-width:1500px;height:93vh;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,.18);overflow:hidden}
+.sg-modal-hdr{display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--border);background:var(--surf);flex-shrink:0}
+.sg-modal-title{font-size:14px;font-weight:700}
+.sg-modal-meta{font-size:11px;color:var(--muted)}
+.sg-modal-body{flex:1;display:flex;min-height:0;overflow:hidden}
+.sg-modal-progress{flex:1;font-size:11px;color:var(--muted)}
+/* Lista izquierda de subgrupos */
+.sg-list-panel{width:220px;flex-shrink:0;border-right:1px solid var(--border);overflow-y:auto;background:var(--surf2);display:flex;flex-direction:column}
+.sg-list-item{display:flex;align-items:center;gap:7px;padding:7px 10px;cursor:pointer;border-bottom:1px solid var(--border);transition:background .1s;user-select:none;border-left:3px solid transparent}
+.sg-list-item:hover{background:var(--surf)}
+.sg-list-item.active{background:var(--bbg);border-left-color:var(--blue)}
+.sg-list-item.sg-corrected{border-left-color:var(--green)}
+.sg-list-item.active.sg-corrected{background:rgba(15,123,62,.06);border-left-color:var(--green)}
+.sg-list-num{width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;flex-shrink:0;background:var(--border2);color:var(--muted)}
+.sg-list-num.ok{background:var(--gbg);color:var(--green);border:1px solid var(--gborder)}
+.sg-list-name{font-size:11px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.sg-list-count{font-size:9px;color:var(--muted);flex-shrink:0}
+/* Panel activo derecha */
+.sg-active-panel{flex:1;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:10px;min-width:0}
+/* Card del subgrupo activo */
+.sg-group-card{background:var(--surf);border:2px solid var(--border);border-radius:var(--rl);overflow:hidden;transition:border-color .15s}
 .sg-group-card.corrected{border-color:var(--gborder)}
 .sg-group-card.drag-over{border-color:var(--blue);border-style:dashed;background:var(--bbg)}
-.sg-group-hdr{display:flex;align-items:center;gap:8px;padding:9px 14px;border-bottom:1px solid var(--border);background:var(--surf2);flex-shrink:0;cursor:pointer;user-select:none}
+.sg-group-hdr{display:flex;align-items:center;gap:8px;padding:9px 14px;border-bottom:1px solid var(--border);background:var(--surf2);flex-shrink:0;user-select:none}
 .sg-group-hdr.corrected{background:rgba(15,123,62,.06);border-bottom-color:var(--gborder)}
 .sg-group-num{width:22px;height:22px;border-radius:50%;background:var(--rbg);border:1.5px solid var(--rborder);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;color:var(--red);flex-shrink:0}
 .sg-group-num.corrected{background:var(--gbg);border-color:var(--gborder);color:var(--green)}
 .sg-group-name{font-size:12px;font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sg-group-count{font-size:10px;color:var(--muted);white-space:nowrap}
 .sg-group-corr-badge{font-family:monospace;font-size:9px;color:var(--green);font-weight:700;background:var(--gbg);border:1px solid var(--gborder);border-radius:4px;padding:1px 6px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.sg-group-body{display:flex;min-height:0}
-.sg-group-stores{width:340px;flex-shrink:0;border-right:1px solid var(--border);padding:10px;display:flex;flex-direction:column;gap:4px;background:var(--surf2)}
-.sg-group-right{flex:1;padding:10px 14px;display:flex;flex-direction:column;gap:8px;overflow-y:auto;max-height:360px}
+.sg-group-body{display:flex;min-height:280px}
+.sg-group-stores{width:220px;flex-shrink:0;border-right:1px solid var(--border);padding:10px;display:flex;flex-direction:column;gap:4px;background:var(--surf2)}
+.sg-group-right{flex:1;padding:10px 14px;display:flex;flex-direction:column;gap:8px;overflow-y:auto}
 .sg-drop-zone{min-height:40px;border:2px dashed var(--border2);border-radius:var(--r);padding:6px;display:flex;flex-direction:column;gap:4px;transition:all .15s;background:var(--surf);flex:1}
 .sg-drop-zone.drag-over{border-color:var(--blue);background:var(--bbg)}
 .sg-drop-zone:empty::after{content:"Arrastra stores aquí";font-size:10px;color:var(--muted);text-align:center;padding:8px 0}
@@ -312,15 +326,20 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
         <div class="sg-modal-title" id="sgModalTitle">Subgrupos</div>
         <div class="sg-modal-meta" id="sgModalMeta"></div>
       </div>
+      <div class="sg-modal-progress" id="sgModalProgress"></div>
       <button class="btn sm" onclick="sgModalAddGroup()">+ Grupo</button>
       <button class="btn sm" onclick="closeSgModal()">✕ Cerrar</button>
     </div>
     <div class="sg-modal-body">
-      <div class="sg-grid" id="sgGroupsPanel"></div>
-    </div>
-    <div class="sg-modal-footer">
-      <div class="sg-modal-progress" id="sgModalProgress"></div>
-      <button class="btn primary" onclick="sgModalSave()">✓ Guardar y cerrar</button>
+      <!-- Lista izquierda -->
+      <div class="sg-list-panel" id="sgListPanel"></div>
+      <!-- Panel activo derecha -->
+      <div class="sg-active-panel" id="sgActivePanel">
+        <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:8px;color:var(--muted)">
+          <div style="font-size:28px">👈</div>
+          <div style="font-size:12px">Selecciona un subgrupo</div>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -1236,7 +1255,8 @@ async function saveSgCorr(cid,sgi,correction,is_new){
   toast("Corrección guardada ✓");
   // Refrescar modal si está abierto
   if(_sgModalCid===cid){
-    renderSgGroupsPanel(cid);
+    renderSgList(cid);
+    renderSgActivePanel(cid, _sgActiveSgi);
     updateSgModalProgress(cid);
   } else {
     rebuildBdPanel(getCl(cid)||{cluster_id:cid});
@@ -1248,7 +1268,7 @@ function clearSgCorr(cid,sgi){
   refreshClusterBadge(cid);
   renderFilterBar();
   api("/save_subgroups", {subgroups: SUBGROUPS});
-  if(_sgModalCid===cid) renderSgGroupsPanel(cid);
+  if(_sgModalCid===cid){ renderSgList(cid); renderSgActivePanel(cid, _sgActiveSgi); }
   else rebuildBdPanel(getCl(cid)||{cluster_id:cid});
 }
 function refreshClusterBadge(cid) {
@@ -2121,7 +2141,11 @@ function openSgModal(cid) {
   document.getElementById("sgModalTitle").textContent =
     `Subgrupos — ${cl.anchor_name || cid}`;
   document.getElementById("sgModalMeta").textContent =
-    `${sgs.length} subgrupo${sgs.length!==1?"s":""} · ${cl.members.filter(m=>m.revision===0).length} stores incorrectos`;
+    `${sgs.length} subgrupo${sgs.length!==1?"s":""}`;
+
+  // Activar primer subgrupo no corregido, o el primero
+  const firstPending = sgs.findIndex(sg => !sg.correction);
+  _sgActiveSgi = firstPending >= 0 ? firstPending : 0;
 
   renderSgGroupsPanel(cid);
   updateSgModalProgress(cid);
@@ -2145,12 +2169,47 @@ function sgModalSave() {
   toast("Subgrupos guardados ✓");
 }
 
+let _sgActiveSgi = 0; // subgrupo activo en el panel derecho
+
 function renderSgGroupsPanel(cid) {
+  renderSgList(cid);
+  // Si hay un subgrupo activo, re-renderizar el panel derecho
   const sgs = SUBGROUPS[cid] || [];
-  const el = document.getElementById("sgGroupsPanel");
+  if (sgs[_sgActiveSgi]) renderSgActivePanel(cid, _sgActiveSgi);
+}
+
+function renderSgList(cid) {
+  const sgs = SUBGROUPS[cid] || [];
+  const el = document.getElementById("sgListPanel");
   if (!el) return;
-  el.innerHTML = sgs.map((sg, sgi) => buildSgGroupCard(cid, sg, sgi)).join("") +
-    `<div class="sg-add-group" onclick="sgModalAddGroup()">+ Añadir grupo vacío</div>`;
+  el.innerHTML = sgs.map((sg, sgi) => {
+    const isCorr = !!sg.correction;
+    const isActive = sgi === _sgActiveSgi;
+    return `<div class="sg-list-item${isActive?' active':''}${isCorr?' sg-corrected':''}"
+      onclick="selectSgItem('${esc(cid)}',${sgi})">
+      <div class="sg-list-num${isCorr?' ok':''}">${isCorr?'✓':sgi+1}</div>
+      <span class="sg-list-name">${esc(sg.rep_name||'Grupo '+(sgi+1))}</span>
+      <span class="sg-list-count">${sg.members.length}s</span>
+    </div>`;
+  }).join("") +
+  `<div class="sg-list-item" style="opacity:.6;font-style:italic" onclick="sgModalAddGroup()">
+    <span style="font-size:14px;color:var(--muted)">＋</span>
+    <span class="sg-list-name" style="font-weight:400">Nuevo grupo</span>
+  </div>`;
+}
+
+function selectSgItem(cid, sgi) {
+  _sgActiveSgi = sgi;
+  renderSgList(cid); // actualizar selección en lista
+  renderSgActivePanel(cid, sgi);
+}
+
+function renderSgActivePanel(cid, sgi) {
+  const sgs = SUBGROUPS[cid] || [];
+  const sg = sgs[sgi];
+  const el = document.getElementById("sgActivePanel");
+  if (!el || !sg) return;
+  el.innerHTML = buildSgGroupCard(cid, sg, sgi);
 }
 
 function buildSgGroupCard(cid, sg, sgi) {
@@ -2266,9 +2325,13 @@ function buildSgGroupCard(cid, sg, sgi) {
   const corrHtml = sg.correction
     ? `<div class="corr-chip ${sg.is_new?'new':''}">
         <span>${esc(sg.correction)}</span>
-        <span class="chip-x" onclick="clearSgCorr('${esc(cid)}',${sgi});renderSgGroupsPanel('${esc(cid)}')">✕</span>
+        <span class="chip-x" onclick="clearSgCorr('${esc(cid)}',${sgi});renderSgActivePanel('${esc(cid)}',${sgi});renderSgList('${esc(cid)}')">✕</span>
       </div>`
     : `<span style="font-size:11px;color:var(--muted)">Sin asignar</span>`;
+
+  const sgs = SUBGROUPS[cid]||[];
+  const prevSgi = sgi > 0 ? sgi-1 : -1;
+  const nextSgi = sgi < sgs.length-1 ? sgi+1 : -1;
 
   return `<div class="sg-group-card ${isCorr?'corrected':''}"
     ondragover="onSgGroupDragOver(event,'${esc(cid)}',${sgi})"
@@ -2279,6 +2342,10 @@ function buildSgGroupCard(cid, sg, sgi) {
       <div class="sg-group-name">${esc(sg.rep_name||"Grupo "+(sgi+1))}</div>
       <div class="sg-group-count">${sg.members.length} store${sg.members.length!==1?"s":""}</div>
       ${isCorr?`<div class="sg-group-corr-badge" title="${esc(sg.correction)}">${esc(sg.correction)}</div>`:''}
+      <div style="display:flex;gap:4px;margin-left:auto">
+        ${prevSgi>=0?`<button class="btn sm" style="padding:1px 8px;font-size:11px" onclick="selectSgItem('${esc(cid)}',${prevSgi})">◀</button>`:''}
+        ${nextSgi>=0?`<button class="btn sm" style="padding:1px 8px;font-size:11px" onclick="selectSgItem('${esc(cid)}',${nextSgi})">▶</button>`:''}
+      </div>
     </div>
     <div class="sg-group-body">
       <!-- Izquierda: stores -->
@@ -2362,7 +2429,7 @@ function onSgGroupDrop(e, cid, toSgi) {
     }
   }
   SUBGROUPS[cid] = sgs.filter(sg => sg.members.length > 0);
-  regenerateSgSql(cid).then(() => renderSgGroupsPanel(cid));
+  regenerateSgSql(cid).then(() => { renderSgList(cid); renderSgActivePanel(cid, _sgActiveSgi); });
   renderSgStoresList(cid);
   updateSgModalProgress(cid);
 }
@@ -2372,7 +2439,7 @@ function removeSgChip(cid, sgi, ii) {
   sgs[sgi].members = sgs[sgi].members.filter(m => m !== ii);
   if (sgs[sgi].members.length === 0) sgs.splice(sgi, 1);
   SUBGROUPS[cid] = sgs;
-  renderSgGroupsPanel(cid);
+  renderSgList(cid); renderSgActivePanel(cid, _sgActiveSgi);
   renderSgStoresList(cid);
   updateSgModalProgress(cid);
 }
@@ -2382,15 +2449,18 @@ function sgModalAddGroup() {
   const sgs = SUBGROUPS[_sgModalCid] || [];
   sgs.push({members:[], rep_name:"Nuevo grupo", sql:"", bd_results:[], correction:"", is_new:false});
   SUBGROUPS[_sgModalCid] = sgs;
-  renderSgGroupsPanel(_sgModalCid);
+  _sgActiveSgi = sgs.length - 1; // navegar al nuevo grupo
+  renderSgList(_sgModalCid);
+  renderSgActivePanel(_sgModalCid, _sgActiveSgi);
 }
 
 async function runSgQueryModal(cid, sgi) {
   const sgs = SUBGROUPS[cid]; if (!sgs || !sgs[sgi]) return;
   const sql = sgs[sgi].sql;
   if (!sql) { toast("Sin SQL — regenerando…"); await regenerateSgSql(cid); return; }
-  const groupCards = document.querySelectorAll("#sgGroupsPanel .sg-group-card");
-  const btn = groupCards[sgi] ? groupCards[sgi].querySelector(".btn.blue.sm") : null;
+  // Buscar botón en el panel activo
+  const activePanel = document.getElementById("sgActivePanel");
+  const btn = activePanel ? activePanel.querySelector(".btn.blue.sm") : null;
   if (btn) { btn.innerHTML = '<span class="spinner"></span>'; btn.disabled = true; }
   try {
     const d = await api("/pg_query", {sql});
@@ -2417,7 +2487,7 @@ async function runSgQueryModal(cid, sgi) {
     }
   } catch(e) { toast("Error: " + e.message); }
   if (btn) { btn.innerHTML = "▶ Ejecutar BD"; btn.disabled = false; }
-  renderSgGroupsPanel(cid);
+  renderSgActivePanel(cid, sgi);
 }
 
 async function assignSgInputModal(cid, sgi) {
@@ -2429,7 +2499,7 @@ async function assignSgInputModal(cid, sgi) {
   if (!val) { toast("Escribe el cluster_index"); return; }
   await saveSgCorr(cid, sgi, val, false);
   if (inp) inp.value = "";
-  renderSgGroupsPanel(cid);
+  renderSgList(cid); renderSgActivePanel(cid, _sgActiveSgi);
   updateSgModalProgress(cid);
 }
 
@@ -2795,21 +2865,27 @@ async function assignThisCluster(clusterIndex, cid, sgi) {
   api("/save_subgroups", {subgroups: SUBGROUPS});
   refreshClusterBadge(cid);
   renderFilterBar();
+  renderSgList(cid);
+  updateSgModalProgress(cid);
 
-  // Marcar el header del cluster visualmente como asignado
+  // Marcar visualmente como asignado
   const zone = document.getElementById("bdz_" + CSS.escape(clusterIndex));
   if (zone) {
     const hdr = zone.querySelector("div:first-child");
-    if (hdr) {
-      hdr.style.background = "var(--gbg)";
-      hdr.style.borderBottomColor = "var(--gborder)";
-    }
-    const btn = zone.querySelector("button");
-    if (btn) {
-      btn.innerHTML = "✅ Asignado";
-      btn.disabled = true;
-    }
+    if (hdr) { hdr.style.background = "var(--gbg)"; hdr.style.borderBottomColor = "var(--gborder)"; }
+    const btn2 = zone.querySelector("button");
+    if (btn2) { btn2.innerHTML = "✅ Asignado"; btn2.disabled = true; }
   }
+  // Actualizar sección corrección en el panel activo
+  const corrEl = document.querySelector("#sgActivePanel .sg-corr-section");
+  if (corrEl) {
+    corrEl.querySelector("div:last-child").innerHTML =
+      `<div class="corr-chip"><span>${esc(clusterIndex)}</span>
+       <span class="chip-x" onclick="clearSgCorr('${esc(cid)}',${sgi});renderSgActivePanel('${esc(cid)}',${sgi});renderSgList('${esc(cid)}')">✕</span></div>`;
+  }
+  // Actualizar header del card
+  const hdr2 = document.querySelector("#sgActivePanel .sg-group-hdr");
+  if (hdr2) { hdr2.className = "sg-group-hdr corrected"; }
 
   toast(`✅ Subgrupo → ${clusterIndex}`);
 }
@@ -2876,6 +2952,8 @@ async function confirmBdMoves(cid, sgi) {
   api("/save_subgroups", {subgroups: SUBGROUPS});
   refreshClusterBadge(cid);
   renderFilterBar();
+  renderSgList(cid);
+  updateSgModalProgress(cid);
   delete _bdPendingMoves[key];
 
   // Visual: botón → señal de corregido
