@@ -157,7 +157,7 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
 .sg-list-num.ok{background:var(--gbg);color:var(--green);border:1px solid var(--gborder)}
 .sg-list-info{flex:1;min-width:0}
 .sg-list-name{font-size:11px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.sg-list-addr{font-size:9px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:1px}
+.sg-list-addr{font-size:9px;color:var(--muted);white-space:normal;line-height:1.3;margin-top:1px}
 .sg-list-count{font-size:9px;color:var(--muted);flex-shrink:0;margin-top:1px}
 /* Panel activo derecha */
 .sg-active-panel{flex:1;overflow-y:auto;padding:10px 12px;display:flex;flex-direction:column;gap:8px;min-width:0}
@@ -922,7 +922,8 @@ function buildSgBlock(cl,sg,sgi){
             <span style="font-weight:${isAnchor||isMatch?'700':'400'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${esc(m.app_name||"")}</span>
             ${isMatch?`<span style="font-size:9px;color:var(--green);font-weight:700;flex-shrink:0">✓</span>`:""}
           </div>
-          <div style="font-size:9px;color:var(--muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc((m.app_address||"").slice(0,55))}</div>
+          <div style="font-size:9px;color:var(--muted);margin-top:2px;white-space:normal;line-height:1.3">${esc(m.app_address||"")}</div>
+          ${m.store_id?`<div style="font-family:monospace;font-size:8px;color:var(--muted);margin-top:2px;opacity:.7">${esc(m.store_id)}</div>`:""}
         </div>`;
       }).join("");
 
@@ -2188,7 +2189,7 @@ function renderSgList(cid) {
   el.innerHTML = sgs.map((sg, sgi) => {
     const isCorr = !!sg.correction;
     const isActive = sgi === _sgActiveSgi;
-    const addr = (sg.rep_addr||'').slice(0,45);
+    const addr = sg.rep_addr||'';
     const corrBadge = isCorr
       ? `<div style="font-family:monospace;font-size:8px;color:var(--green);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">✓ ${esc(sg.correction)}</div>`
       : '';
@@ -2303,7 +2304,8 @@ function buildSgGroupCard(cid, sg, sgi) {
   const chipsHtml = sg.members.map(ii => {
     const m = clMembers.find(m => m.item_index === ii);
     const name = m ? m.app_name : ii.slice(-12);
-    const addr = m ? (m.app_address||'').slice(0,55) : '';
+    const addr = m ? (m.app_address||'') : '';
+    const storeId = m ? (m.store_id||'') : '';
     return `<div class="sg-chip" draggable="true"
       data-ii="${esc(ii)}" data-from-sgi="${sgi}" data-cid="${esc(cid)}"
       ondragstart="onSgChipDragStart(event)"
@@ -2311,6 +2313,7 @@ function buildSgGroupCard(cid, sg, sgi) {
       title="${esc(ii)}">
       <div class="sg-chip-name">${esc(name)}</div>
       ${addr ? `<div class="sg-chip-addr">${esc(addr)}</div>` : ''}
+      ${storeId ? `<div style="font-family:monospace;font-size:8px;color:var(--muted);margin-top:2px;opacity:.7">${esc(storeId)}</div>` : ''}
       <span class="sg-chip-x" onclick="removeSgChip('${esc(cid)}',${sgi},'${esc(ii)}')">✕</span>
     </div>`;
   }).join("");
@@ -2366,7 +2369,8 @@ function buildSgGroupCard(cid, sg, sgi) {
             <span style="font-weight:${isAnchor||isMatch||isMovedIn?'700':'400'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${esc(m.app_name||"")}</span>
             ${badge}
           </div>
-          <div style="font-size:9px;color:var(--muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc((m.app_address||"").slice(0,55))}</div>
+          <div style="font-size:9px;color:var(--muted);margin-top:2px;white-space:normal;line-height:1.3">${esc(m.app_address||"")}</div>
+          ${m.store_id?`<div style="font-family:monospace;font-size:8px;color:var(--muted);margin-top:2px;opacity:.7">${esc(m.store_id)}</div>`:""}
         </div>`;
       }).join("");
 
