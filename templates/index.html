@@ -980,13 +980,7 @@ function buildSgBlock(cl,sg,sgi){
       <div id="sgBd_${sgKey}" style="padding:0 10px">${bdHtml}</div>
       <div style="padding:8px 10px;background:var(--surf2);border-top:1px solid var(--border)">
         <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px">Corrección</div>
-        <div id="sgCorrChip_${sgKey}" style="margin-bottom:5px">${corrHtml}</div>
-        ${!sg.correction && Array.isArray(sg.bd_results) && sg.bd_results.length===0 ? `<div style="font-size:10px;color:var(--amber);margin-bottom:5px">⚠ Sin resultados — ingresa manualmente o crea nuevo.</div>` : ""}
-        <div style="display:flex;gap:5px;flex-wrap:wrap">
-          <input id="sgCorrIn_${sgKey}" class="corr-input" placeholder="Pegar cluster_index aquí" style="font-size:11px;padding:5px 8px">
-          <button class="btn green sm" onclick="assignSgInput('${esc(cid)}',${sgi},'${sgKey}')">✓</button>
-          <button class="btn sm" onclick="createSgNew('${esc(cid)}',${sgi})">+ Nuevo</button>
-        </div>
+        <div id="sgCorrChip_${sgKey}">${corrHtml}</div>
       </div>
     </div>
   </div>`;
@@ -2311,13 +2305,7 @@ function buildSgGroupCard(cid, sg, sgi) {
         <!-- Corrección -->
         <div class="sg-corr-section">
           <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Corrección</div>
-          <div style="margin-bottom:6px">${corrHtml}</div>
-          ${!sg.correction && Array.isArray(sg.bd_results) && sg.bd_results.length===0 ? `<div style="font-size:10px;color:var(--amber);margin-bottom:6px">⚠ Sin resultados — ingresa manualmente o crea nuevo.</div>` : ''}
-          <div style="display:flex;gap:5px;flex-wrap:wrap">
-            <input id="sgModalCorrIn_${CSS.escape(cid)}_${sgi}" class="corr-input" placeholder="Pegar cluster_index aquí" style="font-size:11px;padding:5px 8px">
-            <button class="btn green sm" onclick="assignSgInputModal('${esc(cid)}',${sgi})">✓</button>
-            <button class="btn sm" onclick="createSgNew('${esc(cid)}',${sgi});renderSgGroupsPanel('${esc(cid)}')">+ Nuevo</button>
-          </div>
+          <div>${corrHtml}</div>
         </div>
       </div>
     </div>
