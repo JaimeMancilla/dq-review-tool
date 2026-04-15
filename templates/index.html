@@ -3342,7 +3342,7 @@ async function placesScrape() {
       status.textContent =
         `✓ ${found} encontrados — +${ins} nuevos, ${upd} act., ${skip} duplicados`;
       status.style.color = 'var(--green)';
-      showToast(`Scraping completado: +${ins} nuevos lugares`);
+      toast(`Scraping completado: +${ins} nuevos lugares`);
       placesLoadRows();
       placesLoadStats();
     }
@@ -3511,9 +3511,9 @@ async function placesDelete(id) {
     _placesRows = _placesRows.filter(r => r.id !== id);
     placesFilter();
     placesLoadStats();
-    showToast('Lugar eliminado');
+    toast('Lugar eliminado');
   } catch(e) {
-    showToast('Error al eliminar: ' + e.message);
+    toast('Error al eliminar: ' + e.message);
   }
 }
 
