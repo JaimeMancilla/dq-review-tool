@@ -146,19 +146,21 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
 .sg-modal-body{flex:1;display:flex;min-height:0;overflow:hidden}
 .sg-modal-progress{flex:1;font-size:11px;color:var(--muted)}
 /* Lista izquierda de subgrupos */
-.sg-list-panel{width:220px;flex-shrink:0;border-right:1px solid var(--border);overflow-y:auto;background:var(--surf2);display:flex;flex-direction:column}
-.sg-list-item{display:flex;align-items:center;gap:7px;padding:7px 10px;cursor:pointer;border-bottom:1px solid var(--border);transition:background .1s;user-select:none;border-left:3px solid transparent}
+.sg-list-panel{width:280px;flex-shrink:0;border-right:1px solid var(--border);overflow-y:auto;background:var(--surf2);display:flex;flex-direction:column}
+.sg-list-item{display:flex;align-items:flex-start;gap:7px;padding:7px 10px;cursor:pointer;border-bottom:1px solid var(--border);transition:background .1s;user-select:none;border-left:3px solid transparent}
 .sg-list-item:hover{background:var(--surf)}
 .sg-list-item.active{background:var(--bbg);border-left-color:var(--blue)}
 .sg-list-item.sg-corrected{border-left-color:var(--green)}
 .sg-list-item.active.sg-corrected{background:rgba(15,123,62,.06);border-left-color:var(--green)}
 .sg-list-item.drop-target{background:var(--bbg)!important;border-left-color:var(--blue)!important;border:2px dashed var(--blue)}
-.sg-list-num{width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;flex-shrink:0;background:var(--border2);color:var(--muted)}
+.sg-list-num{width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;flex-shrink:0;background:var(--border2);color:var(--muted);margin-top:1px}
 .sg-list-num.ok{background:var(--gbg);color:var(--green);border:1px solid var(--gborder)}
-.sg-list-name{font-size:11px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
-.sg-list-count{font-size:9px;color:var(--muted);flex-shrink:0}
+.sg-list-info{flex:1;min-width:0}
+.sg-list-name{font-size:11px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sg-list-addr{font-size:9px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:1px}
+.sg-list-count{font-size:9px;color:var(--muted);flex-shrink:0;margin-top:1px}
 /* Panel activo derecha */
-.sg-active-panel{flex:1;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.sg-active-panel{flex:1;overflow-y:auto;padding:10px 12px;display:flex;flex-direction:column;gap:8px;min-width:0}
 /* Card del subgrupo activo */
 .sg-group-card{background:var(--surf);border:2px solid var(--border);border-radius:var(--rl);overflow:hidden;transition:border-color .15s}
 .sg-group-card.corrected{border-color:var(--gborder)}
@@ -170,8 +172,8 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
 .sg-group-name{font-size:12px;font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sg-group-count{font-size:10px;color:var(--muted);white-space:nowrap}
 .sg-group-corr-badge{font-family:monospace;font-size:9px;color:var(--green);font-weight:700;background:var(--gbg);border:1px solid var(--gborder);border-radius:4px;padding:1px 6px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.sg-group-body{display:flex;min-height:280px}
-.sg-group-stores{width:220px;flex-shrink:0;border-right:1px solid var(--border);padding:10px;display:flex;flex-direction:column;gap:4px;background:var(--surf2)}
+.sg-group-body{display:flex;min-height:320px;max-height:calc(93vh - 120px)}
+.sg-group-stores{width:240px;flex-shrink:0;border-right:1px solid var(--border);padding:10px;display:flex;flex-direction:column;gap:4px;background:var(--surf2);overflow-y:auto}
 .sg-group-right{flex:1;padding:10px 14px;display:flex;flex-direction:column;gap:8px;overflow-y:auto}
 .sg-drop-zone{min-height:40px;border:2px dashed var(--border2);border-radius:var(--r);padding:6px;display:flex;flex-direction:column;gap:4px;transition:all .15s;background:var(--surf);flex:1}
 .sg-drop-zone.drag-over{border-color:var(--blue);background:var(--bbg)}
@@ -2186,13 +2188,21 @@ function renderSgList(cid) {
   el.innerHTML = sgs.map((sg, sgi) => {
     const isCorr = !!sg.correction;
     const isActive = sgi === _sgActiveSgi;
+    const addr = (sg.rep_addr||'').slice(0,45);
+    const corrBadge = isCorr
+      ? `<div style="font-family:monospace;font-size:8px;color:var(--green);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">✓ ${esc(sg.correction)}</div>`
+      : '';
     return `<div class="sg-list-item${isActive?' active':''}${isCorr?' sg-corrected':''}"
       onclick="selectSgItem('${esc(cid)}',${sgi})"
       ondragover="onSgListDragOver(event)"
       ondragleave="onSgListDragLeave(event)"
       ondrop="onSgListDrop(event,'${esc(cid)}',${sgi})">
       <div class="sg-list-num${isCorr?' ok':''}">${isCorr?'✓':sgi+1}</div>
-      <span class="sg-list-name">${esc(sg.rep_name||'Grupo '+(sgi+1))}</span>
+      <div class="sg-list-info">
+        <div class="sg-list-name">${esc(sg.rep_name||'Grupo '+(sgi+1))}</div>
+        ${addr?`<div class="sg-list-addr">${esc(addr)}</div>`:''}
+        ${corrBadge}
+      </div>
       <span class="sg-list-count">${sg.members.length}s</span>
     </div>`;
   }).join("") +
