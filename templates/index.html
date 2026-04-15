@@ -3418,8 +3418,8 @@ const COUNTRY_FLAG = {
 };
 
 function placesRenderTable(rows) {
-  const tbody  = document.getElementById('plTableBody');
-  const count  = document.getElementById('plFilterCount');
+  const tbody = document.getElementById('plTableBody');
+  const count = document.getElementById('plFilterCount');
   count.textContent = `${rows.length} lugares`;
 
   if (!rows.length) {
@@ -3429,138 +3429,83 @@ function placesRenderTable(rows) {
     return;
   }
 
-  // Separar dark kitchens (agrupar por dirección) del resto
-  const dks    = rows.filter(r => r.place_type === 'dark_kitchen');
-  const others = rows.filter(r => r.place_type !== 'dark_kitchen');
-
-  // Agrupar DKs por place_address normalizada
-  const dkGroups = {};
-  for (const r of dks) {
-    const key = (r.place_address || '').trim().toLowerCase() || `id_${r.id}`;
-    if (!dkGroups[key]) dkGroups[key] = { address: r.place_address, commune: r.commune,
-                                           region: r.region, country: r.country,
-                                           lat: r.latitude, lon: r.longitude, rows: [] };
-    dkGroups[key].rows.push(r);
-  }
-
   const srcBadge = src => src === 'internal_db'
     ? `<span class="badge n" style="font-size:9px">BD interna</span>`
     : `<span class="badge ok" style="font-size:9px">OSM</span>`;
 
-  // Renderizar filas normales
-  let html = others.map(r => `
-    <tr>
-      <td style="white-space:nowrap">
-        ${PTYPE_ICON[r.place_type]||'📍'}
-        <span style="font-size:10px;color:var(--muted)">${r.place_type}</span>
-      </td>
-      <td style="font-weight:600;max-width:220px;overflow:hidden;
-                 text-overflow:ellipsis;white-space:nowrap" title="${escHtml(r.place_name)}">
-        ${escHtml(r.place_name)}
-      </td>
-      <td style="font-size:11px;color:var(--muted);max-width:200px;overflow:hidden;
-                 text-overflow:ellipsis;white-space:nowrap" title="${escHtml(r.place_address)}">
-        ${escHtml(r.place_address||'—')}
-      </td>
-      <td style="font-size:11px">${escHtml(r.commune||'—')}</td>
-      <td style="font-size:11px;color:var(--muted)">${escHtml(r.region||'—')}</td>
-      <td style="white-space:nowrap">${COUNTRY_FLAG[r.country]||''} ${r.country.toUpperCase()}</td>
-      <td>${srcBadge(r.source)}</td>
-      <td>
-        <button class="btn sm red" style="padding:2px 6px;font-size:10px"
-          onclick="placesDelete(${r.id})" title="Eliminar">✕</button>
-      </td>
-    </tr>
-  `).join('');
+  let html = '';
+  for (const r of rows) {
+    const isDK = r.place_type === 'dark_kitchen';
+    const grpId = `dkg_${r.id}`;
 
-  // Renderizar grupos de dark kitchens
-  for (const [key, grp] of Object.entries(dkGroups)) {
-    const ids      = grp.rows.map(r => r.id);
-    const grpId    = `dkg_${ids[0]}`;
-    const count_dk = grp.rows.length;
-
-    // Parsear marcas desde raw_tags de cada fila del grupo
-    const allNames = [];
-    let totalClusters = 0, totalStores = 0;
-    for (const r of grp.rows) {
-      try {
-        const rt = JSON.parse(r.raw_tags || '{}');
-        if (rt.sample_names) allNames.push(...rt.sample_names);
-        totalClusters += rt.total_clusters || 0;
-        totalStores   += rt.total_stores   || 0;
-      } catch(e) {}
-    }
-    // Deduplicar nombres
-    const uniqueNames = [...new Set(allNames)].slice(0, 20);
+    // Parsear raw_tags
+    let rt = {};
+    try { rt = JSON.parse(typeof r.raw_tags === 'string' ? r.raw_tags : '{}'); } catch(e) {}
+    const names         = rt.sample_names || [];
+    const totalClusters = rt.total_clusters || 0;
+    const totalStores   = rt.total_stores   || 0;
 
     html += `
-      <!-- Fila cabecera del grupo DK -->
-      <tr style="cursor:pointer;background:var(--rbg)"
-          onclick="document.getElementById('${grpId}').classList.toggle('hidden')">
+      <tr style="cursor:${isDK?'pointer':'default'};background:${isDK?'var(--rbg)':'var(--surf)'}"
+          ${isDK ? `onclick="document.getElementById('${grpId}').classList.toggle('hidden')"` : ''}>
         <td style="white-space:nowrap">
-          🍳 <span style="font-size:10px;color:var(--muted)">dark_kitchen</span>
+          ${PTYPE_ICON[r.place_type]||'📍'}
+          <span style="font-size:10px;color:var(--muted)">${r.place_type}</span>
         </td>
-        <td style="font-weight:600;max-width:220px" colspan="1">
-          <span style="font-size:10px;background:var(--rbg);color:var(--red);
-                       border:1px solid var(--rborder);border-radius:4px;
-                       padding:1px 6px;margin-right:6px;font-weight:700">
-            ${count_dk} marca${count_dk!==1?'s':''}
-          </span>
-          <span style="font-size:10px;color:var(--muted)">
-            ${totalClusters} clusters · ${totalStores} stores
-          </span>
+        <td style="font-weight:600;max-width:220px;overflow:hidden;
+                   text-overflow:ellipsis;white-space:nowrap" title="${escHtml(r.place_name)}">
+          ${isDK ? `<span style="font-size:10px;background:var(--rbg);color:var(--red);
+                         border:1px solid var(--rborder);border-radius:4px;
+                         padding:1px 6px;margin-right:5px;font-weight:700">
+                      ${names.length} marcas
+                    </span>` : ''}
+          ${escHtml(isDK ? (r.place_address||r.place_name) : r.place_name)}
         </td>
-        <td style="font-size:11px;color:var(--muted);max-width:220px;overflow:hidden;
-                   text-overflow:ellipsis;white-space:nowrap" title="${escHtml(grp.address)}"
-            colspan="2">
-          📍 ${escHtml(grp.address||'—')}
+        <td style="font-size:11px;color:var(--muted);max-width:200px;overflow:hidden;
+                   text-overflow:ellipsis;white-space:nowrap" title="${escHtml(r.place_address)}">
+          ${isDK
+            ? `<span style="font-size:10px;color:var(--muted)">${totalClusters} clusters · ${totalStores} stores</span>`
+            : escHtml(r.place_address||'—')}
         </td>
-        <td style="font-size:11px">${escHtml(grp.commune||'—')}</td>
-        <td style="white-space:nowrap">${COUNTRY_FLAG[grp.country]||''} ${grp.country.toUpperCase()}</td>
-        <td><span class="badge n" style="font-size:9px">BD interna</span></td>
+        <td style="font-size:11px">${escHtml(r.commune||'—')}</td>
+        <td style="font-size:11px;color:var(--muted)">${escHtml(r.region||'—')}</td>
+        <td style="white-space:nowrap">${COUNTRY_FLAG[r.country]||''} ${r.country.toUpperCase()}</td>
+        <td>${srcBadge(r.source)}</td>
         <td>
           <button class="btn sm red" style="padding:2px 6px;font-size:10px"
-            onclick="event.stopPropagation();placesDeleteGroup([${ids.join(',')}])"
-            title="Eliminar grupo">✕</button>
+            onclick="event.stopPropagation();placesDelete(${r.id})" title="Eliminar">✕</button>
         </td>
-      </tr>
-      <!-- Filas expandibles: una por marca -->
-      <tr id="${grpId}" class="hidden">
-        <td colspan="8" style="padding:0;background:var(--surf2)">
-          <div style="padding:8px 16px 10px 36px">
-            <div style="font-size:10px;font-weight:700;color:var(--muted);
-                        text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">
-              Marcas en esta dirección
+      </tr>`;
+
+    // Fila expandible con marcas (sólo DK)
+    if (isDK) {
+      html += `
+        <tr id="${grpId}" class="hidden">
+          <td colspan="8" style="padding:0;background:var(--surf2)">
+            <div style="padding:8px 16px 10px 36px">
+              <div style="font-size:10px;font-weight:700;color:var(--muted);
+                          text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">
+                Marcas en esta dirección
+              </div>
+              <div style="display:flex;flex-wrap:wrap;gap:5px">
+                ${names.length
+                  ? names.map(n =>
+                      `<span style="font-size:11px;background:var(--surf);
+                                    border:1px solid var(--border2);border-radius:5px;
+                                    padding:3px 9px">${escHtml(n)}</span>`
+                    ).join('')
+                  : '<span style="font-size:11px;color:var(--muted)">Sin nombres en muestra</span>'
+                }
+              </div>
             </div>
-            <div style="display:flex;flex-wrap:wrap;gap:5px">
-              ${uniqueNames.length
-                ? uniqueNames.map(n =>
-                    `<span style="font-size:11px;background:var(--surf);
-                                  border:1px solid var(--border2);border-radius:5px;
-                                  padding:3px 9px">${escHtml(n)}</span>`
-                  ).join('')
-                : '<span style="font-size:11px;color:var(--muted)">Sin nombres disponibles</span>'
-              }
-            </div>
-          </div>
-        </td>
-      </tr>
-    `;
+          </td>
+        </tr>`;
+    }
   }
 
   tbody.innerHTML = html;
 }
 
-async function placesDeleteGroup(ids) {
-  if (!confirm(`¿Eliminar este grupo de ${ids.length} dark kitchen(s)?`)) return;
-  for (const id of ids) {
-    await fetch(`/places/delete/${id}`, { method: 'DELETE' });
-    _placesRows = _placesRows.filter(r => r.id !== id);
-  }
-  placesFilter();
-  placesLoadStats();
-  toast(`Grupo eliminado (${ids.length} entradas)`);
-}
 
 // ── Estadísticas por país ─────────────────────────────────────────────────────
 
