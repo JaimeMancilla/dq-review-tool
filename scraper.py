@@ -75,7 +75,8 @@ def init_places_db():
             osm_id           TEXT,
             source           TEXT DEFAULT 'overpass',
             raw_tags         TEXT DEFAULT '{}',
-            scraped_at       REAL
+            scraped_at       REAL,
+            verified         INTEGER DEFAULT 0
         )
     """)
     # Índice para evitar duplicados OSM
@@ -87,6 +88,11 @@ def init_places_db():
         CREATE INDEX IF NOT EXISTS idx_places_country_type
         ON places(country, place_type)
     """)
+    
+    try:
+        conn.execute("ALTER TABLE places ADD COLUMN verified INTEGER DEFAULT 0")
+    except: pass #preguntar si está bien así
+    
     conn.commit()
     conn.close()
 
@@ -158,7 +164,7 @@ def places_list(country=None, place_type=None, query=None, limit=500):
         params.extend([like, like, like])
     sql = f"""
         SELECT id, place_type, place_name, place_address, commune, region,
-               country, latitude, longitude, osm_id, source, scraped_at
+               country, latitude, longitude, osm_id, source, scraped_at, raw_tags, verified
         FROM places
         WHERE {' AND '.join(where)}
         ORDER BY country, place_type, place_name
@@ -168,7 +174,7 @@ def places_list(country=None, place_type=None, query=None, limit=500):
     rows = conn.execute(sql, params).fetchall()
     conn.close()
     cols = ["id","place_type","place_name","place_address","commune","region",
-            "country","latitude","longitude","osm_id","source","scraped_at","raw_tags"]
+            "country","latitude","longitude","osm_id","source","scraped_at","raw_tags","verified"]
     return [dict(zip(cols, r)) for r in rows]
 
 def places_delete(place_id):
@@ -423,7 +429,7 @@ def scrape_dark_kitchens_db(pg_query_fn, country, min_brands=4,
             "raw_tags": json.dumps({
                 "total_clusters": r.get("total_clusters", 0),
                 "total_stores":   r.get("total_stores", 0),
-                "sample_names":   names[:10],   # hasta 10 marcas
+                "sample_names":   names,   # hasta 10 marcas
             }, ensure_ascii=False),
         })
 

@@ -464,6 +464,14 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
         <option value="commercial">Comercial</option>
         <option value="dark_kitchen">Dark kitchen</option>
       </select>
+      
+      <select id="plFilterVerified" onchange="placesFilter()"
+          style="padding:6px 10px;font-size:12px;border:1px solid var(--border2);
+                 border-radius:var(--r);background:var(--surf);color:var(--text)">
+          <option value="">Todos</option>
+          <option value="1">✓ Verificados</option>
+          <option value="0">Sin verificar</option>
+        </select>
 
       <span id="plFilterCount" style="font-size:11px;color:var(--muted);white-space:nowrap"></span>
     </div>
@@ -3389,7 +3397,12 @@ function placesFilter() {
   const q       = (document.getElementById('plFilterQ').value || '').toLowerCase();
   const country = document.getElementById('plFilterCountry').value.toLowerCase();
   const ptype   = document.getElementById('plFilterType').value;
-
+  const verified = document.getElementById('plFilterVerified').value;
+  // dentro del .filter():
+  if (verified !== '') {
+    const v = parseInt(verified);
+    if ((r.verified ? 1 : 0) !== v) return false;
+  }
   const filtered = _placesRows.filter(r => {
     if (country && r.country !== country) return false;
     if (ptype   && r.place_type !== ptype) return false;
@@ -3470,7 +3483,16 @@ function placesRenderTable(rows) {
         <td style="font-size:11px">${escHtml(r.commune||'—')}</td>
         <td style="font-size:11px;color:var(--muted)">${escHtml(r.region||'—')}</td>
         <td style="white-space:nowrap">${COUNTRY_FLAG[r.country]||''} ${r.country.toUpperCase()}</td>
-        <td>${srcBadge(r.source)}</td>
+        <td style="white-space:nowrap">
+          ${srcBadge(r.source)}
+          <button onclick="event.stopPropagation();placesToggleVerify(${r.id},${r.verified?1:0})"
+            style="margin-left:4px;padding:1px 6px;font-size:10px;border-radius:4px;cursor:pointer;
+                   border:1px solid ${r.verified?'var(--gborder)':'var(--border2)'};
+                   background:${r.verified?'var(--gbg)':'var(--surf)'};
+                   color:${r.verified?'var(--green)':'var(--muted)'}">
+            ${r.verified ? '✓ Verificado' : '○ Verificar'}
+          </button>
+        </td>
         <td>
           <button class="btn sm red" style="padding:2px 6px;font-size:10px"
             onclick="event.stopPropagation();placesDelete(${r.id})" title="Eliminar">✕</button>
@@ -3563,6 +3585,18 @@ async function placesDelete(id) {
   }
 }
 
+async function placesToggleVerify(id, current) {
+  const newVal = current ? 0 : 1;
+  await fetch(`/places/verify/${id}`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({verified: newVal})
+  });
+  const row = _placesRows.find(r => r.id === id);
+  if (row) row.verified = newVal;
+  placesFilter();
+  toast(newVal ? '✓ Marcado como verificado' : 'Verificación removida');
+}
 // ── Exportar Excel ────────────────────────────────────────────────────────────
 
 function placesExport() {

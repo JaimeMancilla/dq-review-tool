@@ -2289,6 +2289,14 @@ def places_export():
     filename = f"places_{country or 'all'}_{ptype or 'all'}.xlsx"
     return _sf(path, as_attachment=True, download_name=filename,
                mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    
+@app.route("/places/verify/<int:place_id>", methods=["POST"])
+def places_verify(place_id):
+    verified = request.json.get("verified", 1)
+    conn = sqlite3.connect(DB_FILE)
+    conn.execute("UPDATE places SET verified=? WHERE id=?", (verified, place_id))
+    conn.commit(); conn.close()
+    return jsonify({"ok": True, "id": place_id, "verified": verified})
 
 if __name__=="__main__":
     print("\n"+"="*54)
