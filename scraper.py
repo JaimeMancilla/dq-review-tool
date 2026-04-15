@@ -6,6 +6,7 @@ Fuentes:
   3. dim_maestra (PostgreSQL)      → detección de dark kitchens por concentración de marcas
 """
 
+import json
 import re, time, sqlite3, unicodedata
 from pathlib import Path
 
@@ -167,7 +168,7 @@ def places_list(country=None, place_type=None, query=None, limit=500):
     rows = conn.execute(sql, params).fetchall()
     conn.close()
     cols = ["id","place_type","place_name","place_address","commune","region",
-            "country","latitude","longitude","osm_id","source","scraped_at"]
+            "country","latitude","longitude","osm_id","source","scraped_at","raw_tags"]
     return [dict(zip(cols, r)) for r in rows]
 
 def places_delete(place_id):
@@ -363,6 +364,8 @@ def scrape_dark_kitchens_db(pg_query_fn, country, min_brands=4,
     pg_query_fn: la función pg_query de app.py
     Retorna dict {inserted, candidates_found, errors}
     """
+    import json
+    
     if progress_cb: progress_cb("Consultando dim_maestra para dark kitchens…")
 
     # Traemos stores agrupadas por cluster_address
@@ -417,9 +420,11 @@ def scrape_dark_kitchens_db(pg_query_fn, country, min_brands=4,
             "longitude":     _safe_float(r.get("cluster_longitude")),
             "osm_id":        None,   # no tiene OSM id
             "source":        "internal_db",
-            "raw_tags":      f'{{"total_clusters":{r.get("total_clusters",0)},'
-                             f'"total_stores":{r.get("total_stores",0)},'
-                             f'"sample_names":{str(names[:5])}}}',
+            "raw_tags": json.dumps({
+                "total_clusters": r.get("total_clusters", 0),
+                "total_stores":   r.get("total_stores", 0),
+                "sample_names":   names[:10],   # hasta 10 marcas
+            }, ensure_ascii=False),
         })
 
     ins, upd, skip = places_upsert(records)
