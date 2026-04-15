@@ -2198,27 +2198,43 @@ function buildSgGroupCard(cid, sg, sgi) {
       const hasAnchor = bdc.members.some(m => m.is_anchor || m.item_index === bdc.cluster_index);
 
       const chipsHtml2 = bdc.members.map(m => {
-        const isMatch  = sgStoreIds.has(String(m.store_id||""));
-        const isAnchor = m.is_anchor || (m.item_index && m.item_index === bdc.cluster_index);
-        const draggable = !isAnchor;
-        const chipBg = isAnchor
-          ? "background:var(--abg);border-color:var(--aborder);cursor:default"
-          : isMatch
-          ? "background:var(--gbg);border-color:var(--gborder);cursor:grab"
-          : "cursor:grab";
+        const isMatch   = sgStoreIds.has(String(m.store_id||""));
+        const isAnchor  = m.is_anchor || (m.item_index && m.item_index === bdc.cluster_index);
+        const isMovedOut = m._moved_out === true;
+        const isMovedIn  = m._moved_in  === true;
+        const draggable = !isAnchor && !isMovedOut && !isMovedIn;
+
+        let chipBg, extraStyle = "";
+        if (isAnchor)     chipBg = "background:var(--abg);border-color:var(--aborder);cursor:default";
+        else if (isMovedOut) { chipBg = "cursor:default"; extraStyle = "opacity:0.35;text-decoration:line-through"; }
+        else if (isMovedIn)  chipBg = "background:var(--pbg,#f5f3ff);border-color:var(--pborder,#c4b5fd);cursor:default";
+        else if (isMatch)    chipBg = "background:var(--gbg);border-color:var(--gborder);cursor:grab";
+        else                 chipBg = "cursor:grab";
+
         const dragJson = draggable ? encodeURIComponent(JSON.stringify({
           store_id: m.store_id||"", app_name: m.app_name||"",
           app_address: m.app_address||"", scraper_source: m.scraper_source||"",
           from_cluster: bdc.cluster_index, cluster_name: bdc.cluster_name||"",
           cluster_address: bdc.cluster_address||"", item_index: m.item_index||""
         })) : "";
-        return `<div style="display:flex;flex-direction:column;border:1px solid var(--border2);border-radius:5px;padding:5px 8px;font-size:10px;${chipBg};margin-bottom:3px"
+
+        const icon = isAnchor ? `<span style="font-size:9px;color:var(--amber);font-weight:700">⚓</span>`
+          : isMovedOut ? `<span style="font-size:9px;color:var(--red)">✕</span>`
+          : isMovedIn  ? `<span style="font-size:9px;color:var(--purple,#7c3aed)">↳</span>`
+          : `<span style="font-size:9px;color:var(--muted)">⠿</span>`;
+
+        const badge = isMatch    ? `<span style="font-size:9px;color:var(--green);font-weight:700;flex-shrink:0">✓</span>`
+          : isMovedOut ? `<span style="font-size:9px;color:var(--red);flex-shrink:0">movido</span>`
+          : isMovedIn  ? `<span style="font-size:9px;color:var(--purple,#7c3aed);flex-shrink:0">↳ recibido</span>`
+          : "";
+
+        return `<div style="display:flex;flex-direction:column;border:1px solid var(--border2);border-radius:5px;padding:5px 8px;font-size:10px;${chipBg};${extraStyle};margin-bottom:3px"
           ${draggable?`draggable="true" ondragstart="onBdRowDragStart(event,'${dragJson}')" ondragend="event.target.style.opacity='1'"`:""}
           >
           <div style="display:flex;align-items:center;gap:4px">
-            ${isAnchor?`<span style="font-size:9px;color:var(--amber);font-weight:700">⚓</span>`:`<span style="font-size:9px;color:var(--muted)">⠿</span>`}
-            <span style="font-weight:${isAnchor||isMatch?'700':'400'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${esc(m.app_name||"")}</span>
-            ${isMatch?`<span style="font-size:9px;color:var(--green);font-weight:700;flex-shrink:0">✓</span>`:""}
+            ${icon}
+            <span style="font-weight:${isAnchor||isMatch||isMovedIn?'700':'400'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${esc(m.app_name||"")}</span>
+            ${badge}
           </div>
           <div style="font-size:9px;color:var(--muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc((m.app_address||"").slice(0,55))}</div>
         </div>`;
@@ -2396,7 +2412,6 @@ async function runSgQueryModal(cid, sgi) {
   const sgs = SUBGROUPS[cid]; if (!sgs || !sgs[sgi]) return;
   const sql = sgs[sgi].sql;
   if (!sql) { toast("Sin SQL — regenerando…"); await regenerateSgSql(cid); return; }
-  // Encontrar botón y mostrar spinner
   const groupCards = document.querySelectorAll("#sgGroupsPanel .sg-group-card");
   const btn = groupCards[sgi] ? groupCards[sgi].querySelector(".btn.blue.sm") : null;
   if (btn) { btn.innerHTML = '<span class="spinner"></span>'; btn.disabled = true; }
@@ -2404,9 +2419,24 @@ async function runSgQueryModal(cid, sgi) {
     const d = await api("/pg_query", {sql});
     if (d.error) { toast("Error BD: " + d.error); }
     else {
-      sgs[sgi].bd_results = d.clusters_found || [];
-      if (!d.clusters_found?.length) toast("Sin resultados — intenta reagrupar o ingresa manualmente");
-      else toast(`${d.clusters_found.length} cluster(s) encontrados`);
+      // Aplicar estado de sesión sobre resultados BD
+      const clusters = (d.clusters_found || []).map(bdc => {
+        const state = _sessionClusterState[bdc.cluster_index];
+        if (!state) return bdc;
+        // Marcar como moved_out los que ya se movieron
+        const members = bdc.members.map(m => ({
+          ...m,
+          _moved_out: state.moved_out?.has(String(m.store_id)) || false
+        }));
+        // Agregar los moved_in
+        const incoming = (state.moved_in || []).filter(
+          mi => !members.some(m => m.store_id === mi.store_id)
+        ).map(mi => ({...mi, _moved_in: true, is_anchor: false}));
+        return {...bdc, members: [...members, ...incoming]};
+      });
+      sgs[sgi].bd_results = clusters;
+      if (!clusters.length) toast("Sin resultados — intenta reagrupar o ingresa manualmente");
+      else toast(`${clusters.length} cluster(s) encontrados`);
     }
   } catch(e) { toast("Error: " + e.message); }
   if (btn) { btn.innerHTML = "▶ Ejecutar BD"; btn.disabled = false; }
@@ -2664,8 +2694,11 @@ function closeAuditModal() {
 
 // ── Drag de stores entre clusters en resultados BD ────────────────────────────
 let _bdDragData = null;
-// Movimientos pendientes de confirmación: clave = "cid_sgi", valor = [{store_id, from_cluster, new_cluster, app_name, app_address, scraper_source, is_new}]
+// Movimientos pendientes de confirmación: clave = "cid_sgi"
 const _bdPendingMoves = {};
+// Estado local de clusters modificados en esta sesión
+// clave = cluster_index, valor = {moved_out: Set(store_ids), moved_in: [{store_id, app_name, app_address}]}
+const _sessionClusterState = {};
 
 function onBdRowDragStart(e, dragJson) {
   try { _bdDragData = JSON.parse(decodeURIComponent(dragJson)); }
@@ -2710,6 +2743,15 @@ async function onBdDrop(e, targetCluster, cid, sgi) {
     });
     // Agregar chip en destino
     _bdDropAddChip(targetCluster, cid, sgi, m.app_name, m.app_address, newCluster);
+    // Actualizar _sessionClusterState inmediatamente
+    if (m.from_cluster && m.from_cluster !== "NEW") {
+      if (!_sessionClusterState[m.from_cluster]) _sessionClusterState[m.from_cluster] = {moved_out: new Set(), moved_in: []};
+      _sessionClusterState[m.from_cluster].moved_out.add(String(m.store_id));
+    }
+    if (targetCluster !== "NEW") {
+      if (!_sessionClusterState[targetCluster]) _sessionClusterState[targetCluster] = {moved_out: new Set(), moved_in: []};
+      _sessionClusterState[targetCluster].moved_in.push({store_id: m.store_id, app_name: m.app_name, app_address: m.app_address});
+    }
     // Trackear movimiento pendiente
     if (!_bdPendingMoves[key]) _bdPendingMoves[key] = [];
     _bdPendingMoves[key].push({
@@ -2747,6 +2789,11 @@ async function onBdDrop(e, targetCluster, cid, sgi) {
     const appAddr = dragged?.app_address || "";
     // Agregar chip en destino
     _bdDropAddChip(targetCluster, cid, sgi, appName, appAddr, newCluster);
+    // Actualizar _sessionClusterState
+    if (targetCluster !== "NEW") {
+      if (!_sessionClusterState[targetCluster]) _sessionClusterState[targetCluster] = {moved_out: new Set(), moved_in: []};
+      _sessionClusterState[targetCluster].moved_in.push({store_id: dragged?.store_id||ii, app_name: appName, app_address: appAddr});
+    }
     // Trackear
     const sgKey = `${cid}_${fromSgi}`;
     if (!_bdPendingMoves[sgKey]) _bdPendingMoves[sgKey] = [];
