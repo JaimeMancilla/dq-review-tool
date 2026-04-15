@@ -152,6 +152,7 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
 .sg-list-item.active{background:var(--bbg);border-left-color:var(--blue)}
 .sg-list-item.sg-corrected{border-left-color:var(--green)}
 .sg-list-item.active.sg-corrected{background:rgba(15,123,62,.06);border-left-color:var(--green)}
+.sg-list-item.drop-target{background:var(--bbg)!important;border-left-color:var(--blue)!important;border:2px dashed var(--blue)}
 .sg-list-num{width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;flex-shrink:0;background:var(--border2);color:var(--muted)}
 .sg-list-num.ok{background:var(--gbg);color:var(--green);border:1px solid var(--gborder)}
 .sg-list-name{font-size:11px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
@@ -2186,16 +2187,87 @@ function renderSgList(cid) {
     const isCorr = !!sg.correction;
     const isActive = sgi === _sgActiveSgi;
     return `<div class="sg-list-item${isActive?' active':''}${isCorr?' sg-corrected':''}"
-      onclick="selectSgItem('${esc(cid)}',${sgi})">
+      onclick="selectSgItem('${esc(cid)}',${sgi})"
+      ondragover="onSgListDragOver(event)"
+      ondragleave="onSgListDragLeave(event)"
+      ondrop="onSgListDrop(event,'${esc(cid)}',${sgi})">
       <div class="sg-list-num${isCorr?' ok':''}">${isCorr?'✓':sgi+1}</div>
       <span class="sg-list-name">${esc(sg.rep_name||'Grupo '+(sgi+1))}</span>
       <span class="sg-list-count">${sg.members.length}s</span>
     </div>`;
   }).join("") +
-  `<div class="sg-list-item" style="opacity:.6;font-style:italic" onclick="sgModalAddGroup()">
+  `<div class="sg-list-item" style="opacity:.6;font-style:italic"
+    onclick="sgModalAddGroup()"
+    ondragover="onSgListDragOver(event)"
+    ondragleave="onSgListDragLeave(event)"
+    ondrop="onSgListDrop(event,'${esc(cid)}','NEW')">
     <span style="font-size:14px;color:var(--muted)">＋</span>
     <span class="sg-list-name" style="font-weight:400">Nuevo grupo</span>
   </div>`;
+}
+
+function onSgListDragOver(e) {
+  if (!_sgModalDrag) return; // solo chips de subgrupo
+  e.preventDefault();
+  e.currentTarget.classList.add("drop-target");
+}
+
+function onSgListDragLeave(e) {
+  e.currentTarget.classList.remove("drop-target");
+}
+
+function onSgListDrop(e, cid, toSgi) {
+  e.preventDefault();
+  e.currentTarget.classList.remove("drop-target");
+  if (!_sgModalDrag) return;
+  const {ii, fromSgi} = _sgModalDrag;
+  _sgModalDrag = null;
+  if (!ii) return;
+
+  const sgs = SUBGROUPS[cid];
+  if (!sgs) return;
+
+  // Quitar del subgrupo origen
+  if (fromSgi !== null && fromSgi !== undefined && sgs[fromSgi]) {
+    sgs[fromSgi].members = sgs[fromSgi].members.filter(m => m !== ii);
+    if (sgs[fromSgi].members.length === 0) {
+      sgs.splice(fromSgi, 1);
+      // Ajustar índice activo si se eliminó un subgrupo anterior
+      if (typeof toSgi === 'number' && toSgi > fromSgi) toSgi--;
+      if (_sgActiveSgi > fromSgi) _sgActiveSgi--;
+      else if (_sgActiveSgi === fromSgi) _sgActiveSgi = Math.max(0, fromSgi - 1);
+    }
+  }
+
+  if (toSgi === 'NEW') {
+    // Crear nuevo subgrupo con este store
+    const cl = getCl(cid);
+    const m = cl?.members.find(m => m.item_index === ii);
+    sgs.push({
+      members: [ii],
+      rep_name: m?.app_name || 'Nuevo grupo',
+      rep_addr: m?.app_address || '',
+      sql: '', bd_results: [], correction: '', is_new: false
+    });
+    _sgActiveSgi = sgs.length - 1;
+    regenerateSgSql(cid);
+  } else {
+    // Mover a subgrupo existente
+    if (sgs[toSgi] && !sgs[toSgi].members.includes(ii)) {
+      sgs[toSgi].members.push(ii);
+      const cl = getCl(cid);
+      const m = cl?.members.find(m => m.item_index === sgs[toSgi].members[0]);
+      if (m) sgs[toSgi].rep_name = m.app_name;
+    }
+    _sgActiveSgi = toSgi;
+  }
+
+  SUBGROUPS[cid] = sgs.filter(sg => sg.members.length > 0);
+  renderSgList(cid);
+  renderSgActivePanel(cid, _sgActiveSgi);
+  renderSgStoresList(cid);
+  updateSgModalProgress(cid);
+  toast(`Store movido al grupo ${toSgi === 'NEW' ? 'nuevo' : toSgi + 1}`);
 }
 
 function selectSgItem(cid, sgi) {
