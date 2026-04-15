@@ -307,6 +307,195 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
   </div>
 </div>
 
+
+<!-- ══════════════════════════════════════════════════════
+     PANTALLA PLACES — scraping de malls / dark kitchens
+     ════════════════════════════════════════════════════ -->
+<div id="placesScreen" class="hidden">
+  <div style="max-width:1100px;margin:0 auto;padding:24px 20px 80px">
+
+    <!-- Cabecera -->
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap">
+      <button class="btn sm" onclick="backToTypeSelect()">← Menú</button>
+      <h2 style="font-size:18px;font-weight:700;margin:0">📍 Places</h2>
+      <span id="placesBadgeTotal" class="badge n" style="margin-left:4px">0 lugares</span>
+      <div style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn sm blue" onclick="placesExport()">⬇ Exportar Excel</button>
+        <button class="btn sm" onclick="placesLoadStats()" title="Recargar stats">↺</button>
+      </div>
+    </div>
+
+    <!-- Panel de búsqueda / scraping -->
+    <div style="background:var(--surf);border:1px solid var(--border);border-radius:var(--rl);
+                padding:16px 18px;margin-bottom:16px">
+      <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;
+                  letter-spacing:.05em;margin-bottom:12px">Nuevo scraping</div>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;
+                  margin-bottom:12px">
+
+        <!-- Fuente -->
+        <div>
+          <label style="font-size:10px;font-weight:600;color:var(--muted);
+                        display:block;margin-bottom:4px">FUENTE</label>
+          <select id="plSrc" onchange="placesSourceToggle()"
+            style="width:100%;padding:6px 8px;font-size:12px;border:1px solid var(--border2);
+                   border-radius:var(--r);background:var(--surf);color:var(--text)">
+            <option value="overpass">🗺 OpenStreetMap</option>
+            <option value="internal_db">🔍 dim_maestra (dark kitchens)</option>
+          </select>
+        </div>
+
+        <!-- Tipo de lugar (sólo overpass) -->
+        <div id="plTypeWrap">
+          <label style="font-size:10px;font-weight:600;color:var(--muted);
+                        display:block;margin-bottom:4px">TIPO DE LUGAR</label>
+          <select id="plType"
+            style="width:100%;padding:6px 8px;font-size:12px;border:1px solid var(--border2);
+                   border-radius:var(--r);background:var(--surf);color:var(--text)">
+            <option value="mall">🏬 Mall</option>
+            <option value="strip_center">🏪 Strip center</option>
+            <option value="market">🛒 Mercado / marketplace</option>
+            <option value="commercial">🏢 Zona comercial</option>
+          </select>
+        </div>
+
+        <!-- País -->
+        <div>
+          <label style="font-size:10px;font-weight:600;color:var(--muted);
+                        display:block;margin-bottom:4px">PAÍS</label>
+          <select id="plCountry"
+            style="width:100%;padding:6px 8px;font-size:12px;border:1px solid var(--border2);
+                   border-radius:var(--r);background:var(--surf);color:var(--text)">
+            <option value="cl">🇨🇱 Chile</option>
+            <option value="mx">🇲🇽 México</option>
+            <option value="co">🇨🇴 Colombia</option>
+            <option value="pe">🇵🇪 Perú</option>
+            <option value="ar">🇦🇷 Argentina</option>
+            <option value="br">🇧🇷 Brasil</option>
+            <option value="ec">🇪🇨 Ecuador</option>
+            <option value="uy">🇺🇾 Uruguay</option>
+          </select>
+        </div>
+
+        <!-- Ciudad (sólo overpass) -->
+        <div id="plCityWrap">
+          <label style="font-size:10px;font-weight:600;color:var(--muted);
+                        display:block;margin-bottom:4px">CIUDAD (opcional)</label>
+          <input id="plCity" type="text" placeholder="ej: Santiago, Bogotá…"
+            style="width:100%;padding:6px 8px;font-size:12px;border:1px solid var(--border2);
+                   border-radius:var(--r);background:var(--surf);color:var(--text)"
+            onfocus="this.style.borderColor='var(--blue)'"
+            onblur="this.style.borderColor='var(--border2)'"
+            onkeydown="if(event.key==='Enter') placesScrape()">
+        </div>
+
+        <!-- min_brands (sólo internal_db) -->
+        <div id="plMinBrandsWrap" class="hidden">
+          <label style="font-size:10px;font-weight:600;color:var(--muted);
+                        display:block;margin-bottom:4px">MARCAS MÍNIMAS</label>
+          <input id="plMinBrands" type="number" value="4" min="2" max="20"
+            style="width:100%;padding:6px 8px;font-size:12px;border:1px solid var(--border2);
+                   border-radius:var(--r);background:var(--surf);color:var(--text)">
+        </div>
+
+        <!-- min_stores (sólo internal_db) -->
+        <div id="plMinStoresWrap" class="hidden">
+          <label style="font-size:10px;font-weight:600;color:var(--muted);
+                        display:block;margin-bottom:4px">STORES MÍNIMAS</label>
+          <input id="plMinStores" type="number" value="5" min="2" max="50"
+            style="width:100%;padding:6px 8px;font-size:12px;border:1px solid var(--border2);
+                   border-radius:var(--r);background:var(--surf);color:var(--text)">
+        </div>
+
+      </div><!-- /grid -->
+
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <button class="btn primary" id="btnPlacesScrape" onclick="placesScrape()">
+          🔍 Iniciar scraping
+        </button>
+        <div id="plScrapeStatus" style="font-size:11px;color:var(--muted)"></div>
+      </div>
+
+      <!-- Log de scraping -->
+      <div id="plScrapeLog" class="hidden"
+        style="margin-top:10px;background:#1e1e1e;border-radius:6px;padding:8px 10px;
+               font-family:monospace;font-size:10px;color:#aaa;max-height:100px;overflow-y:auto;
+               white-space:pre-wrap;line-height:1.6">
+      </div>
+    </div><!-- /scrape panel -->
+
+    <!-- Filtros de tabla -->
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:center">
+      <input id="plFilterQ" type="text" placeholder="🔍 Buscar nombre, comuna, dirección…"
+        oninput="placesFilter()"
+        style="flex:1;min-width:200px;padding:6px 10px;font-size:12px;
+               border:1px solid var(--border2);border-radius:var(--r);
+               background:var(--surf);color:var(--text)"
+        onfocus="this.style.borderColor='var(--blue)'"
+        onblur="this.style.borderColor='var(--border2)'">
+
+      <select id="plFilterCountry" onchange="placesFilter()"
+        style="padding:6px 10px;font-size:12px;border:1px solid var(--border2);
+               border-radius:var(--r);background:var(--surf);color:var(--text)">
+        <option value="">Todos los países</option>
+        <option value="cl">Chile</option>
+        <option value="mx">México</option>
+        <option value="co">Colombia</option>
+        <option value="pe">Perú</option>
+        <option value="ar">Argentina</option>
+        <option value="br">Brasil</option>
+        <option value="ec">Ecuador</option>
+        <option value="uy">Uruguay</option>
+      </select>
+
+      <select id="plFilterType" onchange="placesFilter()"
+        style="padding:6px 10px;font-size:12px;border:1px solid var(--border2);
+               border-radius:var(--r);background:var(--surf);color:var(--text)">
+        <option value="">Todos los tipos</option>
+        <option value="mall">Mall</option>
+        <option value="strip_center">Strip center</option>
+        <option value="market">Mercado</option>
+        <option value="commercial">Comercial</option>
+        <option value="dark_kitchen">Dark kitchen</option>
+      </select>
+
+      <span id="plFilterCount" style="font-size:11px;color:var(--muted);white-space:nowrap"></span>
+    </div>
+
+    <!-- Tabla de resultados -->
+    <div style="background:var(--surf);border:1px solid var(--border);border-radius:var(--rl);
+                overflow:hidden">
+      <div class="tbl-wrap">
+        <table id="plTable">
+          <thead>
+            <tr>
+              <th>Tipo</th>
+              <th>Nombre</th>
+              <th>Dirección</th>
+              <th>Comuna</th>
+              <th>Región</th>
+              <th>País</th>
+              <th>Fuente</th>
+              <th style="width:36px"></th>
+            </tr>
+          </thead>
+          <tbody id="plTableBody">
+            <tr><td colspan="8" style="text-align:center;padding:32px;color:var(--muted)">
+              Aún no hay lugares. Usa el panel de arriba para hacer un scraping.
+            </td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div><!-- /tabla -->
+
+    <!-- Stats por país -->
+    <div id="plStatsBreakdown" style="margin-top:16px"></div>
+
+  </div>
+</div><!-- /placesScreen -->
+
+
 <!-- Pantalla Dishes -->
 <div id="dishesScreen" class="hidden">
   <div class="stats" id="dishesStatsBar"></div>
@@ -1461,6 +1650,7 @@ async function openDashboard() {
   document.getElementById("mainScreen").classList.add("hidden");
   document.getElementById("dishesScreen").classList.add("hidden");
   document.getElementById("dashboardScreen").classList.remove("hidden");
+  document.getElementById("placesScreen").classList.add("hidden");
   document.getElementById("hdrFile").textContent = "";
   // Ocultar botones de revisión
   ["btnExport","btnMarkReviewed","btnMemory","btnBdUpdate","btnDashboard"].forEach(id=>{
@@ -1887,6 +2077,7 @@ async function resetApp(){
   document.getElementById("mainScreen").classList.add("hidden");
   document.getElementById("dishesScreen").classList.add("hidden");
   document.getElementById("dashboardScreen").classList.add("hidden");
+  document.getElementById("placesScreen").classList.add("hidden");
   document.getElementById("typeSelect").classList.remove("hidden");
   document.getElementById("storesSubtype").classList.add("hidden");
   document.getElementById("fileSelect").classList.add("hidden");
@@ -3072,6 +3263,274 @@ function _bdDropAddChip(targetCluster, cid, sgi, appName, appAddr, newCluster) {
     }
   }
 }
+
+
+// ════════════════════════════════════════════════════════════════════════════
+// MÓDULO PLACES
+// ════════════════════════════════════════════════════════════════════════════
+
+let _placesRows = [];   // caché de la última carga
+
+function openPlaces() {
+  document.getElementById('uploadScreen').classList.add('hidden');
+  document.getElementById('mainScreen').classList.add('hidden');
+  document.getElementById('dishesScreen').classList.add('hidden');
+  document.getElementById('dashboardScreen').classList.add('hidden');
+  document.getElementById('placesScreen').classList.remove('hidden');
+  // Botones header
+  document.getElementById('btnReset').style.display = 'inline-flex';
+  document.getElementById('btnExport').style.display = 'none';
+  placesLoadStats();
+  placesLoadRows();
+}
+
+// ── Scraping ─────────────────────────────────────────────────────────────────
+
+function placesSourceToggle() {
+  const src = document.getElementById('plSrc').value;
+  const isDB = src === 'internal_db';
+  document.getElementById('plTypeWrap').classList.toggle('hidden', isDB);
+  document.getElementById('plCityWrap').classList.toggle('hidden', isDB);
+  document.getElementById('plMinBrandsWrap').classList.toggle('hidden', !isDB);
+  document.getElementById('plMinStoresWrap').classList.toggle('hidden', !isDB);
+}
+
+async function placesScrape() {
+  const btn    = document.getElementById('btnPlacesScrape');
+  const status = document.getElementById('plScrapeStatus');
+  const logDiv = document.getElementById('plScrapeLog');
+
+  const src     = document.getElementById('plSrc').value;
+  const ptype   = document.getElementById('plType').value;
+  const country = document.getElementById('plCountry').value;
+  const city    = document.getElementById('plCity').value.trim();
+
+  btn.disabled = true;
+  btn.textContent = '⏳ Scraping…';
+  status.textContent = 'Consultando fuente de datos…';
+  logDiv.textContent = '';
+  logDiv.classList.remove('hidden');
+
+  const body = { source: src, place_type: ptype, country, city };
+  if (src === 'internal_db') {
+    body.min_brands = parseInt(document.getElementById('plMinBrands').value) || 4;
+    body.min_stores = parseInt(document.getElementById('plMinStores').value) || 5;
+    body.place_type = 'dark_kitchen';  // forzar tipo para fuente interna
+  }
+
+  try {
+    const res  = await fetch('/places/scrape', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+
+    if (data.error) {
+      status.textContent = '❌ ' + data.error;
+      status.style.color = 'var(--red)';
+    } else {
+      const ins  = data.inserted  || 0;
+      const upd  = data.updated   || 0;
+      const skip = data.skipped   || 0;
+      const found = data.total_found ?? data.candidates_found ?? 0;
+      status.textContent =
+        `✓ ${found} encontrados — +${ins} nuevos, ${upd} act., ${skip} duplicados`;
+      status.style.color = 'var(--green)';
+      showToast(`Scraping completado: +${ins} nuevos lugares`);
+      placesLoadRows();
+      placesLoadStats();
+    }
+
+    // Mostrar log
+    if (data.log && data.log.length) {
+      logDiv.textContent = data.log.join('\n');
+    }
+
+  } catch (e) {
+    status.textContent = '❌ Error de red: ' + e.message;
+    status.style.color = 'var(--red)';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🔍 Iniciar scraping';
+  }
+}
+
+// ── Carga y filtrado de tabla ─────────────────────────────────────────────────
+
+async function placesLoadRows() {
+  const country = document.getElementById('plFilterCountry').value;
+  const ptype   = document.getElementById('plFilterType').value;
+  const q       = document.getElementById('plFilterQ').value.trim();
+
+  const params = new URLSearchParams();
+  if (country) params.set('country', country);
+  if (ptype)   params.set('place_type', ptype);
+  if (q)       params.set('q', q);
+  params.set('limit', '1000');
+
+  try {
+    const res  = await fetch('/places/list?' + params.toString());
+    const data = await res.json();
+    _placesRows = data.rows || [];
+    placesRenderTable(_placesRows);
+  } catch (e) {
+    console.error('places/list error', e);
+  }
+}
+
+function placesFilter() {
+  // Filtrado client-side sobre _placesRows para respuesta inmediata
+  const q       = (document.getElementById('plFilterQ').value || '').toLowerCase();
+  const country = document.getElementById('plFilterCountry').value.toLowerCase();
+  const ptype   = document.getElementById('plFilterType').value;
+
+  const filtered = _placesRows.filter(r => {
+    if (country && r.country !== country) return false;
+    if (ptype   && r.place_type !== ptype) return false;
+    if (q) {
+      const haystack = [r.place_name, r.commune, r.place_address, r.region]
+        .join(' ').toLowerCase();
+      if (!haystack.includes(q)) return false;
+    }
+    return true;
+  });
+
+  placesRenderTable(filtered);
+}
+
+const PTYPE_ICON = {
+  mall:         '🏬',
+  strip_center: '🏪',
+  market:       '🛒',
+  commercial:   '🏢',
+  dark_kitchen: '🍳',
+};
+
+const COUNTRY_FLAG = {
+  cl:'🇨🇱', mx:'🇲🇽', co:'🇨🇴', pe:'🇵🇪',
+  ar:'🇦🇷', br:'🇧🇷', ec:'🇪🇨', uy:'🇺🇾', py:'🇵🇾',
+};
+
+function placesRenderTable(rows) {
+  const tbody = document.getElementById('plTableBody');
+  const count = document.getElementById('plFilterCount');
+  count.textContent = `${rows.length} lugares`;
+
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="8"
+      style="text-align:center;padding:32px;color:var(--muted)">
+      Sin resultados para estos filtros.</td></tr>`;
+    return;
+  }
+
+  const srcBadge = src => src === 'internal_db'
+    ? `<span class="badge n" style="font-size:9px">BD interna</span>`
+    : `<span class="badge ok" style="font-size:9px">OSM</span>`;
+
+  tbody.innerHTML = rows.map(r => `
+    <tr>
+      <td style="white-space:nowrap">
+        ${PTYPE_ICON[r.place_type] || '📍'}
+        <span style="font-size:10px;color:var(--muted)">${r.place_type}</span>
+      </td>
+      <td style="font-weight:600;max-width:220px;overflow:hidden;
+                 text-overflow:ellipsis;white-space:nowrap" title="${escHtml(r.place_name)}">
+        ${escHtml(r.place_name)}
+      </td>
+      <td style="font-size:11px;color:var(--muted);max-width:200px;overflow:hidden;
+                 text-overflow:ellipsis;white-space:nowrap" title="${escHtml(r.place_address)}">
+        ${escHtml(r.place_address || '—')}
+      </td>
+      <td style="font-size:11px">${escHtml(r.commune || '—')}</td>
+      <td style="font-size:11px;color:var(--muted)">${escHtml(r.region || '—')}</td>
+      <td style="white-space:nowrap">
+        ${COUNTRY_FLAG[r.country] || ''} ${r.country.toUpperCase()}
+      </td>
+      <td>${srcBadge(r.source)}</td>
+      <td>
+        <button class="btn sm red" style="padding:2px 6px;font-size:10px"
+          onclick="placesDelete(${r.id})" title="Eliminar">✕</button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+// ── Estadísticas por país ─────────────────────────────────────────────────────
+
+async function placesLoadStats() {
+  try {
+    const res  = await fetch('/places/stats');
+    const data = await res.json();
+
+    const badge = document.getElementById('placesBadgeTotal');
+    badge.textContent = `${data.total} lugares`;
+
+    const bd = data.breakdown || {};
+    const countries = Object.keys(bd);
+    if (!countries.length) {
+      document.getElementById('plStatsBreakdown').innerHTML = '';
+      return;
+    }
+
+    const html = `
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        ${countries.map(c => {
+          const types = bd[c];
+          const total = Object.values(types).reduce((a,b)=>a+b,0);
+          const detail = Object.entries(types)
+            .map(([t,n]) => `${PTYPE_ICON[t]||'📍'} ${t}: ${n}`)
+            .join(' · ');
+          return `<div style="background:var(--surf);border:1px solid var(--border);
+                               border-radius:var(--r);padding:8px 14px;min-width:160px">
+            <div style="font-size:11px;font-weight:700;margin-bottom:2px">
+              ${COUNTRY_FLAG[c]||''} ${c.toUpperCase()} — ${total}
+            </div>
+            <div style="font-size:10px;color:var(--muted)">${detail}</div>
+          </div>`;
+        }).join('')}
+      </div>
+    `;
+    document.getElementById('plStatsBreakdown').innerHTML = html;
+  } catch(e) {
+    console.error('places/stats error', e);
+  }
+}
+
+// ── Eliminar ──────────────────────────────────────────────────────────────────
+
+async function placesDelete(id) {
+  if (!confirm('¿Eliminar este lugar?')) return;
+  try {
+    await fetch(`/places/delete/${id}`, { method: 'DELETE' });
+    _placesRows = _placesRows.filter(r => r.id !== id);
+    placesFilter();
+    placesLoadStats();
+    showToast('Lugar eliminado');
+  } catch(e) {
+    showToast('Error al eliminar: ' + e.message);
+  }
+}
+
+// ── Exportar Excel ────────────────────────────────────────────────────────────
+
+function placesExport() {
+  const country = document.getElementById('plFilterCountry').value;
+  const ptype   = document.getElementById('plFilterType').value;
+  const q       = document.getElementById('plFilterQ').value.trim();
+  const params  = new URLSearchParams();
+  if (country) params.set('country', country);
+  if (ptype)   params.set('place_type', ptype);
+  if (q)       params.set('q', q);
+  window.location = '/places/export?' + params.toString();
+}
+
+// ── Helper ────────────────────────────────────────────────────────────────────
+
+function escHtml(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
 </script>
 </body>
 </html>

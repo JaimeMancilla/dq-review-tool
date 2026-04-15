@@ -2187,6 +2187,108 @@ def audit_cluster():
         "threshold":        get_threshold(),
     })
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# MÓDULO PLACES — scraping de malls, dark kitchens, centros comerciales
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Import lazy: scraper sólo se carga si se usa este módulo
+def _get_scraper():
+    import scraper as _s
+    return _s
+
+
+@app.route("/places/stats")
+def places_stats():
+    s = _get_scraper()
+    return jsonify(s.places_stats())
+
+
+@app.route("/places/list")
+def places_list():
+    s       = _get_scraper()
+    country = request.args.get("country", "")
+    ptype   = request.args.get("place_type", "")
+    query   = request.args.get("q", "")
+    limit   = int(request.args.get("limit", 500))
+    rows    = s.places_list(
+        country    = country or None,
+        place_type = ptype   or None,
+        query      = query   or None,
+        limit      = limit,
+    )
+    return jsonify({"rows": rows, "total": len(rows)})
+
+
+@app.route("/places/scrape", methods=["POST"])
+def places_scrape():
+    """
+    Lanza un scraping sincrónico.
+    Body JSON:
+      {
+        "source":     "overpass" | "internal_db",
+        "place_type": "mall" | "strip_center" | "market" | "commercial" | "dark_kitchen",
+        "country":    "cl" | "mx" | "co" | ...,
+        "city":       "Santiago"   (opcional, sólo para overpass)
+      }
+    Retorna progreso y resultado cuando termina.
+    """
+    s    = _get_scraper()
+    data = request.json or {}
+
+    source     = data.get("source", "overpass")
+    place_type = data.get("place_type", "mall")
+    country    = data.get("country", "cl").lower()
+    city       = data.get("city", "").strip() or None
+
+    messages = []
+    def log(msg): messages.append(msg)
+
+    if source == "internal_db":
+        if not pg_is_configured():
+            return jsonify({"error": "BD no configurada — agrega credenciales en .env"}), 400
+        result = s.scrape_dark_kitchens_db(
+            pg_query_fn  = pg_query,
+            country      = country,
+            min_brands   = int(data.get("min_brands", 4)),
+            min_stores   = int(data.get("min_stores", 5)),
+            progress_cb  = log,
+        )
+    else:
+        result = s.scrape_overpass(
+            place_type  = place_type,
+            country     = country,
+            city        = city,
+            progress_cb = log,
+        )
+
+    result["log"] = messages
+    return jsonify(result)
+
+
+@app.route("/places/delete/<int:place_id>", methods=["DELETE"])
+def places_delete(place_id):
+    s = _get_scraper()
+    s.places_delete(place_id)
+    return jsonify({"ok": True, "deleted": place_id})
+
+
+@app.route("/places/export")
+def places_export():
+    """Genera y descarga el Excel con filtros opcionales."""
+    s       = _get_scraper()
+    country = request.args.get("country", "") or None
+    ptype   = request.args.get("place_type", "") or None
+    query   = request.args.get("q", "") or None
+
+    path, err = s.export_places_excel(country=country, place_type=ptype, query=query)
+    if err:
+        return jsonify({"error": err}), 400
+
+    from flask import send_file as _sf
+    import os
+    filename = f"places_{country or 'all'}_{ptype or 'all'}.xlsx"
+    return _sf(path, as_attachment=True, download_name=filename,
+               mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 if __name__=="__main__":
     print("\n"+"="*54)
