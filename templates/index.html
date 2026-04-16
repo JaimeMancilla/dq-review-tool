@@ -1116,10 +1116,10 @@ function buildSgBlock(cl,sg,sgi){
       const chipsHtml = bdc.members.map(m=>{
         const isMatch  = sgStoreIds.has(String(m.store_id||""));
         const isAnchor = m.is_anchor || (m.item_index && m.item_index === bdc.cluster_index);
-        // Ancla no es arrastrable — define el cluster
-        const draggable = !isAnchor;
+        // Ancla también es arrastrable — si se mueve, el cluster origen queda vacío
+        const draggable = !m._moved_out && !m._moved_in;
         const chipBg = isAnchor
-          ? "background:var(--abg);border-color:var(--aborder);cursor:default"
+          ? "background:var(--abg);border-color:var(--aborder);cursor:grab"
           : isMatch
           ? "background:var(--gbg);border-color:var(--gborder);cursor:grab"
           : "cursor:grab";
@@ -2663,10 +2663,10 @@ function buildSgGroupCard(cid, sg, sgi) {
         const isAnchor  = m.is_anchor || (m.item_index && m.item_index === bdc.cluster_index);
         const isMovedOut = m._moved_out === true;
         const isMovedIn  = m._moved_in  === true;
-        const draggable = !isAnchor && !isMovedOut && !isMovedIn;
+        const draggable = !isMovedOut && !isMovedIn;
 
         let chipBg, extraStyle = "";
-        if (isAnchor)     chipBg = "background:var(--abg);border-color:var(--aborder);cursor:default";
+        if (isAnchor)     chipBg = "background:var(--abg);border-color:var(--aborder);cursor:grab";
         else if (isMovedOut) { chipBg = "cursor:default"; extraStyle = "opacity:0.35;text-decoration:line-through"; }
         else if (isMovedIn)  chipBg = "background:var(--pbg,#f5f3ff);border-color:var(--pborder,#c4b5fd);cursor:default";
         else if (isMatch)    chipBg = "background:var(--gbg);border-color:var(--gborder);cursor:grab";
@@ -2679,7 +2679,7 @@ function buildSgGroupCard(cid, sg, sgi) {
           cluster_address: bdc.cluster_address||"", item_index: m.item_index||""
         })) : "";
 
-        const icon = isAnchor ? `<span style="font-size:9px;color:var(--amber);font-weight:700">⚓</span>`
+        const icon = isAnchor ? `<span style="font-size:9px;color:var(--amber);font-weight:700" title="Ancla — arrastrable">⚓</span>`
           : isMovedOut ? `<span style="font-size:9px;color:var(--red)">✕</span>`
           : isMovedIn  ? `<span style="font-size:9px;color:var(--purple,#7c3aed)">↳</span>`
           : `<span style="font-size:9px;color:var(--muted)">⠿</span>`;
@@ -3771,8 +3771,10 @@ function toggleBdMap(cid, sgi) {
     return;
   }
   wrap.style.display = '';
+  wrap.style.height = '320px';
+  wrap.style.minHeight = '320px';
   if (btn) btn.textContent = '🗺 Cerrar mapa';
-  setTimeout(() => initBdMap(cid, sgi), 50);
+  setTimeout(() => initBdMap(cid, sgi), 80);
 }
 
 function initBdMap(cid, sgi) {
