@@ -2768,7 +2768,7 @@ function buildSgGroupCard(cid, sg, sgi) {
         <div>
           <input type="text" placeholder="Filtrar clusters por nombre, dirección o ID…"
             style="width:100%;box-sizing:border-box;padding:5px 8px;font-size:11px;border:1px solid var(--border2);border-radius:var(--r);background:var(--bg);color:var(--text);margin-bottom:6px"
-            oninput="filterBdResults(this.value,'${CSS.escape(cid)}',${sgi})">
+            oninput="filterBdResults(this.value,'${esc(cid)}',${sgi})">
           <div class="sg-bd-results" id="bdResults_${CSS.escape(cid)}_${sgi}">${bdHtml}</div>
         </div>` : ''}
 
