@@ -195,7 +195,11 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
 .sg-modal-progress{flex:1;font-size:11px;color:var(--muted)}
 .sg-add-group{border:2px dashed var(--border2);border-radius:var(--rl);padding:16px;text-align:center;cursor:pointer;font-size:12px;color:var(--muted);transition:all .15s;background:var(--surf)}
 .sg-add-group:hover{border-color:var(--blue);color:var(--blue);background:var(--bbg)}
+.bd-map-container{border:1px solid var(--border);border-radius:var(--r);overflow:hidden;margin-bottom:8px;position:relative}
+.bd-map-container .leaflet-container{height:320px;width:100%}
 </style>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 </head>
 <body>
 
@@ -2406,15 +2410,28 @@ function renderSgGroupsPanel(cid) {
 }
 
 // Filtrar clusters en resultados BD (modal buildSgGroupCard)
-function filterBdResults(query, cid, sgi) {
+function filterBdResults(query, cid, sgi, syncMap) {
   const q = (query||'').toLowerCase().trim();
   const container = document.getElementById(`bdResults_${CSS.escape(cid)}_${sgi}`);
   if (!container) return;
+  const visibleClusters = new Set();
   Array.from(container.children).forEach(el => {
-    if (!q) { el.style.display=''; return; }
+    if (!q) {
+      el.style.display='';
+      const ci = el.dataset.cluster;
+      if (ci) visibleClusters.add(ci);
+      return;
+    }
     const text = el.textContent.toLowerCase();
-    el.style.display = text.includes(q) ? '' : 'none';
+    const visible = text.includes(q);
+    el.style.display = visible ? '' : 'none';
+    if (visible) {
+      const ci = el.dataset.cluster;
+      if (ci) visibleClusters.add(ci);
+    }
   });
+  // Sincronizar con el mapa si está abierto
+  if (syncMap) syncMapFilter(cid, sgi, q ? visibleClusters : null);
 }
 
 // Filtrar clusters en resultados BD (panel lateral buildSgBlock)
@@ -2690,6 +2707,7 @@ function buildSgGroupCard(cid, sg, sgi) {
         : "background:var(--surf2);border-bottom:1px solid var(--border)";
 
       return `<div class="sg-bd-cluster bd-drop-zone" id="bdz_${CSS.escape(bdc.cluster_index)}"
+        data-cluster="${esc(bdc.cluster_index)}"
         ondragover="onBdDropZoneOver(event)" ondragleave="onBdDropZoneLeave(event)"
         ondrop="onBdDrop(event,'${esc(bdc.cluster_index)}','${esc(cid)}',${sgi})">
         <div style="display:flex;align-items:center;gap:6px;padding:5px 8px;${hdrBg}">
@@ -2760,15 +2778,21 @@ function buildSgGroupCard(cid, sg, sgi) {
           }
           <button class="btn sm" onclick="document.getElementById('${sqlId}').style.display=document.getElementById('${sqlId}').style.display==='none'?'block':'none'">Ver SQL</button>
           <button class="btn sm" onclick="navigator.clipboard.writeText(document.getElementById('${sqlId}').textContent.trim()).then(()=>toast('SQL copiada ✓'))">Copiar SQL</button>
+          ${sg.bd_results&&sg.bd_results.length?`<button class="btn sm" id="mapBtn_${CSS.escape(cid)}_${sgi}" onclick="toggleBdMap('${esc(cid)}',${sgi})">🗺 Mapa</button>`:''}
         </div>
         <div id="${sqlId}" style="display:none;background:#1a1a2e;border-radius:6px;padding:8px 10px;font-family:monospace;font-size:10px;color:#a8b3cf;white-space:pre-wrap;line-height:1.6;max-height:90px;overflow-y:auto">${esc(sg.sql||'')}</div>
+
+        <!-- Mapa BD -->
+        <div id="bdMapWrap_${CSS.escape(cid)}_${sgi}" class="bd-map-container" style="display:none">
+          <div id="bdMap_${CSS.escape(cid)}_${sgi}"></div>
+        </div>
 
         <!-- BD results -->
         ${bdHtml ? `
         <div>
           <input type="text" placeholder="Filtrar clusters por nombre, dirección o ID…"
             style="width:100%;box-sizing:border-box;padding:5px 8px;font-size:11px;border:1px solid var(--border2);border-radius:var(--r);background:var(--bg);color:var(--text);margin-bottom:6px"
-            oninput="filterBdResults(this.value,'${esc(cid)}',${sgi})">
+            oninput="filterBdResults(this.value,'${esc(cid)}',${sgi},true)">
           <div class="sg-bd-results" id="bdResults_${CSS.escape(cid)}_${sgi}">${bdHtml}</div>
         </div>` : ''}
 
@@ -3727,6 +3751,133 @@ function placesExport() {
 
 function escHtml(s) {
   return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── Mapa Leaflet para resultados BD ──────────────────────────────────────────
+const _bdMaps = {}; // instancias de mapas activos: key = "cid_sgi"
+
+// Paleta de colores para clusters (excluye rojo — reservado para outliers)
+const CLUSTER_COLORS = ['#3b82f6','#8b5cf6','#06b6d4','#10b981','#f59e0b','#ec4899','#6366f1','#14b8a6'];
+
+function toggleBdMap(cid, sgi) {
+  const wrapId = `bdMapWrap_${CSS.escape(cid)}_${sgi}`;
+  const wrap = document.getElementById(wrapId);
+  const btn  = document.getElementById(`mapBtn_${CSS.escape(cid)}_${sgi}`);
+  if (!wrap) return;
+  const isOpen = wrap.style.display !== 'none';
+  if (isOpen) {
+    wrap.style.display = 'none';
+    if (btn) btn.textContent = '🗺 Mapa';
+    return;
+  }
+  wrap.style.display = '';
+  if (btn) btn.textContent = '🗺 Cerrar mapa';
+  // Pequeño delay para que el DOM esté visible antes de inicializar Leaflet
+  setTimeout(() => initBdMap(cid, sgi), 50);
+}
+
+function initBdMap(cid, sgi) {
+  const key   = `${cid}_${sgi}`;
+  const mapId = `bdMap_${CSS.escape(cid)}_${sgi}`;
+  const el    = document.getElementById(mapId);
+  if (!el) return;
+
+  // Destruir mapa anterior si existe
+  if (_bdMaps[key]) { _bdMaps[key].remove(); delete _bdMaps[key]; }
+
+  // Recopilar todos los stores con coordenadas
+  const sgs = SUBGROUPS[cid]||[];
+  const sg  = sgs[sgi];
+  if (!sg?.bd_results?.length) return;
+
+  const points = []; // {lat, lng, name, addr, store_id, cluster_index, color, isAnchor}
+  sg.bd_results.forEach((bdc, bi) => {
+    const color = CLUSTER_COLORS[bi % CLUSTER_COLORS.length];
+    bdc.members.forEach(m => {
+      const lat = parseFloat(m.app_latitude);
+      const lng = parseFloat(m.app_longitude);
+      if (!isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0) {
+        points.push({
+          lat, lng,
+          name:  m.app_name||'',
+          addr:  m.app_address||'',
+          store_id: m.store_id||'',
+          cluster_index: bdc.cluster_index,
+          color,
+          isAnchor: m.is_anchor || m.item_index === bdc.cluster_index
+        });
+      }
+    });
+  });
+
+  if (!points.length) {
+    el.parentElement.innerHTML = '<div style="padding:16px;text-align:center;font-size:12px;color:var(--muted)">Sin coordenadas disponibles</div>';
+    return;
+  }
+
+  // Detectar outliers — distancia al centroide > media + 2σ
+  const centLat = points.reduce((s,p)=>s+p.lat,0)/points.length;
+  const centLng = points.reduce((s,p)=>s+p.lng,0)/points.length;
+  const dists   = points.map(p => Math.sqrt((p.lat-centLat)**2+(p.lng-centLng)**2));
+  const mean    = dists.reduce((s,d)=>s+d,0)/dists.length;
+  const std     = Math.sqrt(dists.map(d=>(d-mean)**2).reduce((s,v)=>s+v,0)/dists.length);
+  const threshold = mean + 2*std;
+
+  // Inicializar mapa
+  const map = L.map(mapId);
+  _bdMaps[key] = map;
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap', maxZoom: 19
+  }).addTo(map);
+
+  const markers = [];
+  points.forEach((p, i) => {
+    const isOutlier = dists[i] > threshold && std > 0;
+    const fillColor  = isOutlier ? '#ef4444' : p.color;
+    const marker = L.circleMarker([p.lat, p.lng], {
+      radius:      p.isAnchor ? 10 : 7,
+      fillColor,
+      color:       p.isAnchor ? '#92400e' : '#fff',
+      weight:      p.isAnchor ? 2.5 : 1.5,
+      opacity:     1,
+      fillOpacity: 0.85
+    }).addTo(map);
+
+    const anchorTag  = p.isAnchor ? '<span style="color:#f59e0b;font-weight:700">⚓ Ancla</span><br>' : '';
+    const outlierTag = isOutlier  ? '<span style="color:#ef4444;font-weight:700">⚠ Posible outlier</span><br>' : '';
+    marker.bindPopup(`
+      <div style="font-size:11px;min-width:180px">
+        ${anchorTag}${outlierTag}
+        <strong>${escHtml(p.name)}</strong><br>
+        <span style="color:#666">${escHtml(p.addr)}</span><br>
+        <span style="font-family:monospace;font-size:9px;color:#888">${escHtml(p.store_id)}</span><br>
+        <span style="font-family:monospace;font-size:9px;color:#3b82f6">${escHtml(p.cluster_index)}</span>
+      </div>
+    `);
+    marker._clusterId = p.cluster_index;
+    markers.push(marker);
+  });
+
+  // Guardar markers para sincronización con filtro
+  _bdMaps[key]._markers = markers;
+
+  // Ajustar vista al bounds
+  const bounds = L.latLngBounds(points.map(p=>[p.lat,p.lng]));
+  map.fitBounds(bounds, {padding:[20,20]});
+}
+
+function syncMapFilter(cid, sgi, visibleClusters) {
+  const key = `${cid}_${sgi}`;
+  const mapObj = _bdMaps[key];
+  if (!mapObj || !mapObj._markers) return;
+  mapObj._markers.forEach(m => {
+    if (!visibleClusters) {
+      m.setStyle({opacity:1, fillOpacity:0.85});
+    } else {
+      const visible = visibleClusters.has(m._clusterId);
+      m.setStyle({opacity: visible?1:0.1, fillOpacity: visible?0.85:0.05});
+    }
+  });
 }
 
 </script>
