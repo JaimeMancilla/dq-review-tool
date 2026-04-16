@@ -2778,13 +2778,13 @@ function buildSgGroupCard(cid, sg, sgi) {
           }
           <button class="btn sm" onclick="document.getElementById('${sqlId}').style.display=document.getElementById('${sqlId}').style.display==='none'?'block':'none'">Ver SQL</button>
           <button class="btn sm" onclick="navigator.clipboard.writeText(document.getElementById('${sqlId}').textContent.trim()).then(()=>toast('SQL copiada ✓'))">Copiar SQL</button>
-          ${sg.bd_results&&sg.bd_results.length?`<button class="btn sm" id="mapBtn_${CSS.escape(cid)}_${sgi}" onclick="toggleBdMap('${esc(cid)}',${sgi})">🗺 Mapa</button>`:''}
+          ${sg.bd_results&&sg.bd_results.length?`<button class="btn sm" data-mapbtn="${esc(cid)}_${sgi}" onclick="toggleBdMap('${esc(cid)}',${sgi})">🗺 Mapa</button>`:''}
         </div>
         <div id="${sqlId}" style="display:none;background:#1a1a2e;border-radius:6px;padding:8px 10px;font-family:monospace;font-size:10px;color:#a8b3cf;white-space:pre-wrap;line-height:1.6;max-height:90px;overflow-y:auto">${esc(sg.sql||'')}</div>
 
         <!-- Mapa BD -->
-        <div id="bdMapWrap_${CSS.escape(cid)}_${sgi}" class="bd-map-container" style="display:none">
-          <div id="bdMap_${CSS.escape(cid)}_${sgi}"></div>
+        <div class="bd-map-container" data-mapkey="${esc(cid)}_${sgi}" style="display:none">
+          <div class="bd-map-el" style="height:320px;width:100%"></div>
         </div>
 
         <!-- BD results -->
@@ -3760,9 +3760,9 @@ const _bdMaps = {}; // instancias de mapas activos: key = "cid_sgi"
 const CLUSTER_COLORS = ['#3b82f6','#8b5cf6','#06b6d4','#10b981','#f59e0b','#ec4899','#6366f1','#14b8a6'];
 
 function toggleBdMap(cid, sgi) {
-  const wrapId = `bdMapWrap_${CSS.escape(cid)}_${sgi}`;
-  const wrap = document.getElementById(wrapId);
-  const btn  = document.getElementById(`mapBtn_${CSS.escape(cid)}_${sgi}`);
+  const mapKey = `${cid}_${sgi}`;
+  const wrap = document.querySelector(`.bd-map-container[data-mapkey="${mapKey}"]`);
+  const btn  = document.querySelector(`[data-mapbtn="${mapKey}"]`);
   if (!wrap) return;
   const isOpen = wrap.style.display !== 'none';
   if (isOpen) {
@@ -3772,14 +3772,13 @@ function toggleBdMap(cid, sgi) {
   }
   wrap.style.display = '';
   if (btn) btn.textContent = '🗺 Cerrar mapa';
-  // Pequeño delay para que el DOM esté visible antes de inicializar Leaflet
   setTimeout(() => initBdMap(cid, sgi), 50);
 }
 
 function initBdMap(cid, sgi) {
-  const key   = `${cid}_${sgi}`;
-  const mapId = `bdMap_${CSS.escape(cid)}_${sgi}`;
-  const el    = document.getElementById(mapId);
+  const key  = `${cid}_${sgi}`;
+  const wrap = document.querySelector(`.bd-map-container[data-mapkey="${key}"]`);
+  const el   = wrap ? wrap.querySelector('.bd-map-el') : null;
   if (!el) return;
 
   // Destruir mapa anterior si existe
@@ -3790,7 +3789,7 @@ function initBdMap(cid, sgi) {
   const sg  = sgs[sgi];
   if (!sg?.bd_results?.length) return;
 
-  const points = []; // {lat, lng, name, addr, store_id, cluster_index, color, isAnchor}
+  const points = [];
   sg.bd_results.forEach((bdc, bi) => {
     const color = CLUSTER_COLORS[bi % CLUSTER_COLORS.length];
     bdc.members.forEach(m => {
@@ -3799,19 +3798,16 @@ function initBdMap(cid, sgi) {
       if (!isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0) {
         points.push({
           lat, lng,
-          name:  m.app_name||'',
-          addr:  m.app_address||'',
-          store_id: m.store_id||'',
-          cluster_index: bdc.cluster_index,
-          color,
-          isAnchor: m.is_anchor || m.item_index === bdc.cluster_index
+          name: m.app_name||'', addr: m.app_address||'',
+          store_id: m.store_id||'', cluster_index: bdc.cluster_index,
+          color, isAnchor: m.is_anchor || m.item_index === bdc.cluster_index
         });
       }
     });
   });
 
   if (!points.length) {
-    el.parentElement.innerHTML = '<div style="padding:16px;text-align:center;font-size:12px;color:var(--muted)">Sin coordenadas disponibles</div>';
+    wrap.innerHTML = '<div style="padding:16px;text-align:center;font-size:12px;color:var(--muted)">Sin coordenadas disponibles</div>';
     return;
   }
 
@@ -3823,8 +3819,7 @@ function initBdMap(cid, sgi) {
   const std     = Math.sqrt(dists.map(d=>(d-mean)**2).reduce((s,v)=>s+v,0)/dists.length);
   const threshold = mean + 2*std;
 
-  // Inicializar mapa
-  const map = L.map(mapId);
+  const map = L.map(el);
   _bdMaps[key] = map;
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© OpenStreetMap', maxZoom: 19
@@ -3832,36 +3827,28 @@ function initBdMap(cid, sgi) {
 
   const markers = [];
   points.forEach((p, i) => {
-    const isOutlier = dists[i] > threshold && std > 0;
-    const fillColor  = isOutlier ? '#ef4444' : p.color;
+    const isOutlier = std > 0 && dists[i] > threshold;
+    const fillColor = isOutlier ? '#ef4444' : p.color;
     const marker = L.circleMarker([p.lat, p.lng], {
-      radius:      p.isAnchor ? 10 : 7,
-      fillColor,
-      color:       p.isAnchor ? '#92400e' : '#fff',
-      weight:      p.isAnchor ? 2.5 : 1.5,
-      opacity:     1,
-      fillOpacity: 0.85
+      radius: p.isAnchor ? 10 : 7,
+      fillColor, color: p.isAnchor ? '#92400e' : '#fff',
+      weight: p.isAnchor ? 2.5 : 1.5, opacity: 1, fillOpacity: 0.85
     }).addTo(map);
 
     const anchorTag  = p.isAnchor ? '<span style="color:#f59e0b;font-weight:700">⚓ Ancla</span><br>' : '';
     const outlierTag = isOutlier  ? '<span style="color:#ef4444;font-weight:700">⚠ Posible outlier</span><br>' : '';
-    marker.bindPopup(`
-      <div style="font-size:11px;min-width:180px">
-        ${anchorTag}${outlierTag}
-        <strong>${escHtml(p.name)}</strong><br>
-        <span style="color:#666">${escHtml(p.addr)}</span><br>
-        <span style="font-family:monospace;font-size:9px;color:#888">${escHtml(p.store_id)}</span><br>
-        <span style="font-family:monospace;font-size:9px;color:#3b82f6">${escHtml(p.cluster_index)}</span>
-      </div>
-    `);
+    marker.bindPopup(`<div style="font-size:11px;min-width:180px">
+      ${anchorTag}${outlierTag}
+      <strong>${escHtml(p.name)}</strong><br>
+      <span style="color:#666">${escHtml(p.addr)}</span><br>
+      <span style="font-family:monospace;font-size:9px;color:#888">${escHtml(p.store_id)}</span><br>
+      <span style="font-family:monospace;font-size:9px;color:#3b82f6">${escHtml(p.cluster_index)}</span>
+    </div>`);
     marker._clusterId = p.cluster_index;
     markers.push(marker);
   });
 
-  // Guardar markers para sincronización con filtro
-  _bdMaps[key]._markers = markers;
-
-  // Ajustar vista al bounds
+  map._markers = markers;
   const bounds = L.latLngBounds(points.map(p=>[p.lat,p.lng]));
   map.fitBounds(bounds, {padding:[20,20]});
 }
