@@ -1312,6 +1312,7 @@ def upload():
     session.modified = True
 
     return jsonify({"clusters":clusters, "meta":meta, "country":country,
+                    "filename": session.get("filename",""),
                     "restored": restored,
                     "already_reviewed": already_reviewed,
                     "review_type": review_type,
@@ -1873,6 +1874,26 @@ def store_pairs_stats():
         "total": total,
         "by_source": {r[0]: r[1] for r in by_src}
     })
+
+@app.route("/save_pair", methods=["POST"])
+def save_pair():
+    """Guarda un par etiquetado de stores para feedback/fine-tuning.
+    Llamado automáticamente al fusionar (label=1) o separar (label=0) subgrupos.
+    """
+    d = request.json or {}
+    file_name = d.get("file_name") or session.get("filename", "")
+    save_store_pair(
+        app_name_a    = d.get("name_a",""),
+        app_address_a = d.get("addr_a",""),
+        cluster_index_a = d.get("ci_a",""),
+        app_name_b    = d.get("name_b",""),
+        app_address_b = d.get("addr_b",""),
+        cluster_index_b = d.get("ci_b",""),
+        label         = int(d.get("label", 1)),
+        source        = d.get("source", "subgroup_drag"),
+        file_name     = file_name
+    )
+    return jsonify({"ok": True})
 
 
 def clean_correction(corr):

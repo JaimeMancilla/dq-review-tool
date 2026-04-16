@@ -536,8 +536,15 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
       <button class="btn sm" onclick="closeSgModal()">✕ Cerrar</button>
     </div>
     <div class="sg-modal-body">
-      <!-- Lista izquierda -->
-      <div class="sg-list-panel" id="sgListPanel"></div>
+      <!-- Lista izquierda con barra de búsqueda -->
+      <div style="width:280px;flex-shrink:0;border-right:1px solid var(--border);display:flex;flex-direction:column;background:var(--surf2)">
+        <div style="padding:6px 8px;border-bottom:1px solid var(--border);background:var(--surf)">
+          <input id="sgSearchInput" type="text" placeholder="Buscar por nombre o dirección…"
+            style="width:100%;box-sizing:border-box;padding:5px 8px;font-size:11px;border:1px solid var(--border2);border-radius:var(--r);background:var(--bg);color:var(--text)"
+            oninput="filterSgList(this.value)">
+        </div>
+        <div id="sgListPanel" style="flex:1;overflow-y:auto;display:flex;flex-direction:column"></div>
+      </div>
       <!-- Panel activo derecha -->
       <div class="sg-active-panel" id="sgActivePanel">
         <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:8px;color:var(--muted)">
@@ -654,6 +661,7 @@ let SUBGROUPS  = {};
 const SORT_ST  = {};
 let PG_READY   = false;
 let REVIEW_TYPE = null; // 'stores' | 'dishes'
+let CURRENT_FILENAME = ''; // nombre del archivo en revisión
 let DISH_GROUPS = [];
 
 // ── selección de tipo ────────────────────────────────────────────────────────
@@ -776,6 +784,7 @@ async function doUpload(file){
       const d=await fetch("/upload",{method:"POST",body:fd}).then(r=>r.json());
       if(d.error){toast("Error: "+d.error);return}
       CLUSTERS=d.clusters;COUNTRY=d.country||"mx";SUBGROUPS={};FILTER="all";
+      CURRENT_FILENAME = d.filename||'';
       // Restaurar subgrupos si existen
       if(d.subgroups_restored && Object.keys(d.subgroups_restored).length){
         SUBGROUPS = d.subgroups_restored;
@@ -2351,6 +2360,11 @@ function openSgModal(cid) {
   document.getElementById("sgModalMeta").textContent =
     `${sgs.length} subgrupo${sgs.length!==1?"s":""}`;
 
+  // Limpiar búsqueda al abrir
+  _sgListFilter = '';
+  const searchInput = document.getElementById("sgSearchInput");
+  if (searchInput) searchInput.value = '';
+
   // Activar primer subgrupo no corregido, o el primero
   const firstPending = sgs.findIndex(sg => !sg.correction);
   _sgActiveSgi = firstPending >= 0 ? firstPending : 0;
@@ -2386,17 +2400,38 @@ function renderSgGroupsPanel(cid) {
   if (sgs[_sgActiveSgi]) renderSgActivePanel(cid, _sgActiveSgi);
 }
 
+let _sgListFilter = '';
+
+function filterSgList(query) {
+  _sgListFilter = (query||'').toLowerCase().trim();
+  if (_sgModalCid) renderSgList(_sgModalCid);
+}
+
 function renderSgList(cid) {
   const sgs = SUBGROUPS[cid] || [];
   const el = document.getElementById("sgListPanel");
   if (!el) return;
-  el.innerHTML = sgs.map((sg, sgi) => {
+
+  // Aplicar filtro
+  const q = _sgListFilter;
+  const filtered = sgs.map((sg, sgi) => ({sg, sgi})).filter(({sg}) => {
+    if (!q) return true;
+    const name = (sg.rep_name||'').toLowerCase();
+    const addr = (sg.rep_addr||'').toLowerCase();
+    const corr = (sg.correction||'').toLowerCase();
+    return name.includes(q) || addr.includes(q) || corr.includes(q);
+  });
+
+  el.innerHTML = filtered.map(({sg, sgi}) => {
     const isCorr = !!sg.correction;
     const isActive = sgi === _sgActiveSgi;
     const addr = sg.rep_addr||'';
     const corrBadge = isCorr
       ? `<div style="font-family:monospace;font-size:8px;color:var(--green);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">✓ ${esc(sg.correction)}</div>`
       : '';
+    // Resaltar término buscado
+    const hlName = q ? highlight(sg.rep_name||'Grupo '+(sgi+1), q) : esc(sg.rep_name||'Grupo '+(sgi+1));
+    const hlAddr = q ? highlight(addr, q) : esc(addr);
     return `<div class="sg-list-item${isActive?' active':''}${isCorr?' sg-corrected':''}"
       onclick="selectSgItem('${esc(cid)}',${sgi})"
       ondragover="onSgListDragOver(event)"
@@ -2404,8 +2439,8 @@ function renderSgList(cid) {
       ondrop="onSgListDrop(event,'${esc(cid)}',${sgi})">
       <div class="sg-list-num${isCorr?' ok':''}">${isCorr?'✓':sgi+1}</div>
       <div class="sg-list-info">
-        <div class="sg-list-name">${esc(sg.rep_name||'Grupo '+(sgi+1))}</div>
-        ${addr?`<div class="sg-list-addr">${esc(addr)}</div>`:''}
+        <div class="sg-list-name">${hlName}</div>
+        ${addr?`<div class="sg-list-addr">${hlAddr}</div>`:''}
         ${corrBadge}
       </div>
       <span class="sg-list-count">${sg.members.length}s</span>
@@ -2417,12 +2452,22 @@ function renderSgList(cid) {
     ondragleave="onSgListDragLeave(event)"
     ondrop="onSgListDrop(event,'${esc(cid)}','NEW')">
     <span style="font-size:14px;color:var(--muted)">＋</span>
-    <span class="sg-list-name" style="font-weight:400">Nuevo grupo</span>
+    <span class="sg-list-name" style="font-weight:400">Nuevo grupo${q?' (crear)':''}</span>
   </div>`;
 }
 
+// Resalta el término buscado en texto
+function highlight(text, q) {
+  if (!q || !text) return esc(text||'');
+  const idx = text.toLowerCase().indexOf(q);
+  if (idx < 0) return esc(text);
+  return esc(text.slice(0, idx)) +
+    `<mark style="background:var(--abg);color:var(--amber);border-radius:2px;padding:0 1px">${esc(text.slice(idx, idx+q.length))}</mark>` +
+    esc(text.slice(idx+q.length));
+}
+
 function onSgListDragOver(e) {
-  if (!_sgModalDrag) return; // solo chips de subgrupo
+  if (!_sgModalDrag) return;
   e.preventDefault();
   e.currentTarget.classList.add("drop-target");
 }
@@ -2442,12 +2487,22 @@ function onSgListDrop(e, cid, toSgi) {
   const sgs = SUBGROUPS[cid];
   if (!sgs) return;
 
+  const cl = getCl(cid);
+
+  // Capturar datos del store arrastrado ANTES de moverlo (para feedback)
+  const draggedMember = cl?.members.find(m => m.item_index === ii);
+
+  // Capturar stores del subgrupo destino ANTES del merge (para feedback)
+  const destMembersBefore = toSgi !== 'NEW' && sgs[toSgi]
+    ? sgs[toSgi].members.map(mii => cl?.members.find(m => m.item_index === mii)).filter(Boolean)
+    : [];
+
   // Quitar del subgrupo origen
+  const originWasMulti = sgs[fromSgi]?.members.length > 1;
   if (fromSgi !== null && fromSgi !== undefined && sgs[fromSgi]) {
     sgs[fromSgi].members = sgs[fromSgi].members.filter(m => m !== ii);
     if (sgs[fromSgi].members.length === 0) {
       sgs.splice(fromSgi, 1);
-      // Ajustar índice activo si se eliminó un subgrupo anterior
       if (typeof toSgi === 'number' && toSgi > fromSgi) toSgi--;
       if (_sgActiveSgi > fromSgi) _sgActiveSgi--;
       else if (_sgActiveSgi === fromSgi) _sgActiveSgi = Math.max(0, fromSgi - 1);
@@ -2455,9 +2510,8 @@ function onSgListDrop(e, cid, toSgi) {
   }
 
   if (toSgi === 'NEW') {
-    // Crear nuevo subgrupo con este store
-    const cl = getCl(cid);
-    const m = cl?.members.find(m => m.item_index === ii);
+    // Crear nuevo subgrupo — feedback label=0 (lugares distintos) con cada store del origen
+    const m = draggedMember;
     sgs.push({
       members: [ii],
       rep_name: m?.app_name || 'Nuevo grupo',
@@ -2466,15 +2520,39 @@ function onSgListDrop(e, cid, toSgi) {
     });
     _sgActiveSgi = sgs.length - 1;
     regenerateSgSql(cid);
+    // Feedback: este store es DISTINTO a los que quedaron en el origen
+    if (m && originWasMulti) {
+      const file = CURRENT_FILENAME || '';
+      (sgs[fromSgi]?.members || []).forEach(otherIi => {
+        const other = cl?.members.find(mb => mb.item_index === otherIi);
+        if (other) {
+          api("/save_pair", {
+            name_a: m.app_name||'', addr_a: m.app_address||'', ci_a: m.cluster_index||'',
+            name_b: other.app_name||'', addr_b: other.app_address||'', ci_b: other.cluster_index||'',
+            label: 0, source: 'subgroup_split', file_name: file
+          });
+        }
+      });
+    }
   } else {
-    // Mover a subgrupo existente
+    // Fusionar con subgrupo existente
     if (sgs[toSgi] && !sgs[toSgi].members.includes(ii)) {
       sgs[toSgi].members.push(ii);
-      const cl = getCl(cid);
-      const m = cl?.members.find(m => m.item_index === sgs[toSgi].members[0]);
-      if (m) sgs[toSgi].rep_name = m.app_name;
+      const firstM = cl?.members.find(m => m.item_index === sgs[toSgi].members[0]);
+      if (firstM) sgs[toSgi].rep_name = firstM.app_name;
     }
     _sgActiveSgi = toSgi;
+    // Feedback: este store es IGUAL a los del destino (label=1)
+    if (draggedMember) {
+      const file = CURRENT_FILENAME || '';
+      destMembersBefore.forEach(other => {
+        api("/save_pair", {
+          name_a: draggedMember.app_name||'', addr_a: draggedMember.app_address||'', ci_a: draggedMember.cluster_index||'',
+          name_b: other.app_name||'', addr_b: other.app_address||'', ci_b: other.cluster_index||'',
+          label: 1, source: 'subgroup_merge', file_name: file
+        });
+      });
+    }
   }
 
   SUBGROUPS[cid] = sgs.filter(sg => sg.members.length > 0);
