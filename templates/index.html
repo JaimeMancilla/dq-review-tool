@@ -2783,7 +2783,7 @@ function buildSgGroupCard(cid, sg, sgi) {
         <div id="${sqlId}" style="display:none;background:#1a1a2e;border-radius:6px;padding:8px 10px;font-family:monospace;font-size:10px;color:#a8b3cf;white-space:pre-wrap;line-height:1.6;max-height:90px;overflow-y:auto">${esc(sg.sql||'')}</div>
 
         <!-- Mapa BD -->
-        <div class="bd-map-container" data-mapkey="${esc(cid)}_${sgi}" style="display:none">
+        <div class="bd-map-container" data-mapkey="${esc(cid)}_${sgi}" style="display:none;height:320px">
           <div class="bd-map-el" style="height:320px;width:100%"></div>
         </div>
 
