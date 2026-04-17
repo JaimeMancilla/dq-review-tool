@@ -3862,6 +3862,9 @@ function initBdMap(cid, sgi) {
   });
 
   map._markers = markers;
+
+  // Traer pins naranjo al frente (pueden coincidir con azules)
+  markers.filter(m => m.options.fillColor === '#f97316').forEach(m => m.bringToFront());
   const bounds = L.latLngBounds(points.map(p=>[p.lat,p.lng]));
   map.fitBounds(bounds, {padding:[20,20]});
 
