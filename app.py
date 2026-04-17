@@ -2068,9 +2068,9 @@ def clean_correction(corr):
 
 @app.route("/bd_update/preview", methods=["POST"])
 def bd_update_preview():
-    """Genera preview enriquecido de los INSERTs que se harían en ctrl_restaurant_homologation."""
-    if not session.get("is_reviewed"):
-        return jsonify({"error": "Debes marcar el archivo como revisado antes de actualizar la BD"}), 403
+    """Genera preview enriquecido de los INSERTs que se harían en ctrl_restaurant_homologation.
+    No requiere is_reviewed — el preview es de solo lectura.
+    El execute sí lo requiere."""
 
     clusters   = session.get("clusters", [])
     country    = session.get("country", "mx")

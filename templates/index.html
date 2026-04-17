@@ -820,18 +820,17 @@ async function doUpload(file){
       document.getElementById("uploadScreen").classList.add("hidden");
       document.getElementById("mainScreen").classList.remove("hidden");
       document.getElementById("hdrFile").textContent=file.name;
-      // Export y BdUpdate deshabilitados hasta "Marcar revisado"
+      // Export deshabilitado hasta "Marcar revisado"; BdUpdate (preview) siempre disponible
       const btnExp=document.getElementById("btnExport");
       const btnBd=document.getElementById("btnBdUpdate");
+      btnBd.style.display="";btnBd.disabled=false;btnBd.style.opacity="1";btnBd.title="";
       if(d.already_reviewed){
         btnExp.style.display="";btnExp.disabled=false;btnExp.style.opacity="1";btnExp.title="";
-        btnBd.style.display="";btnBd.disabled=false;btnBd.style.opacity="1";btnBd.title="";
         const btnMRS=document.getElementById("btnMarkReviewed");
         btnMRS.style.display="";btnMRS.innerHTML="✓ Revisado";btnMRS.dataset.reviewed="1";
         btnMRS.style.background="var(--gbg)";btnMRS.style.color="var(--green)";btnMRS.style.borderColor="var(--gborder)";
       } else {
         btnExp.style.display="";btnExp.disabled=true;btnExp.style.opacity="0.45";btnExp.title="Marca como revisado primero";
-        btnBd.style.display="";btnBd.disabled=true;btnBd.style.opacity="0.45";btnBd.title="Marca como revisado primero";
         const btnMRS=document.getElementById("btnMarkReviewed");
         btnMRS.style.display="";btnMRS.innerHTML="✓ Marcar revisado";btnMRS.dataset.reviewed="0";
         btnMRS.style.background="";btnMRS.style.color="";btnMRS.style.borderColor="";
@@ -2017,7 +2016,19 @@ async function openBdUpdate() {
       ${d.rows.some(r=>!r.scraper_source)?`<span style="color:var(--amber);font-size:11px">⚠ Hay stores sin scraper_source — completa antes de insertar</span>`:""}
     </div>
     <div style="max-height:65vh;overflow-y:auto;padding-bottom:12px">${rows}</div>`;
-  document.getElementById("btnConfirmBdUpdate").style.display = "";
+  // Mostrar botón Confirmar solo si el archivo está marcado como revisado
+  const isReviewed = document.getElementById("btnMarkReviewed").dataset.reviewed === "1";
+  const confirmBtn = document.getElementById("btnConfirmBdUpdate");
+  if(isReviewed){
+    confirmBtn.style.display = "";
+    confirmBtn.title = "";
+  } else {
+    confirmBtn.style.display = "";
+    confirmBtn.disabled = true;
+    confirmBtn.style.opacity = "0.45";
+    confirmBtn.title = "Marca el archivo como revisado para poder insertar";
+    confirmBtn.textContent = "✓ Confirmar INSERT (marcar revisado primero)";
+  }
 }
 
 async function executeBdUpdate() {
@@ -2088,11 +2099,9 @@ async function markAsReviewed(){
         btn.innerHTML="✓ Marcar revisado";
         btn.dataset.reviewed="0";
         btn.style.background="";btn.style.color="";btn.style.borderColor="";
-        // Deshabilitar Export y BdUpdate hasta re-marcar
+        // Solo deshabilitar Export; BdUpdate (preview) sigue disponible
         const btnExp=document.getElementById("btnExport");
-        const btnBd=document.getElementById("btnBdUpdate");
         btnExp.disabled=true;btnExp.style.opacity="0.45";btnExp.title="Marca como revisado primero";
-        btnBd.disabled=true;btnBd.style.opacity="0.45";btnBd.title="Marca como revisado primero";
         toast("Desmarcado — puedes seguir editando");
       }
     }catch(e){toast("Error: "+e.message);btn.innerHTML="✓ Revisado";}
