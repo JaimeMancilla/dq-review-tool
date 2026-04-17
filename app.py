@@ -594,10 +594,27 @@ def accent_variants(word):
     return list(variants)
 
 def word_ilike(field, word):
-    """Genera condición ilike con variantes de tilde."""
-    variants = accent_variants(word)
-    if len(variants) == 1:
+    """Genera condición ilike robusta a tildes y Ñ.
+    Para palabras con Ñ, corta antes de la Ñ para matchear tanto 'castano' como 'castaño'.
+    Para otras palabras con tilde, genera variantes.
+    """
+    w_norm = norm(word)  # versión ASCII sin tildes ni Ñ
+    if not w_norm:
         return f"{field} ilike '%{word}%'"
+
+    # Si la palabra normalizada difiere del original por Ñ,
+    # usar el prefijo antes de la Ñ (más robusto que variantes)
+    if 'n' in w_norm and 'ñ' in word.lower():
+        # Cortar antes de la Ñ → '%casta%' matchea 'castano' y 'castaño'
+        idx = word.lower().index('ñ')
+        prefix = norm(word[:idx])
+        if len(prefix) >= 3:
+            return f"{field} ilike '%{prefix}%'"
+
+    # Para otras palabras: variantes de tilde
+    variants = accent_variants(w_norm)
+    if len(variants) == 1:
+        return f"{field} ilike '%{w_norm}%'"
     conditions = " or ".join(f"{field} ilike '%{v}%'" for v in sorted(variants))
     return f"({conditions})"
 
@@ -671,21 +688,23 @@ def generate_unified_sql(bad_members, country="mx"):
         chain_words = [w for w in sql_bwords if w not in FAST_FOOD_SUBS]
 
         if sub and chain_words:
-            # Con sub-entidad: NO deduplicar por nombre — cada miembro puede tener
-            # dirección distinta, generar un bloque por dirección única
             akeys = extract_addr_keys(addr)
             key = "_".join(chain_words) + "_" + sub + "_" + "_".join(akeys)
             if key in seen: continue
             seen.add(key)
+            # Usar nombre original para detectar Ñ correctamente
             chain_cond = " and ".join(word_ilike("app_name", w) for w in chain_words)
             sub_cond   = word_ilike("app_name", sub)
             name_cond  = f"({chain_cond}\n     and {sub_cond})"
         else:
-            # Flujo normal: deduplicar por nombre
             key = "_".join(bwords)
             if key in seen or not bwords: continue
             seen.add(key)
-            name_cond = " and ".join(word_ilike("app_name", w) for w in sql_bwords)
+            # Pasar nombre original para detectar Ñ; si hay una sola bword usar el nombre completo
+            if len(sql_bwords) == 1:
+                name_cond = word_ilike("app_name", name)
+            else:
+                name_cond = " and ".join(word_ilike("app_name", w) for w in sql_bwords)
 
         # Condición de dirección
         akeys = extract_addr_keys(addr)
