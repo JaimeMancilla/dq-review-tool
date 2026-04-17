@@ -620,34 +620,55 @@ def word_ilike(field, word):
 
 def addr_ilike_safe(field, word):
     """
-    Busca una palabra robusta a tildes usando OR de segmentos de 4 chars
-    que empiezan en consonante. Para cualquier posición de tilde, al menos
-    un segmento matcheará.
-    Ej: 'amunategui' → ('%muna%' OR '%nate%' OR '%tegu%')
-        matchea 'Amunátegui', 'amunategui', 'amunAtegui', etc.
+    Busca una palabra robusta a tildes en PostgreSQL sin unaccent.
+    - Grupos de consonantes ≥2 seguidas: seguros (cr, st, mb...)
+    - N que puede ser Ñ: usar prefijo antes de la N
+    - Sin grupos consonánticos (colon, vicuna): variantes cambiando una vocal
     """
     w = norm(word)
     if not w: return f"{field} ilike '%{word}%'"
-    if w.isdigit() or len(w) <= 4:
-        return f"{field} ilike '%{w}%'"
+    if w.isdigit() or len(w) <= 3: return f"{field} ilike '%{w}%'"
 
     VOWELS = set('aeiou')
-    segments = []
-    for i in range(len(w) - 3):
-        if w[i] not in VOWELS:
-            seg = w[i:i+4]
-            if seg not in segments:
-                segments.append(seg)
+    ACCENT = {'a':'á','e':'é','i':'í','o':'ó','u':'ú'}
 
-    if not segments:
-        # Sin consonantes (muy raro) — usar la palabra completa normalizada
-        return f"{field} ilike '%{w}%'"
+    # Grupos de consonantes ≥2 seguidas (100% seguros, sin vocales que puedan tener tilde)
+    cons_groups = re.split(r'[aeiou]+', w)
+    safe = [g for g in cons_groups if len(g) >= 2]
+    if safe:
+        chosen = safe[:2]
+        if len(chosen) == 1: return f"{field} ilike '%{chosen[0]}%'"
+        return " and ".join(f"{field} ilike '%{s}%'" for s in chosen)
 
-    if len(segments) == 1:
-        return f"{field} ilike '%{segments[0]}%'"
+    # N que puede ser Ñ en la BD: usar prefijo antes de la N
+    # Pero el prefijo no debe terminar en vocal (podría tener tilde)
+    if 'n' in w:
+        idx = w.index('n')
+        prefix_full = w[:idx]
+        # Recortar la vocal final del prefijo si la hay
+        prefix = prefix_full.rstrip('aeiou') if prefix_full else prefix_full
+        suffix = w[idx+1:].lstrip('aeiou') if idx+1 < len(w) else ''
+        if len(prefix) >= 3 and len(suffix) >= 3:
+            return f"({field} ilike '%{prefix}%' or {field} ilike '%{suffix}%')"
+        if len(prefix) >= 3: return f"{field} ilike '%{prefix}%'"
+        if len(suffix) >= 3: return f"{field} ilike '%{suffix}%'"
+        # prefix corto — usar variantes de la palabra completa
 
-    conds = " or ".join(f"{field} ilike '%{s}%'" for s in segments)
-    return f"({conds})"
+    # Sin grupos consonánticos: variantes cambiando UNA vocal a la vez
+    variants = {w}
+    for i, c in enumerate(w):
+        if c in VOWELS:
+            variants.add(w[:i] + ACCENT[c] + w[i+1:])
+    # Consonante rara (z, x, k) como ancla adicional segura
+    for rare in ('z', 'x', 'k'):
+        if rare in w:
+            idx = w.index(rare)
+            seg = w[idx:idx+3]
+            if len(seg) == 3:
+                conds = " or ".join(f"{field} ilike '%{v}%'" for v in sorted(variants))
+                return f"({field} ilike '%{seg}%' or {conds})"
+    conds = " or ".join(f"{field} ilike '%{v}%'" for v in sorted(variants))
+    return f"({conds})" if len(variants) > 1 else f"{field} ilike '%{w}%'"
 
 def get_pg_table():
     """Retorna la tabla correcta según el tipo de revisión de la sesión."""
