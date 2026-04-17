@@ -3840,12 +3840,12 @@ function initBdMap(cid, sgi) {
   const markers = [];
   points.forEach(p => {
     const marker = L.circleMarker([p.lat, p.lng], {
-      radius:      p.isSubgroup ? 9 : p.isAnchor ? 10 : 7,
+      radius:      p.isSubgroup ? 13 : p.isAnchor ? 10 : 7,
       fillColor:   p.fillColor,
-      color:       p.borderColor,
-      weight:      p.isAnchor || p.isSubgroup ? 2.5 : 1.5,
+      color:       p.isSubgroup ? '#fff' : p.borderColor,
+      weight:      p.isSubgroup ? 3 : p.isAnchor ? 2.5 : 1.5,
       opacity:     1,
-      fillOpacity: 0.85
+      fillOpacity: p.isSubgroup ? 0.95 : 0.85
     }).addTo(map);
 
     const subgroupTag = p.isSubgroup ? '<span style="color:#f97316;font-weight:700">📍 Store del subgrupo</span><br>' : '';
