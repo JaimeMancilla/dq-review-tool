@@ -3754,10 +3754,7 @@ function escHtml(s) {
 }
 
 // ── Mapa Leaflet para resultados BD ──────────────────────────────────────────
-const _bdMaps = {}; // instancias de mapas activos: key = "cid_sgi"
-
-// Paleta de colores para clusters (excluye rojo — reservado para outliers)
-const CLUSTER_COLORS = ['#3b82f6','#8b5cf6','#06b6d4','#10b981','#f59e0b','#ec4899','#6366f1','#14b8a6'];
+const _bdMaps = {};
 
 function toggleBdMap(cid, sgi) {
   const mapKey = `${cid}_${sgi}`;
@@ -3783,17 +3780,17 @@ function initBdMap(cid, sgi) {
   const el   = wrap ? wrap.querySelector('.bd-map-el') : null;
   if (!el) return;
 
-  // Destruir mapa anterior si existe
   if (_bdMaps[key]) { _bdMaps[key].remove(); delete _bdMaps[key]; }
 
-  // Recopilar todos los stores con coordenadas
   const sgs = SUBGROUPS[cid]||[];
   const sg  = sgs[sgi];
   if (!sg?.bd_results?.length) return;
 
+  const cl = getCl(cid);
   const points = [];
-  sg.bd_results.forEach((bdc, bi) => {
-    const color = CLUSTER_COLORS[bi % CLUSTER_COLORS.length];
+
+  // Pins azul — stores de los clusters BD
+  sg.bd_results.forEach((bdc) => {
     bdc.members.forEach(m => {
       const lat = parseFloat(m.app_latitude);
       const lng = parseFloat(m.app_longitude);
@@ -3802,24 +3799,37 @@ function initBdMap(cid, sgi) {
           lat, lng,
           name: m.app_name||'', addr: m.app_address||'',
           store_id: m.store_id||'', cluster_index: bdc.cluster_index,
-          color, isAnchor: m.is_anchor || m.item_index === bdc.cluster_index
+          isAnchor: m.is_anchor || m.item_index === bdc.cluster_index,
+          isSubgroup: false,
+          fillColor: '#3b82f6',  // azul
+          borderColor: '#1d4ed8'
         });
       }
     });
+  });
+
+  // Pins naranjo — stores del subgrupo
+  (sg.members||[]).forEach(ii => {
+    const m = cl?.members.find(mb => mb.item_index === ii);
+    if (!m) return;
+    const lat = parseFloat(m.app_latitude);
+    const lng = parseFloat(m.app_longitude);
+    if (!isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0) {
+      points.push({
+        lat, lng,
+        name: m.app_name||'', addr: m.app_address||'',
+        store_id: m.store_id||'', cluster_index: '(subgrupo)',
+        isAnchor: false, isSubgroup: true,
+        fillColor: '#f97316',  // naranjo
+        borderColor: '#c2410c'
+      });
+    }
   });
 
   if (!points.length) {
     wrap.innerHTML = '<div style="padding:16px;text-align:center;font-size:12px;color:var(--muted)">Sin coordenadas disponibles</div>';
     return;
   }
-
-  // Detectar outliers — distancia al centroide > media + 2σ
-  const centLat = points.reduce((s,p)=>s+p.lat,0)/points.length;
-  const centLng = points.reduce((s,p)=>s+p.lng,0)/points.length;
-  const dists   = points.map(p => Math.sqrt((p.lat-centLat)**2+(p.lng-centLng)**2));
-  const mean    = dists.reduce((s,d)=>s+d,0)/dists.length;
-  const std     = Math.sqrt(dists.map(d=>(d-mean)**2).reduce((s,v)=>s+v,0)/dists.length);
-  const threshold = mean + 2*std;
 
   const map = L.map(el);
   _bdMaps[key] = map;
@@ -3828,19 +3838,20 @@ function initBdMap(cid, sgi) {
   }).addTo(map);
 
   const markers = [];
-  points.forEach((p, i) => {
-    const isOutlier = std > 0 && dists[i] > threshold;
-    const fillColor = isOutlier ? '#ef4444' : p.color;
+  points.forEach(p => {
     const marker = L.circleMarker([p.lat, p.lng], {
-      radius: p.isAnchor ? 10 : 7,
-      fillColor, color: p.isAnchor ? '#92400e' : '#fff',
-      weight: p.isAnchor ? 2.5 : 1.5, opacity: 1, fillOpacity: 0.85
+      radius:      p.isSubgroup ? 9 : p.isAnchor ? 10 : 7,
+      fillColor:   p.fillColor,
+      color:       p.borderColor,
+      weight:      p.isAnchor || p.isSubgroup ? 2.5 : 1.5,
+      opacity:     1,
+      fillOpacity: 0.85
     }).addTo(map);
 
-    const anchorTag  = p.isAnchor ? '<span style="color:#f59e0b;font-weight:700">⚓ Ancla</span><br>' : '';
-    const outlierTag = isOutlier  ? '<span style="color:#ef4444;font-weight:700">⚠ Posible outlier</span><br>' : '';
+    const subgroupTag = p.isSubgroup ? '<span style="color:#f97316;font-weight:700">📍 Store del subgrupo</span><br>' : '';
+    const anchorTag   = p.isAnchor   ? '<span style="color:#3b82f6;font-weight:700">⚓ Ancla</span><br>' : '';
     marker.bindPopup(`<div style="font-size:11px;min-width:180px">
-      ${anchorTag}${outlierTag}
+      ${subgroupTag}${anchorTag}
       <strong>${escHtml(p.name)}</strong><br>
       <span style="color:#666">${escHtml(p.addr)}</span><br>
       <span style="font-family:monospace;font-size:9px;color:#888">${escHtml(p.store_id)}</span><br>
@@ -3854,7 +3865,7 @@ function initBdMap(cid, sgi) {
   const bounds = L.latLngBounds(points.map(p=>[p.lat,p.lng]));
   map.fitBounds(bounds, {padding:[20,20]});
 
-  // Si hay filtro activo, aplicarlo al mapa inmediatamente
+  // Aplicar filtro activo si existe
   const filterInput = wrap.parentElement?.querySelector('input[type="text"]');
   if (filterInput && filterInput.value.trim()) {
     filterBdResults(filterInput.value, cid, sgi, true);
