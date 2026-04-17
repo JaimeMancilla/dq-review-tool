@@ -386,7 +386,7 @@ def detect_country(df):
 
 def get_threshold():
     fb = load_feedback()
-    return round(0.95 + fb.get("threshold_adj", 0.0), 4)
+    return round(min(1.0, max(0.5, 0.95 + fb.get("threshold_adj", 0.0))), 4)
 
 # ── feedback ──────────────────────────────────────────────────────────────────
 
