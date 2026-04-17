@@ -3170,6 +3170,8 @@ function closeAuditModal() {
 let _bdDragData = null;
 // Movimientos pendientes de confirmación: clave = "cid_sgi"
 const _bdPendingMoves = {};
+// Stack de deshacer por subgrupo: clave = "cid_sgi", valor = [{move, chipEl, containerEl, html}]
+const _bdUndoStack = {};
 // Estado local de clusters modificados en esta sesión
 // clave = cluster_index, valor = {moved_out: Set(store_ids), moved_in: [{store_id, app_name, app_address}]}
 const _sessionClusterState = {};
@@ -3228,19 +3230,29 @@ async function onBdDrop(e, targetCluster, cid, sgi) {
     }
     // Trackear movimiento pendiente
     if (!_bdPendingMoves[key]) _bdPendingMoves[key] = [];
-    _bdPendingMoves[key].push({
+    const moveEntry = {
       store_id: m.store_id, app_name: m.app_name, app_address: m.app_address,
       scraper_source: m.scraper_source, from_cluster: m.from_cluster,
       cluster_name: m.cluster_name, cluster_address: m.cluster_address,
       item_index: m.item_index, new_cluster: newCluster, is_new: isNew,
       is_subgroup: false
-    });
+    };
     // Ver si es del subgrupo
     const sgs=SUBGROUPS[cid]||[]; const sg=sgs[sgi]||{};
     const sgIds=new Set((sg.members||[]).map(ii=>{const i=ii.indexOf("_");return i>=0?ii.slice(i+1):ii;}));
-    if (sgIds.has(String(m.store_id))||sgIds.has(String(m.item_index))) {
-      _bdPendingMoves[key][_bdPendingMoves[key].length-1].is_subgroup = true;
-    }
+    if (sgIds.has(String(m.store_id))||sgIds.has(String(m.item_index))) moveEntry.is_subgroup = true;
+    _bdPendingMoves[key].push(moveEntry);
+    // Guardar en undo stack
+    if (!_bdUndoStack[key]) _bdUndoStack[key] = [];
+    const fromC2 = document.getElementById("bdt_" + CSS.escape(m.from_cluster));
+    const tgtC2  = document.getElementById("bdt_" + CSS.escape(targetCluster));
+    _bdUndoStack[key].push({
+      move: moveEntry,
+      fromHtml: fromC2 ? fromC2.innerHTML : null,
+      toHtml:   tgtC2  ? tgtC2.innerHTML  : null,
+      fromId: "bdt_" + CSS.escape(m.from_cluster),
+      toId:   targetCluster !== "NEW" ? "bdt_" + CSS.escape(targetCluster) : null
+    });
     _bdShowConfirmBtn(cid, sgi);
     return;
   }
@@ -3282,63 +3294,76 @@ async function onBdDrop(e, targetCluster, cid, sgi) {
 }
 
 async function assignThisCluster(clusterIndex, cid, sgi) {
-  // Asigna el cluster BD como corrección del subgrupo con un solo click
-  const sgs = SUBGROUPS[cid]||[];
-  if (!sgs[sgi]) return;
+  const key = `${cid}_${sgi}`;
+  const hasPending = (_bdPendingMoves[key]||[]).length > 0;
 
-  sgs[sgi].correction = clusterIndex;
-  sgs[sgi].is_new = false;
-  await api("/set_correction", {cluster_id: cid, item_indexes: sgs[sgi].members, correction: clusterIndex});
-  api("/save_subgroups", {subgroups: SUBGROUPS});
-  refreshClusterBadge(cid);
-  renderFilterBar();
-  renderSgList(cid);
-  updateSgModalProgress(cid);
-
-  // Marcar visualmente como asignado
-  const zone = document.getElementById("bdz_" + CSS.escape(clusterIndex));
-  if (zone) {
-    const hdr = zone.querySelector("div:first-child");
-    if (hdr) { hdr.style.background = "var(--gbg)"; hdr.style.borderBottomColor = "var(--gborder)"; }
-    const btn2 = zone.querySelector("button");
-    if (btn2) { btn2.innerHTML = "✅ Asignado"; btn2.disabled = true; }
-  }
-  // Actualizar sección corrección en el panel activo
-  const corrEl = document.querySelector("#sgActivePanel .sg-corr-section");
-  if (corrEl) {
-    corrEl.querySelector("div:last-child").innerHTML =
+  if (hasPending) {
+    // Hay moves pendientes: sincronizar cluster destino y confirmar todo
+    const moves = _bdPendingMoves[key];
+    const sgMove = moves.find(m => m.is_subgroup);
+    if (sgMove) { sgMove.new_cluster = clusterIndex; }
+    else { moves.push({is_subgroup:true, new_cluster:clusterIndex, is_new:false,
+      store_id:'', app_name:'', app_address:'', scraper_source:'', from_cluster:null}); }
+    await confirmBdMoves(cid, sgi);
+  } else {
+    // Sin moves pendientes: solo asignar subgrupo
+    const sgs = SUBGROUPS[cid]||[];
+    if (!sgs[sgi]) return;
+    sgs[sgi].correction = clusterIndex;
+    sgs[sgi].is_new = false;
+    await api("/set_correction", {cluster_id: cid, item_indexes: sgs[sgi].members, correction: clusterIndex});
+    api("/save_subgroups", {subgroups: SUBGROUPS});
+    refreshClusterBadge(cid); renderFilterBar(); renderSgList(cid); updateSgModalProgress(cid);
+    const zone = document.getElementById("bdz_" + CSS.escape(clusterIndex));
+    if (zone) {
+      const hdr = zone.querySelector("div:first-child");
+      if (hdr) { hdr.style.background = "var(--gbg)"; hdr.style.borderBottomColor = "var(--gborder)"; }
+      const btn2 = zone.querySelector("button");
+      if (btn2) { btn2.innerHTML = "✅ Asignado"; btn2.disabled = true; }
+    }
+    const corrEl = document.querySelector("#sgActivePanel .sg-corr-section");
+    if (corrEl) corrEl.querySelector("div:last-child").innerHTML =
       `<div class="corr-chip"><span>${esc(clusterIndex)}</span>
        <span class="chip-x" onclick="clearSgCorr('${esc(cid)}',${sgi});renderSgActivePanel('${esc(cid)}',${sgi});renderSgList('${esc(cid)}')">✕</span></div>`;
+    const hdr2 = document.querySelector("#sgActivePanel .sg-group-hdr");
+    if (hdr2) hdr2.className = "sg-group-hdr corrected";
+    toast(`✅ Subgrupo → ${clusterIndex}`);
   }
-  // Actualizar header del card
-  const hdr2 = document.querySelector("#sgActivePanel .sg-group-hdr");
-  if (hdr2) { hdr2.className = "sg-group-hdr corrected"; }
-
-  toast(`✅ Subgrupo → ${clusterIndex}`);
 }
+
 
 function _bdShowConfirmBtn(cid, sgi) {
   const key = `${cid}_${sgi}`;
   const moves = _bdPendingMoves[key]||[];
   if (!moves.length) return;
-  // Buscar o crear el botón de confirmación en el subgrupo
-  const btnId = `bdConfirm_${CSS.escape(cid)}_${sgi}`;
+  const newZone = document.querySelector(`[id="bdz_NEW_${CSS.escape(cid)}_${sgi}"]`);
+  if (!newZone) return;
+
+  // Botón confirmar
+  let btnId = `bdConfirm_${CSS.escape(cid)}_${sgi}`;
   let btn = document.getElementById(btnId);
   if (!btn) {
-    // Buscar la zona de botones del subgrupo (después de zona NEW)
-    const newZone = document.getElementById(`bdz_NEW_${CSS.escape(cid)}_${sgi}`);
-    if (newZone && newZone.nextElementSibling) {
-      btn = document.createElement("button");
-      btn.id = btnId;
-      btn.className = "btn green";
-      btn.style.cssText = "margin-top:8px;width:100%;font-weight:700";
-      btn.onclick = () => confirmBdMoves(cid, sgi);
-      newZone.parentNode.insertBefore(btn, newZone.nextElementSibling);
-    }
+    const wrap = document.createElement("div");
+    wrap.id = `bdActions_${CSS.escape(cid)}_${sgi}`;
+    wrap.style.cssText = "display:flex;gap:6px;margin-top:8px";
+    btn = document.createElement("button");
+    btn.id = btnId;
+    btn.className = "btn green";
+    btn.style.cssText = "flex:1;font-weight:700";
+    btn.onclick = () => confirmBdMoves(cid, sgi);
+    const undoBtn = document.createElement("button");
+    undoBtn.className = "btn sm";
+    undoBtn.style.cssText = "font-size:13px;padding:4px 10px";
+    undoBtn.title = "Deshacer último movimiento";
+    undoBtn.innerHTML = "↩";
+    undoBtn.onclick = () => undoLastBdMove(cid, sgi);
+    wrap.appendChild(btn);
+    wrap.appendChild(undoBtn);
+    newZone.parentNode.insertBefore(wrap, newZone.nextElementSibling);
   }
   if (btn) {
     const n = moves.length;
-    btn.innerHTML = `✓ Confirmar ${n} corrección${n!==1?"es":""} — aplicar cambios`;
+    btn.innerHTML = `✅ Aplicar ${n} corrección${n!==1?"es":""}`;
     btn.style.display = "";
   }
 }
@@ -3382,6 +3407,11 @@ async function confirmBdMoves(cid, sgi) {
   renderSgList(cid);
   updateSgModalProgress(cid);
   delete _bdPendingMoves[key];
+  delete _bdUndoStack[key];
+
+  // Ocultar botones de acción
+  const actionsWrap = document.getElementById(`bdActions_${CSS.escape(cid)}_${sgi}`);
+  if (actionsWrap) actionsWrap.remove();
 
   // Visual: botón → señal de corregido
   if (btn) {
@@ -3392,6 +3422,46 @@ async function confirmBdMoves(cid, sgi) {
     btn.disabled = true;
   }
   toast(`✅ ${moves.length} corrección${moves.length!==1?"es":""} guardadas`);
+}
+
+function undoLastBdMove(cid, sgi) {
+  const key = `${cid}_${sgi}`;
+  const stack = _bdUndoStack[key]||[];
+  if (!stack.length) { toast("Nada que deshacer"); return; }
+
+  const last = stack.pop();
+  // Restaurar HTML del origen y destino
+  if (last.fromId && last.fromHtml !== null) {
+    const el = document.getElementById(last.fromId);
+    if (el) el.innerHTML = last.fromHtml;
+  }
+  if (last.toId && last.toHtml !== null) {
+    const el = document.getElementById(last.toId);
+    if (el) el.innerHTML = last.toHtml;
+  }
+  // Quitar último move de pending
+  const moves = _bdPendingMoves[key]||[];
+  moves.pop();
+  if (!moves.length) {
+    delete _bdPendingMoves[key];
+    // Ocultar botones si no hay más moves
+    const actionsWrap = document.getElementById(`bdActions_${CSS.escape(cid)}_${sgi}`);
+    if (actionsWrap) actionsWrap.remove();
+  } else {
+    // Actualizar contador en botón confirmar
+    const btn = document.getElementById(`bdConfirm_${CSS.escape(cid)}_${sgi}`);
+    if (btn) btn.innerHTML = `✅ Aplicar ${moves.length} corrección${moves.length!==1?"es":""}`;
+  }
+  // Revertir sessionClusterState
+  const m = last.move;
+  if (m.from_cluster && _sessionClusterState[m.from_cluster]) {
+    _sessionClusterState[m.from_cluster].moved_out.delete(String(m.store_id));
+  }
+  if (m.new_cluster && m.new_cluster !== "NEW" && _sessionClusterState[m.new_cluster]) {
+    _sessionClusterState[m.new_cluster].moved_in =
+      _sessionClusterState[m.new_cluster].moved_in.filter(x => x.store_id !== m.store_id);
+  }
+  toast("↩ Movimiento deshecho");
 }
 
 function _bdDropAddChip(targetCluster, cid, sgi, appName, appAddr, newCluster) {
