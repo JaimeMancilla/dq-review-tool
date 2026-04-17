@@ -216,6 +216,7 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
     <button class="btn sm" id="btnBdUpdate" onclick="openBdUpdate()" style="display:none">⬆ Actualizar BD</button>
     <button class="btn sm" id="btnDashboard" onclick="openDashboard()" style="display:none">📊 Dashboard</button>
     <button class="btn" id="btnReset" onclick="resetApp()">← Menú</button>
+    <button class="btn sm red" id="btnResetFile" onclick="confirmResetFile()" style="display:none" title="Borra subgrupos, correcciones y estado de revisión de este archivo">↺ Empezar de cero</button>
     <button class="btn sm" id="btnMarkReviewed" onclick="markAsReviewed()" style="display:none">✓ Marcar revisado</button>
     <button class="btn primary" id="btnExport" onclick="exportFile()" style="display:none">⬇ Descargar</button>
   </div>
@@ -793,15 +794,16 @@ async function doUpload(file){
       const btnMR=document.getElementById("btnMarkReviewed");
       if(d.already_reviewed){
         btnExpD.style.display="";btnExpD.disabled=false;btnExpD.style.opacity="1";btnExpD.title="";
-        btnMR.style.display="";btnMR.innerHTML="✓ Revisado";
+        btnMR.style.display="";btnMR.innerHTML="✓ Revisado";btnMR.dataset.reviewed="1";
         btnMR.style.background="var(--gbg)";btnMR.style.color="var(--green)";btnMR.style.borderColor="var(--gborder)";
       } else {
         btnExpD.style.display="";btnExpD.disabled=true;btnExpD.style.opacity="0.45";btnExpD.title="Marca como revisado primero";
-        btnMR.style.display="";btnMR.innerHTML="✓ Marcar revisado";
+        btnMR.style.display="";btnMR.innerHTML="✓ Marcar revisado";btnMR.dataset.reviewed="0";
         btnMR.style.background="";btnMR.style.color="";btnMR.style.borderColor="";
       }
       document.getElementById("btnMemory").style.display="";
       document.getElementById("btnDashboard").style.display="";
+      document.getElementById("btnResetFile").style.display="";
       if(d.restored) toast(`✓ Estado restaurado`, 3000);
     } else {
       const d=await fetch("/upload",{method:"POST",body:fd}).then(r=>r.json());
@@ -825,17 +827,18 @@ async function doUpload(file){
         btnExp.style.display="";btnExp.disabled=false;btnExp.style.opacity="1";btnExp.title="";
         btnBd.style.display="";btnBd.disabled=false;btnBd.style.opacity="1";btnBd.title="";
         const btnMRS=document.getElementById("btnMarkReviewed");
-        btnMRS.style.display="";btnMRS.innerHTML="✓ Revisado";
+        btnMRS.style.display="";btnMRS.innerHTML="✓ Revisado";btnMRS.dataset.reviewed="1";
         btnMRS.style.background="var(--gbg)";btnMRS.style.color="var(--green)";btnMRS.style.borderColor="var(--gborder)";
       } else {
         btnExp.style.display="";btnExp.disabled=true;btnExp.style.opacity="0.45";btnExp.title="Marca como revisado primero";
         btnBd.style.display="";btnBd.disabled=true;btnBd.style.opacity="0.45";btnBd.title="Marca como revisado primero";
         const btnMRS=document.getElementById("btnMarkReviewed");
-        btnMRS.style.display="";btnMRS.innerHTML="✓ Marcar revisado";
+        btnMRS.style.display="";btnMRS.innerHTML="✓ Marcar revisado";btnMRS.dataset.reviewed="0";
         btnMRS.style.background="";btnMRS.style.color="";btnMRS.style.borderColor="";
       }
       document.getElementById("btnMemory").style.display="";
       document.getElementById("btnDashboard").style.display="";
+      document.getElementById("btnResetFile").style.display="";
       if(d.meta)updateFbBar(d.meta.fb_stats,d.meta.threshold,0);
       if(d.restored){
         const sgCount = Object.keys(SUBGROUPS).length;
@@ -1703,7 +1706,7 @@ async function openDashboard() {
   document.getElementById("placesScreen").classList.add("hidden");
   document.getElementById("hdrFile").textContent = "";
   // Ocultar botones de revisión
-  ["btnExport","btnMarkReviewed","btnMemory","btnBdUpdate","btnDashboard"].forEach(id=>{
+  ["btnExport","btnMarkReviewed","btnMemory","btnBdUpdate","btnDashboard","btnResetFile"].forEach(id=>{
     const el = document.getElementById(id); if(el) el.style.display="none";
   });
   await loadDashTab(_dashTab);
@@ -2074,11 +2077,34 @@ async function resetMemory(){await api("/memory/reset",{});closeMemory();toast("
 // ── export ────────────────────────────────────────────────────────────────────
 async function markAsReviewed(){
   const btn=document.getElementById("btnMarkReviewed");
+  // Si ya está marcado como revisado, actúa como "desmarcar"
+  const isReviewed = btn.dataset.reviewed === "1";
+  if(isReviewed){
+    if(!confirm("¿Desmarcar como revisado? Podrás seguir editando correcciones, pero se borrarán los registros de progreso de este archivo.")) return;
+    btn.innerHTML='<span class="spinner"></span>';
+    try{
+      const d=await api("/unmark_reviewed",{});
+      if(d.ok){
+        btn.innerHTML="✓ Marcar revisado";
+        btn.dataset.reviewed="0";
+        btn.style.background="";btn.style.color="";btn.style.borderColor="";
+        // Deshabilitar Export y BdUpdate hasta re-marcar
+        const btnExp=document.getElementById("btnExport");
+        const btnBd=document.getElementById("btnBdUpdate");
+        btnExp.disabled=true;btnExp.style.opacity="0.45";btnExp.title="Marca como revisado primero";
+        btnBd.disabled=true;btnBd.style.opacity="0.45";btnBd.title="Marca como revisado primero";
+        toast("Desmarcado — puedes seguir editando");
+      }
+    }catch(e){toast("Error: "+e.message);btn.innerHTML="✓ Revisado";}
+    return;
+  }
+  // Marcar como revisado
   btn.innerHTML='<span class="spinner"></span>';
   try{
     const d=await api("/mark_as_reviewed",{});
     if(d.ok){
       btn.innerHTML="✓ Revisado";
+      btn.dataset.reviewed="1";
       btn.style.background="var(--gbg)";
       btn.style.color="var(--green)";
       btn.style.borderColor="var(--gborder)";
@@ -2091,6 +2117,49 @@ async function markAsReviewed(){
       toast(`✓ "${d.filename}" marcado como revisado${msg}`);
     }
   }catch(e){toast("Error: "+e.message);btn.innerHTML="✓ Marcar revisado";}
+}
+
+async function confirmResetFile(){
+  const filename = document.getElementById("hdrFile").textContent || "";
+  if(!confirm(`¿Empezar de cero con "${filename}"?\n\nEsto borrará:\n• Subgrupos generados\n• Correcciones asignadas\n• Correcciones externas (Anotar)\n• Estado de revisado\n\nEl archivo original no se modifica.`)) return;
+  const btn=document.getElementById("btnResetFile");
+  btn.innerHTML='<span class="spinner"></span>';
+  try{
+    const d=await api("/reset_file",{});
+    if(d.ok){
+      // Limpiar estado JS completamente
+      CLUSTERS=[];SUBGROUPS={};FILTER="all";DISH_GROUPS=[];
+      // Resetear botón "Marcar revisado"
+      const btnMR=document.getElementById("btnMarkReviewed");
+      btnMR.innerHTML="✓ Marcar revisado";
+      btnMR.dataset.reviewed="0";
+      btnMR.style.background="";btnMR.style.color="";btnMR.style.borderColor="";
+      // Deshabilitar Export y BdUpdate
+      const btnExp=document.getElementById("btnExport");
+      const btnBd=document.getElementById("btnBdUpdate");
+      btnExp.disabled=true;btnExp.style.opacity="0.45";btnExp.title="Marca como revisado primero";
+      btnBd.disabled=true;btnBd.style.opacity="0.45";btnBd.title="Marca como revisado primero";
+      // Limpiar listas renderizadas
+      document.getElementById("clusterList").innerHTML="";
+      document.getElementById("dishesList").innerHTML="";
+      // Volver a subir el archivo automáticamente (si hay uno activo)
+      // Para no perder el contexto de tipo, simplemente recargamos volviendo al fileSelect
+      toast(`✓ Reiniciado — vuelve a subir el archivo`, 4000);
+      // Ir a pantalla de selección de archivo (mantiene el tipo elegido)
+      document.getElementById("mainScreen").classList.add("hidden");
+      document.getElementById("dishesScreen").classList.add("hidden");
+      document.getElementById("uploadScreen").classList.remove("hidden");
+      document.getElementById("typeSelect").classList.add("hidden");
+      document.getElementById("storesSubtype").classList.add("hidden");
+      document.getElementById("fileSelect").classList.remove("hidden");
+      document.getElementById("hdrFile").style.display="none";
+      ["btnExport","btnMarkReviewed","btnMemory","btnBdUpdate","btnDashboard","btnResetFile"].forEach(id=>{
+        const el=document.getElementById(id);
+        el.style.display="none";el.disabled=false;el.style.opacity="1";el.title="";
+      });
+    }
+  }catch(e){toast("Error: "+e.message);}
+  btn.innerHTML="↺ Empezar de cero";
 }
 
 async function exportFile(){
@@ -2132,7 +2201,7 @@ async function resetApp(){
   document.getElementById("storesSubtype").classList.add("hidden");
   document.getElementById("fileSelect").classList.add("hidden");
   document.getElementById("fbBar").classList.add("hidden");
-  ["btnExport","btnMarkReviewed","btnMemory","btnBdUpdate","btnDashboard"].forEach(id=>{
+  ["btnExport","btnMarkReviewed","btnMemory","btnBdUpdate","btnDashboard","btnResetFile"].forEach(id=>{
     const el=document.getElementById(id);
     el.style.display="none";el.disabled=false;el.style.opacity="1";el.title="";
   });
@@ -3552,6 +3621,7 @@ function openPlaces() {
   // Botones header
   document.getElementById('btnReset').style.display = 'inline-flex';
   document.getElementById('btnExport').style.display = 'none';
+  document.getElementById('btnResetFile').style.display = 'none';
   placesLoadStats();
   placesLoadRows();
 }

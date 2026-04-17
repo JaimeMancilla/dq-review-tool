@@ -1836,6 +1836,24 @@ def mark_as_reviewed():
         session.modified = True
     return jsonify({"ok": True, "filename": filename, "pairs_added": pairs_added})
 
+@app.route("/unmark_reviewed", methods=["POST"])
+def unmark_reviewed():
+    """Desmarca el archivo como revisado, permitiendo seguir editando correcciones.
+    Borra los registros de reviewed_clusters y reviewed_files para este archivo,
+    evitando que queden entradas huérfanas de una revisión incompleta."""
+    filename = session.get("filename", "")
+    if not filename:
+        return jsonify({"error": "Sin archivo activo"}), 400
+
+    conn = sqlite3.connect(DB_FILE)
+    conn.execute("DELETE FROM reviewed_clusters WHERE file_name = ?", (filename,))
+    conn.execute("DELETE FROM reviewed_files    WHERE file_name = ?", (filename,))
+    conn.commit(); conn.close()
+
+    session["is_reviewed"] = False
+    session.modified = True
+    return jsonify({"ok": True})
+
 @app.route("/reset_session", methods=["POST"])
 def reset_session():
     """Limpia la sesión activa para empezar una nueva revisión."""
@@ -1844,6 +1862,33 @@ def reset_session():
         session.pop(key, None)
     session.modified = True
     return jsonify({"ok": True})
+
+@app.route("/reset_file", methods=["POST"])
+def reset_file():
+    """Borra TODO el estado de un archivo: sesión Flask + todas las tablas de memory.db
+    relacionadas. Deja el archivo como si nunca hubiera sido abierto."""
+    filename = session.get("filename") or (request.json or {}).get("filename", "")
+    if not filename:
+        return jsonify({"error": "Sin archivo activo"}), 400
+
+    conn = sqlite3.connect(DB_FILE)
+    conn.execute("DELETE FROM session_state        WHERE file_name = ?", (filename,))
+    conn.execute("DELETE FROM reviewed_clusters    WHERE file_name = ?", (filename,))
+    conn.execute("DELETE FROM reviewed_files       WHERE file_name = ?", (filename,))
+    conn.execute("DELETE FROM corrections          WHERE file_name = ?", (filename,))
+    conn.execute("DELETE FROM external_corrections WHERE file_name = ?", (filename,))
+    conn.commit(); conn.close()
+
+    # Conservar review_type para no perder el contexto de tipo de archivo
+    rt = session.get("review_type", "stores_restaurant")
+    for key in ["clusters", "review_path", "country",
+                "dishes_groups", "dishes_path", "dishes_filename", "is_reviewed"]:
+        session.pop(key, None)
+    session["filename"]    = filename
+    session["review_type"] = rt
+    session.modified = True
+
+    return jsonify({"ok": True, "filename": filename})
 
 @app.route("/upload_bd", methods=["POST"])
 def upload_bd():
@@ -2073,6 +2118,13 @@ def bd_update_preview():
     if not rows:
         return jsonify({"rows": [], "total": 0, "store_type": store_type, "country": country})
 
+    # Deduplicar por store_id: si el mismo store fue corregido varias veces, gana la última
+    seen_sid = {}
+    for r in rows:
+        sid = r.get("store_id", "")
+        seen_sid[sid if sid else id(r)] = r
+    rows = list(seen_sid.values())
+
     # Enriquecer con contexto de PostgreSQL
     # Traer cluster_name + miembros de old y new clusters únicos
     old_clusters = list({r["old_cluster"] for r in rows if r["old_cluster"]})
@@ -2141,11 +2193,20 @@ def bd_update_preview():
 
 @app.route("/bd_update/execute", methods=["POST"])
 def bd_update_execute():
-    """Ejecuta los INSERTs en ctrl_restaurant_homologation."""
+    """Ejecuta los INSERTs en ctrl_restaurant_homologation.
+    Si hay duplicados por store_id (mismo store corregido dos veces), gana el último."""
     if not pg_is_configured():
         return jsonify({"error": "BD no configurada"}), 400
 
-    rows     = request.json.get("rows", [])
+    rows_raw = request.json.get("rows", [])
+
+    # Deduplicar: por store_id gana la última corrección recibida (last-wins)
+    seen_sid = {}
+    for r in rows_raw:
+        sid = r.get("store_id", "")
+        seen_sid[sid if sid else id(r)] = r
+    rows = list(seen_sid.values())
+
     inserted = 0
     errors   = []
 
