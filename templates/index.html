@@ -215,7 +215,6 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
     <button class="btn sm" id="btnMemory" onclick="openMemory()" style="display:none">🧠 Memoria</button>
     <button class="btn sm" id="btnBdUpdate" onclick="openBdUpdate()" style="display:none">⬆ Actualizar BD</button>
     <button class="btn sm" id="btnDashboard" onclick="openDashboard()" style="display:none">📊 Dashboard</button>
-    <button class="btn sm" id="btnClusterSearch" onclick="toggleClusterSearch()" style="display:none">🔍 Buscar cluster</button>
     <button class="btn" id="btnReset" onclick="resetApp()">← Menú</button>
     <button class="btn sm" id="btnMarkReviewed" onclick="markAsReviewed()" style="display:none">✓ Marcar revisado</button>
     <button class="btn primary" id="btnExport" onclick="exportFile()" style="display:none">⬇ Descargar</button>
@@ -295,23 +294,7 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
 
 <div id="mainScreen" class="hidden">
   <div class="stats" id="statsBar"></div>
-  <!-- Panel búsqueda de clusters (drawer lateral derecho) -->
-  <div id="clusterSearchPanel" style="display:none;position:fixed;top:52px;right:0;width:380px;height:calc(100vh - 52px);background:var(--bg);border-left:1px solid var(--border);z-index:200;display:none;flex-direction:column;box-shadow:-4px 0 16px rgba(0,0,0,.1)">
-    <div style="padding:12px 14px;border-bottom:1px solid var(--border);background:var(--surf);display:flex;align-items:center;gap:8px">
-      <span style="font-weight:700;font-size:13px">🔍 Buscar cluster</span>
-      <button class="btn sm" style="margin-left:auto" onclick="toggleClusterSearch()">✕</button>
-    </div>
-    <div style="padding:10px 14px;border-bottom:1px solid var(--border)">
-      <div style="display:flex;gap:6px">
-        <input id="clusterSearchInput" type="text" placeholder="Nombre o dirección…"
-          style="flex:1;padding:6px 10px;font-size:12px;border:1px solid var(--border2);border-radius:var(--r);background:var(--surf);color:var(--text)"
-          onkeydown="if(event.key==='Enter')doClusterSearch()">
-        <button class="btn blue sm" onclick="doClusterSearch()">Buscar</button>
-      </div>
-      <div style="font-size:10px;color:var(--muted);margin-top:5px">Busca en la BD independiente del archivo actual</div>
-    </div>
-    <div id="clusterSearchResults" style="flex:1;overflow-y:auto;padding:8px 0"></div>
-  </div>
+
   <div class="clusters" id="clusterList"></div>
 </div>
 
@@ -555,9 +538,10 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
       </div>
       <div class="sg-modal-progress" id="sgModalProgress"></div>
       <button class="btn sm" onclick="sgModalAddGroup()">+ Grupo</button>
+      <button class="btn sm" onclick="toggleSgClusterSearch()" title="Buscar otro cluster">🔍</button>
       <button class="btn sm" onclick="closeSgModal()">✕ Cerrar</button>
     </div>
-    <div class="sg-modal-body">
+    <div class="sg-modal-body" style="position:relative">
       <!-- Lista izquierda con barra de búsqueda -->
       <div style="width:280px;flex-shrink:0;border-right:1px solid var(--border);display:flex;flex-direction:column;background:var(--surf2)">
         <div style="padding:6px 8px;border-bottom:1px solid var(--border);background:var(--surf)">
@@ -573,6 +557,23 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
           <div style="font-size:28px">👈</div>
           <div style="font-size:12px">Selecciona un subgrupo</div>
         </div>
+      </div>
+      <!-- Panel búsqueda de clusters (overlay sobre sgActivePanel) -->
+      <div id="sgClusterSearchPanel" style="display:none;position:absolute;top:0;right:0;width:380px;height:100%;background:var(--bg);border-left:1px solid var(--border);z-index:10;flex-direction:column;box-shadow:-4px 0 16px rgba(0,0,0,.1)">
+        <div style="padding:10px 14px;border-bottom:1px solid var(--border);background:var(--surf);display:flex;align-items:center;gap:8px">
+          <span style="font-weight:700;font-size:12px">🔍 Buscar cluster en BD</span>
+          <button class="btn sm" style="margin-left:auto" onclick="toggleSgClusterSearch()">✕</button>
+        </div>
+        <div style="padding:8px 12px;border-bottom:1px solid var(--border)">
+          <div style="display:flex;gap:6px">
+            <input id="sgClusterSearchInput" type="text" placeholder="Nombre, dirección o cluster_index…"
+              style="flex:1;padding:5px 8px;font-size:11px;border:1px solid var(--border2);border-radius:var(--r);background:var(--surf);color:var(--text)"
+              onkeydown="if(event.key==='Enter')doSgClusterSearch()">
+            <button class="btn blue sm" onclick="doSgClusterSearch()">Buscar</button>
+          </div>
+          <div style="font-size:9px;color:var(--muted);margin-top:4px">Busca cualquier cluster en la BD e inícialo en el modal</div>
+        </div>
+        <div id="sgClusterSearchResults" style="flex:1;overflow-y:auto"></div>
       </div>
     </div>
   </div>
@@ -801,7 +802,6 @@ async function doUpload(file){
       }
       document.getElementById("btnMemory").style.display="";
       document.getElementById("btnDashboard").style.display="";
-      if(PG_READY) document.getElementById("btnClusterSearch").style.display="";
       if(d.restored) toast(`✓ Estado restaurado`, 3000);
     } else {
       const d=await fetch("/upload",{method:"POST",body:fd}).then(r=>r.json());
@@ -836,7 +836,6 @@ async function doUpload(file){
       }
       document.getElementById("btnMemory").style.display="";
       document.getElementById("btnDashboard").style.display="";
-      if(PG_READY) document.getElementById("btnClusterSearch").style.display="";
       if(d.meta)updateFbBar(d.meta.fb_stats,d.meta.threshold,0);
       if(d.restored){
         const sgCount = Object.keys(SUBGROUPS).length;
@@ -4018,27 +4017,26 @@ async function generateSubgroups(cid) {
   return true;
 }
 
-// ── Buscador de clusters independiente ───────────────────────────────────────
-let _clusterSearchOpen = false;
-
-function toggleClusterSearch() {
-  const panel = document.getElementById("clusterSearchPanel");
-  _clusterSearchOpen = !_clusterSearchOpen;
-  panel.style.display = _clusterSearchOpen ? "flex" : "none";
-  if (_clusterSearchOpen) {
-    setTimeout(() => document.getElementById("clusterSearchInput")?.focus(), 50);
+// ── Buscador de clusters dentro del modal de subgrupos ───────────────────────
+function toggleSgClusterSearch() {
+  const panel = document.getElementById("sgClusterSearchPanel");
+  if (!panel) return;
+  const isOpen = panel.style.display !== 'none';
+  panel.style.display = isOpen ? 'none' : 'flex';
+  if (!isOpen) {
+    document.getElementById("sgClusterSearchResults").innerHTML = '';
+    setTimeout(() => document.getElementById("sgClusterSearchInput")?.focus(), 50);
   }
 }
 
-async function doClusterSearch() {
-  const input = document.getElementById("clusterSearchInput");
+async function doSgClusterSearch() {
+  const input = document.getElementById("sgClusterSearchInput");
   const q = (input?.value||"").trim();
   if (!q) return;
-  const results = document.getElementById("clusterSearchResults");
+  const results = document.getElementById("sgClusterSearchResults");
   results.innerHTML = '<div style="padding:16px;text-align:center"><span class="spinner"></span></div>';
 
-  const country = COUNTRY || 'mx';
-  const d = await api("/cluster_search", {query: q, country});
+  const d = await api("/cluster_search", {query: q, country: COUNTRY||'mx'});
   if (d.error) {
     results.innerHTML = `<div style="padding:12px 14px;color:var(--red);font-size:12px">⚠ ${esc(d.error)}</div>`;
     return;
@@ -4050,56 +4048,70 @@ async function doClusterSearch() {
 
   results.innerHTML = d.clusters.map(cl => {
     const memberCount = cl.members?.length || 0;
-    const anchor = cl.members?.find(m => m.is_anchor);
-    const addr = cl.anchor_address || anchor?.app_address || '';
-    return `<div style="padding:10px 14px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .1s"
+    const addr = cl.anchor_address || '';
+    const alreadyOpen = !!SUBGROUPS[cl.cluster_id];
+    return `<div style="padding:9px 12px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .1s"
       onmouseenter="this.style.background='var(--surf2)'" onmouseleave="this.style.background=''"
-      onclick="openSearchedCluster(${JSON.stringify(cl).replace(/"/g,'&quot;')})">
-      <div style="font-size:12px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(cl.anchor_name||cl.cluster_id)}</div>
-      <div style="font-size:10px;color:var(--muted);margin-top:2px;line-height:1.3">${esc(addr.slice(0,60))}</div>
-      <div style="display:flex;gap:8px;margin-top:4px">
+      onclick="openSearchedClusterInModal(${JSON.stringify(cl).replace(/"/g,'&quot;')})">
+      <div style="display:flex;align-items:center;gap:6px">
+        <span style="font-size:11px;font-weight:700;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(cl.anchor_name||cl.cluster_id)}</span>
+        ${alreadyOpen?`<span style="font-size:9px;background:var(--gbg);color:var(--green);border:1px solid var(--gborder);border-radius:3px;padding:0 4px">abierto</span>`:''}
+      </div>
+      <div style="font-size:9px;color:var(--muted);margin-top:2px;line-height:1.3">${esc(addr.slice(0,55))}</div>
+      <div style="display:flex;gap:8px;margin-top:3px">
         <span style="font-family:monospace;font-size:9px;color:var(--blue)">${esc(cl.cluster_id)}</span>
-        <span style="font-size:10px;color:var(--muted)">${memberCount} store${memberCount!==1?"s":""}</span>
+        <span style="font-size:9px;color:var(--muted)">${memberCount} store${memberCount!==1?"s":""}</span>
       </div>
     </div>`;
-  }).join("") + `<div style="padding:8px 14px;font-size:10px;color:var(--muted);text-align:center">${d.clusters.length} resultado${d.clusters.length!==1?"s":""}</div>`;
+  }).join("") +
+  `<div style="padding:6px 12px;font-size:10px;color:var(--muted);text-align:center">${d.count} resultado${d.count!==1?"s":""}</div>`;
 }
 
-function openSearchedCluster(cl) {
-  // Inyectar el cluster en CLUSTERS si no existe
-  const existing = CLUSTERS.find(c => c.cluster_id === cl.cluster_id);
-  if (!existing) {
-    // Construir objeto compatible con el formato de CLUSTERS
-    const clObj = {
+async function openSearchedClusterInModal(cl) {
+  // Inyectar en CLUSTERS si no existe
+  if (!CLUSTERS.find(c => c.cluster_id === cl.cluster_id)) {
+    CLUSTERS.push({
       cluster_id:     cl.cluster_id,
       anchor_name:    cl.anchor_name,
       anchor_address: cl.anchor_address,
       members:        (cl.members||[]).map(m => ({
-        ...m,
-        revision: null,
-        correccion: "",
+        ...m, revision: 0, correccion: "",
         is_anchor: m.is_anchor || m.item_index === cl.cluster_id
       })),
-      ok_count:   0,
-      bad_count:  cl.members?.length || 0,
-      total:      cl.members?.length || 0,
-      from_search: true  // flag para saber que no vino de archivo
-    };
-    CLUSTERS.push(clObj);
-  }
-
-  // Marcar todos los miembros como incorrectos para poder generar subgrupos
-  const target = CLUSTERS.find(c => c.cluster_id === cl.cluster_id);
-  if (target && !SUBGROUPS[cl.cluster_id]) {
-    target.members.forEach(m => { if (m.revision === null) m.revision = 0; });
-  }
-
-  // Cerrar panel y abrir modal de subgrupos
-  toggleClusterSearch();
-  // Regenerar subgrupos si no existen
-  if (!SUBGROUPS[cl.cluster_id] || !SUBGROUPS[cl.cluster_id].length) {
-    generateSubgroups(cl.cluster_id).then(() => openSgModal(cl.cluster_id));
+      ok_count: 0, bad_count: cl.members?.length||0,
+      total: cl.members?.length||0, from_search: true
+    });
   } else {
+    // Si ya existe, marcar members sin revisión como incorrectos
+    const existing = CLUSTERS.find(c => c.cluster_id === cl.cluster_id);
+    existing?.members.forEach(m => { if (m.revision === null || m.revision === undefined) m.revision = 0; });
+  }
+
+  // Cerrar panel búsqueda
+  toggleSgClusterSearch();
+
+  // Generar subgrupos si no existen y abrir en el modal
+  if (!SUBGROUPS[cl.cluster_id]?.length) {
+    const ok = await generateSubgroups(cl.cluster_id);
+    if (!ok) {
+      // Si no hay subgrupos (todos correctos), crear uno solo con todos los members
+      SUBGROUPS[cl.cluster_id] = [{
+        members: CLUSTERS.find(c=>c.cluster_id===cl.cluster_id)?.members.map(m=>m.item_index)||[],
+        rep_name: cl.anchor_name, rep_addr: cl.anchor_address||'',
+        sql:'', bd_results:[], correction:'', is_new:false
+      }];
+    }
+  }
+  // Cambiar el cluster activo en el modal sin cerrarlo
+  _sgModalCid = cl.cluster_id;
+  document.getElementById("sgModalTitle").textContent = `Subgrupos — ${cl.anchor_name||cl.cluster_id}`;
+  document.getElementById("sgModalMeta").textContent = `${SUBGROUPS[cl.cluster_id]?.length||0} subgrupos`;
+  _sgActiveSgi = 0;
+  renderSgGroupsPanel(cl.cluster_id);
+  updateSgModalProgress(cl.cluster_id);
+}
+
+
     openSgModal(cl.cluster_id);
   }
 }
