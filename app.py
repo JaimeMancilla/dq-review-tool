@@ -1192,6 +1192,85 @@ def pg_status():
     except Exception as e:
         return jsonify({"ok":False,"error":str(e)})
 
+@app.route("/cluster_search", methods=["POST"])
+def cluster_search():
+    """Busca clusters en dim_maestra por nombre o dirección.
+    Devuelve clusters únicos con sus miembros para trabajar sobre ellos
+    independientemente del archivo en revisión.
+    """
+    if not pg_is_configured():
+        return jsonify({"error": "BD no configurada"}), 400
+    d = request.json or {}
+    q = (d.get("query") or "").strip()
+    country = (d.get("country") or session.get("country","mx")).strip()
+    if not q or len(q) < 3:
+        return jsonify({"error": "Query muy corta (mín 3 chars)"}), 400
+
+    table = get_pg_table()
+    # Normalizar query para búsqueda
+    q_norm = re.sub(r'[^\w\s]', ' ', q.lower()).strip()
+    words = [w for w in q_norm.split() if len(w) >= 3]
+    if not words:
+        return jsonify({"error": "Sin términos de búsqueda válidos"}), 400
+
+    # Construir condición OR por palabra en nombre o dirección
+    conditions = []
+    for w in words[:4]:
+        conditions.append(f"(app_name ilike '%{w}%' OR app_address ilike '%{w}%')")
+    where = " AND ".join(conditions)
+
+    sql = f"""
+        SELECT DISTINCT cluster_index, cluster_name, cluster_address, country
+        FROM {table}
+        WHERE country = '{country}'
+          AND ({where})
+        ORDER BY cluster_name
+        LIMIT 30
+    """
+    rows, err = pg_query(sql)
+    if err:
+        return jsonify({"error": err}), 400
+
+    if not rows:
+        return jsonify({"clusters": [], "count": 0})
+
+    # Traer todos los miembros de los clusters encontrados
+    ci_list = ", ".join(f"'{str(r.get('cluster_index',''))}'" for r in rows)
+    members_sql = f"""
+        SELECT cluster_index, store_id, item_index, app_name, app_address,
+               app_latitude, app_longitude, scraper_source, main_chain
+        FROM {table}
+        WHERE country = '{country}'
+          AND cluster_index IN ({ci_list})
+        ORDER BY cluster_index, store_id
+    """
+    members_rows, err2 = pg_query(members_sql)
+    if err2:
+        members_rows = []
+
+    # Agrupar miembros por cluster
+    by_cluster = {}
+    for r in members_rows:
+        ci = str(r.get("cluster_index",""))
+        m = {k: str(v) if v is not None else "" for k, v in r.items()}
+        m["is_anchor"] = (str(r.get("item_index","")) == ci)
+        by_cluster.setdefault(ci, []).append(m)
+
+    clusters = []
+    for r in rows:
+        ci = str(r.get("cluster_index",""))
+        clusters.append({
+            "cluster_id":      ci,
+            "cluster_index":   ci,
+            "anchor_name":     str(r.get("cluster_name","")),
+            "anchor_address":  str(r.get("cluster_address","")),
+            "members":         by_cluster.get(ci, []),
+            "ok_count":        0,
+            "bad_count":       len(by_cluster.get(ci, [])),
+        })
+
+    return jsonify({"clusters": clusters, "count": len(clusters)})
+
 @app.route("/pg_query", methods=["POST"])
 def run_pg_query():
     """
