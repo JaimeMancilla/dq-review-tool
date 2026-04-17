@@ -555,7 +555,9 @@ def build_subgroups(bad_members):
 def extract_addr_keys(addr):
     """
     Extrae claves de dirección: número de calle + primera palabra larga no geográfica.
-    Ej: 'Calle 4 Sur 302 Local C, La Libertad' → ['302', 'libertad']
+    Devuelve palabras en su forma ORIGINAL (con tildes/Ñ) para que addr_ilike_safe
+    pueda detectar caracteres problemáticos y cortar antes de ellos.
+    Ej: 'Cristóbal Colón 4455' → ['4455', 'Cristóbal']
     """
     addr_geo_stop = {
         "calle","avenida","av","blvd","boulevard","carretera","carr",
@@ -563,14 +565,16 @@ def extract_addr_keys(addr):
         "fracc","fraccionamiento","local","plaza","paseo","zona","barrio",
         "mexico","latam","cp","sin","nombre","entre",
     }
-    words = re.split(r"[,\s]+", norm(addr))
+    # Dividir por comas y espacios preservando el original
+    raw_words = re.split(r"[,\s]+", addr.strip())
     keys = []
-    for w in words:
+    for w in raw_words:
         wc = re.sub(r"[^\w]", "", w)
-        if wc.isdigit() and 2 <= len(wc) <= 5:
-            keys.append(wc)
-        elif len(wc) > 4 and wc.isalpha() and wc not in addr_geo_stop:
-            keys.append(wc)
+        wc_norm = norm(wc)
+        if wc_norm.isdigit() and 2 <= len(wc_norm) <= 5:
+            keys.append(wc_norm)  # números siempre normalizados
+        elif len(wc_norm) > 4 and wc_norm.isalpha() and wc_norm not in addr_geo_stop:
+            keys.append(w.strip('.,;'))  # palabra original con tildes
         if len(keys) >= 2:
             break
     return keys
@@ -722,11 +726,12 @@ def generate_unified_sql(bad_members, country="mx"):
             else:
                 name_cond = " and ".join(word_ilike("app_name", w) for w in sql_bwords)
 
-        # Condición de dirección
+        # Condición de dirección — OR entre palabras clave (más permisivo, evita falsos negativos)
         akeys = extract_addr_keys(addr)
         if akeys:
-            addr_cond = " and ".join(addr_ilike_safe("app_address", w) for w in akeys)
-            blocks.append(f"    ({name_cond}\n     and {addr_cond})")
+            addr_parts = [addr_ilike_safe("app_address", w) for w in akeys]
+            addr_cond = " or ".join(addr_parts) if len(addr_parts) > 1 else addr_parts[0]
+            blocks.append(f"    ({name_cond}\n     and ({addr_cond}))")
         else:
             # Sin dirección útil: agregar solo condición de nombre (sin deduplicar más)
             name_key = "_".join(sql_bwords)
