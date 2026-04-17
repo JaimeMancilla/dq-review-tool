@@ -3808,19 +3808,34 @@ function initBdMap(cid, sgi) {
     });
   });
 
+  // Recopilar coordenadas de pins azules para detectar coincidencias
+  const blueCoords = new Set();
+  sg.bd_results.forEach(bdc => bdc.members.forEach(m => {
+    const lat = parseFloat(m.app_latitude);
+    const lng = parseFloat(m.app_longitude);
+    if (!isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0)
+      blueCoords.add(`${lat.toFixed(5)}_${lng.toFixed(5)}`);
+  }));
+
   // Pins naranjo — stores del subgrupo
   (sg.members||[]).forEach(ii => {
     const m = cl?.members.find(mb => mb.item_index === ii);
     if (!m) return;
-    const lat = parseFloat(m.app_latitude);
-    const lng = parseFloat(m.app_longitude);
+    let lat = parseFloat(m.app_latitude);
+    let lng = parseFloat(m.app_longitude);
     if (!isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0) {
+      // Si coincide exactamente con un pin azul, desplazar ~30m al noreste
+      const coordKey = `${lat.toFixed(5)}_${lng.toFixed(5)}`;
+      if (blueCoords.has(coordKey)) {
+        lat += 0.00025;
+        lng += 0.00025;
+      }
       points.push({
         lat, lng,
         name: m.app_name||'', addr: m.app_address||'',
         store_id: m.store_id||'', cluster_index: '(subgrupo)',
         isAnchor: false, isSubgroup: true,
-        fillColor: '#f97316',  // naranjo
+        fillColor: '#f97316',
         borderColor: '#c2410c'
       });
     }
