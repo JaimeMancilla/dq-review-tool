@@ -2819,11 +2819,43 @@ function buildSgGroupCard(cid, sg, sgi) {
         <!-- Corrección -->
         <div class="sg-corr-section">
           <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Corrección</div>
-          <div>${corrHtml}</div>
+          <div style="margin-bottom:${sg.correction?'0':'8px'}">${corrHtml}</div>
+          ${!sg.correction ? `
+          <div style="display:flex;gap:5px;align-items:center">
+            <input id="manualCorrIn_${CSS.escape(cid)}_${sgi}" class="corr-input"
+              placeholder="Pegar cluster_index…"
+              style="flex:1;font-size:11px;padding:4px 8px"
+              onkeydown="if(event.key==='Enter')assignManualCorr('${esc(cid)}',${sgi})">
+            <button class="btn green sm" style="white-space:nowrap"
+              onclick="assignManualCorr('${esc(cid)}',${sgi})">✓ Asignar</button>
+          </div>
+          <div style="font-size:9px;color:var(--muted);margin-top:4px">Para stores ya corregidos en BD o correcciones manuales</div>
+          ` : ''}
         </div>
       </div>
     </div>
   </div>`;
+}
+
+async function assignManualCorr(cid, sgi) {
+  const input = document.getElementById(`manualCorrIn_${CSS.escape(cid)}_${sgi}`);
+  const val = (input?.value||"").trim();
+  if (!val) { toast("Pega el cluster_index primero"); return; }
+
+  const isNew = val.startsWith("NUEVO:");
+  const sgs = SUBGROUPS[cid]||[];
+  if (!sgs[sgi]) return;
+
+  sgs[sgi].correction = val;
+  sgs[sgi].is_new = isNew;
+  await api("/set_correction", {cluster_id: cid, item_indexes: sgs[sgi].members, correction: val});
+  api("/save_subgroups", {subgroups: SUBGROUPS});
+  refreshClusterBadge(cid);
+  renderFilterBar();
+  renderSgList(cid);
+  renderSgActivePanel(cid, sgi);
+  updateSgModalProgress(cid);
+  toast(`✅ Subgrupo → ${val}`);
 }
 
 // Drag desde panel izquierdo
@@ -4069,6 +4101,12 @@ async function doSgClusterSearch() {
 }
 
 async function openSearchedClusterInModal(cl) {
+  // Guardar estado del cluster actual para poder volver
+  const prevCid  = _sgModalCid;
+  const prevSgi  = _sgActiveSgi;
+  const prevTitle = document.getElementById("sgModalTitle")?.textContent || '';
+  const prevMeta  = document.getElementById("sgModalMeta")?.textContent || '';
+
   // Inyectar en CLUSTERS si no existe
   if (!CLUSTERS.find(c => c.cluster_id === cl.cluster_id)) {
     CLUSTERS.push({
@@ -4083,19 +4121,15 @@ async function openSearchedClusterInModal(cl) {
       total: cl.members?.length||0, from_search: true
     });
   } else {
-    // Si ya existe, marcar members sin revisión como incorrectos
     const existing = CLUSTERS.find(c => c.cluster_id === cl.cluster_id);
     existing?.members.forEach(m => { if (m.revision === null || m.revision === undefined) m.revision = 0; });
   }
 
-  // Cerrar panel búsqueda
   toggleSgClusterSearch();
 
-  // Generar subgrupos si no existen y abrir en el modal
   if (!SUBGROUPS[cl.cluster_id]?.length) {
     const ok = await generateSubgroups(cl.cluster_id);
     if (!ok) {
-      // Si no hay subgrupos (todos correctos), crear uno solo con todos los members
       SUBGROUPS[cl.cluster_id] = [{
         members: CLUSTERS.find(c=>c.cluster_id===cl.cluster_id)?.members.map(m=>m.item_index)||[],
         rep_name: cl.anchor_name, rep_addr: cl.anchor_address||'',
@@ -4103,11 +4137,56 @@ async function openSearchedClusterInModal(cl) {
       }];
     }
   }
-  // Cambiar el cluster activo en el modal sin cerrarlo
+
+  // Cambiar el cluster activo en el modal
   _sgModalCid = cl.cluster_id;
-  document.getElementById("sgModalTitle").textContent = `Subgrupos — ${cl.anchor_name||cl.cluster_id}`;
-  document.getElementById("sgModalMeta").textContent = `${SUBGROUPS[cl.cluster_id]?.length||0} subgrupos`;
+  const titleEl = document.getElementById("sgModalTitle");
+  const metaEl  = document.getElementById("sgModalMeta");
+  if (titleEl) titleEl.textContent = `Subgrupos — ${cl.anchor_name||cl.cluster_id}`;
+  if (metaEl)  metaEl.textContent  = `${SUBGROUPS[cl.cluster_id]?.length||0} subgrupos`;
   _sgActiveSgi = 0;
+
+  // Agregar botón "← Volver" si había un cluster previo
+  const hdr = document.querySelector(".sg-modal-hdr");
+  let backBtn = document.getElementById("sgBackBtn");
+  if (prevCid && hdr) {
+    if (!backBtn) {
+      backBtn = document.createElement("button");
+      backBtn.id = "sgBackBtn";
+      backBtn.className = "btn sm";
+      backBtn.style.cssText = "margin-right:4px";
+      hdr.insertBefore(backBtn, hdr.querySelector("button"));
+    }
+    backBtn.textContent = "← Volver";
+    backBtn.onclick = () => {
+      // Restaurar cluster anterior — con bd_results actualizados con sessionClusterState
+      _sgModalCid  = prevCid;
+      _sgActiveSgi = prevSgi;
+      if (titleEl) titleEl.textContent = prevTitle;
+      if (metaEl)  metaEl.textContent  = prevMeta;
+      backBtn.remove();
+      // Re-aplicar sessionClusterState sobre bd_results del subgrupo anterior
+      const sg = SUBGROUPS[prevCid]?.[prevSgi];
+      if (sg?.bd_results) {
+        sg.bd_results = sg.bd_results.map(bdc => {
+          const state = _sessionClusterState[bdc.cluster_index];
+          if (!state) return bdc;
+          return {
+            ...bdc,
+            members: bdc.members.map(m => ({
+              ...m,
+              _moved_out: state.moved_out?.has(String(m.store_id)) || m._moved_out || false
+            }))
+          };
+        });
+      }
+      renderSgGroupsPanel(prevCid);
+      updateSgModalProgress(prevCid);
+    };
+  } else if (backBtn) {
+    backBtn.remove();
+  }
+
   renderSgGroupsPanel(cl.cluster_id);
   updateSgModalProgress(cl.cluster_id);
 }

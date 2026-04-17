@@ -620,55 +620,50 @@ def word_ilike(field, word):
 
 def addr_ilike_safe(field, word):
     """
-    Busca una palabra robusta a tildes en PostgreSQL sin unaccent.
-    - Grupos de consonantes ≥2 seguidas: seguros (cr, st, mb...)
-    - N que puede ser Ñ: usar prefijo antes de la N
-    - Sin grupos consonánticos (colon, vicuna): variantes cambiando una vocal
+    Busca una palabra en dirección de forma robusta a tildes, Ñ y letras dobles.
+    Estrategia simple: trabajar sobre el original (con tildes/Ñ) y cortar antes
+    del primer carácter problemático.
+    Problemáticos: á é í ó ú ñ y letras dobles (ll, rr, cc).
+    Ej: 'Colón'   → '%col%'   (corta antes de ó)
+        'Castaño' → '%casta%' (corta antes de ñ)
+        'Mackenna'→ '%mack%'  (corta antes de doble nn? → usa 'mack')
+        'Irarrázaval' → '%irar%' (corta antes de rr)
+    Si el prefijo es muy corto (<3), usa el sufijo después del carácter problemático.
     """
-    w = norm(word)
-    if not w: return f"{field} ilike '%{word}%'"
-    if w.isdigit() or len(w) <= 3: return f"{field} ilike '%{w}%'"
+    # Trabajar sobre el original para detectar caracteres con tilde/Ñ
+    original = word.strip().lower()
+    w_norm = norm(word)
+    if not w_norm: return f"{field} ilike '%{word}%'"
+    if w_norm.isdigit() or len(w_norm) <= 3: return f"{field} ilike '%{w_norm}%'"
 
-    VOWELS = set('aeiou')
-    ACCENT = {'a':'á','e':'é','i':'í','o':'ó','u':'ú'}
+    # Caracteres problemáticos y su posición en el original
+    PROBLEMATIC = set('áéíóúàèìòùâêîôûäëïöüñ')
+    DOUBLES = ['rr', 'll', 'cc', 'nn', 'ss', 'pp']
 
-    # Grupos de consonantes ≥2 seguidas (100% seguros, sin vocales que puedan tener tilde)
-    cons_groups = re.split(r'[aeiou]+', w)
-    safe = [g for g in cons_groups if len(g) >= 2]
-    if safe:
-        chosen = safe[:2]
-        if len(chosen) == 1: return f"{field} ilike '%{chosen[0]}%'"
-        return " and ".join(f"{field} ilike '%{s}%'" for s in chosen)
+    # Buscar posición del primer carácter problemático
+    cut = len(original)  # por defecto no hay corte
 
-    # N que puede ser Ñ en la BD: usar prefijo antes de la N
-    # Pero el prefijo no debe terminar en vocal (podría tener tilde)
-    if 'n' in w:
-        idx = w.index('n')
-        prefix_full = w[:idx]
-        # Recortar la vocal final del prefijo si la hay
-        prefix = prefix_full.rstrip('aeiou') if prefix_full else prefix_full
-        suffix = w[idx+1:].lstrip('aeiou') if idx+1 < len(w) else ''
-        if len(prefix) >= 3 and len(suffix) >= 3:
-            return f"({field} ilike '%{prefix}%' or {field} ilike '%{suffix}%')"
-        if len(prefix) >= 3: return f"{field} ilike '%{prefix}%'"
-        if len(suffix) >= 3: return f"{field} ilike '%{suffix}%'"
-        # prefix corto — usar variantes de la palabra completa
+    for i, c in enumerate(original):
+        if c in PROBLEMATIC:
+            cut = i
+            break
 
-    # Sin grupos consonánticos: variantes cambiando UNA vocal a la vez
-    variants = {w}
-    for i, c in enumerate(w):
-        if c in VOWELS:
-            variants.add(w[:i] + ACCENT[c] + w[i+1:])
-    # Consonante rara (z, x, k) como ancla adicional segura
-    for rare in ('z', 'x', 'k'):
-        if rare in w:
-            idx = w.index(rare)
-            seg = w[idx:idx+3]
-            if len(seg) == 3:
-                conds = " or ".join(f"{field} ilike '%{v}%'" for v in sorted(variants))
-                return f"({field} ilike '%{seg}%' or {conds})"
-    conds = " or ".join(f"{field} ilike '%{v}%'" for v in sorted(variants))
-    return f"({conds})" if len(variants) > 1 else f"{field} ilike '%{w}%'"
+    # Buscar dobles letras y tomar la posición de la primera
+    for double in DOUBLES:
+        idx = original.find(double)
+        if idx >= 0 and idx < cut:
+            cut = idx
+
+    prefix = norm(original[:cut])   # normalizar el prefijo (quita tildes si hubiera)
+    suffix = norm(original[cut+1:]) if cut < len(original) else ''
+
+    if len(prefix) >= 3:
+        return f"{field} ilike '%{prefix}%'"
+    if len(suffix) >= 3:
+        return f"{field} ilike '%{suffix}%'"
+
+    # Sin corte útil: usar la palabra normalizada completa
+    return f"{field} ilike '%{w_norm}%'"
 
 def get_pg_table():
     """Retorna la tabla correcta según el tipo de revisión de la sesión."""
