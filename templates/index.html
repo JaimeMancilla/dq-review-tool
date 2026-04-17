@@ -2671,6 +2671,7 @@ function buildSgGroupCard(cid, sg, sgi) {
     const sgStoreIds = new Set(sg.members.map(ii => { const idx=ii.indexOf("_"); return idx>=0?ii.slice(idx+1):ii; }));
 
     bdHtml = sg.bd_results.map((bdc, bi) => {
+      if (!Array.isArray(bdc.members)) return '';
       const hasAnchorOfSg = bdc.members.some(m =>
         (m.is_anchor || m.item_index === bdc.cluster_index) &&
         sgStoreIds.has(String(m.store_id||""))
@@ -2927,7 +2928,7 @@ async function runSgQueryModal(cid, sgi) {
         ).map(mi => ({...mi, _moved_in: true, is_anchor: false}));
         return {...bdc, members: [...members, ...incoming]};
       });
-      sgs[sgi].bd_results = clusters;
+      sgs[sgi].bd_results = clusters.filter(bdc => Array.isArray(bdc.members));
       if (!clusters.length) toast("Sin resultados — intenta reagrupar o ingresa manualmente");
       else toast(`${clusters.length} cluster(s) encontrados`);
     }
