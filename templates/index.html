@@ -2925,6 +2925,14 @@ function buildSgGroupCard(cid, sg, sgi) {
           <div class="sg-bd-results" id="bdResults_${CSS.escape(cid)}_${sgi}">${bdHtml}</div>
         </div>` : ''}
 
+        <!-- Acciones pendientes (confirmar / deshacer) — siempre visible -->
+        <div id="bdActions_${CSS.escape(cid)}_${sgi}" style="display:none;gap:6px;margin-top:4px">
+          <button id="bdConfirm_${CSS.escape(cid)}_${sgi}" class="btn green" style="flex:1;font-weight:700"
+            onclick="confirmBdMoves('${esc(cid)}',${sgi})">✅ Aplicar</button>
+          <button class="btn sm" style="font-size:13px;padding:4px 10px" title="Deshacer último movimiento"
+            onclick="undoLastBdMove('${esc(cid)}',${sgi})">↩</button>
+        </div>
+
         <!-- Corrección -->
         <div class="sg-corr-section">
           <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Corrección</div>
@@ -3479,37 +3487,15 @@ async function assignThisCluster(clusterIndex, cid, sgi) {
 function _bdShowConfirmBtn(cid, sgi) {
   const key = `${cid}_${sgi}`;
   const moves = _bdPendingMoves[key]||[];
-  if (!moves.length) return;
-  const newZone = document.querySelector(`[id="bdz_NEW_${CSS.escape(cid)}_${sgi}"]`);
-  if (!newZone) return;
-
-  // Botón confirmar
-  let btnId = `bdConfirm_${CSS.escape(cid)}_${sgi}`;
-  let btn = document.getElementById(btnId);
-  if (!btn) {
-    const wrap = document.createElement("div");
-    wrap.id = `bdActions_${CSS.escape(cid)}_${sgi}`;
-    wrap.style.cssText = "display:flex;gap:6px;margin-top:8px";
-    btn = document.createElement("button");
-    btn.id = btnId;
-    btn.className = "btn green";
-    btn.style.cssText = "flex:1;font-weight:700";
-    btn.onclick = () => confirmBdMoves(cid, sgi);
-    const undoBtn = document.createElement("button");
-    undoBtn.className = "btn sm";
-    undoBtn.style.cssText = "font-size:13px;padding:4px 10px";
-    undoBtn.title = "Deshacer último movimiento";
-    undoBtn.innerHTML = "↩";
-    undoBtn.onclick = () => undoLastBdMove(cid, sgi);
-    wrap.appendChild(btn);
-    wrap.appendChild(undoBtn);
-    newZone.parentNode.insertBefore(wrap, newZone.nextElementSibling);
+  const wrap = document.getElementById(`bdActions_${CSS.escape(cid)}_${sgi}`);
+  if (!wrap) return;
+  if (!moves.length) {
+    wrap.style.display = "none";
+    return;
   }
-  if (btn) {
-    const n = moves.length;
-    btn.innerHTML = `✅ Aplicar ${n} corrección${n!==1?"es":""}`;
-    btn.style.display = "";
-  }
+  wrap.style.display = "flex";
+  const btn = document.getElementById(`bdConfirm_${CSS.escape(cid)}_${sgi}`);
+  if (btn) btn.innerHTML = `✅ Aplicar ${moves.length} corrección${moves.length!==1?"es":""}`;
 }
 
 async function confirmBdMoves(cid, sgi) {
@@ -3575,7 +3561,7 @@ async function confirmBdMoves(cid, sgi) {
 
   // Ocultar botones de acción
   const actionsWrap = document.getElementById(`bdActions_${CSS.escape(cid)}_${sgi}`);
-  if (actionsWrap) actionsWrap.remove();
+  if (actionsWrap) actionsWrap.style.display = "none";
 
   // Visual: botón → señal de corregido
   if (btn) {
@@ -3610,7 +3596,7 @@ function undoLastBdMove(cid, sgi) {
     delete _bdPendingMoves[key];
     // Ocultar botones si no hay más moves
     const actionsWrap = document.getElementById(`bdActions_${CSS.escape(cid)}_${sgi}`);
-    if (actionsWrap) actionsWrap.remove();
+    if (actionsWrap) actionsWrap.style.display = "none";
   } else {
     // Actualizar contador en botón confirmar
     const btn = document.getElementById(`bdConfirm_${CSS.escape(cid)}_${sgi}`);
