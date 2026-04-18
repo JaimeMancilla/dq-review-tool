@@ -1309,7 +1309,27 @@ function onSgDrop(e,cid,toSgi){
   toast("Store movido — SQL regenerado");
 }
 
-async function regenerateSgSql(cid){
+async function regenerateSgSqlAndRender(cid, sgi) {
+  const sgs = SUBGROUPS[cid]; if(!sgs||!sgs[sgi]) return;
+  const cl = getCl(cid); if(!cl) return;
+  const allMembers = cl.members.map(m=>({
+    item_index: m.item_index, store_id: m.store_id,
+    app_name: m.app_name, app_address: m.app_address,
+    cluster_index: m.cluster_index, scraper_source: m.scraper_source||""
+  }));
+  const sgMembers = allMembers.filter(m => sgs[sgi].members.includes(m.item_index));
+  if(!sgMembers.length) { toast("Sin members para regenerar"); return; }
+  try {
+    const d = await api("/get_subgroups", {cluster_id: cid, members_data: sgMembers, country: COUNTRY});
+    if(d.subgroups&&d.subgroups[0]) {
+      sgs[sgi].sql = d.subgroups[0].sql||"";
+      sgs[sgi].bd_results = null; // forzar re-ejecución BD
+      api("/save_subgroups", {subgroups: SUBGROUPS});
+      renderSgActivePanel(cid, sgi);
+      toast("✓ SQL regenerado — ejecuta BD de nuevo");
+    }
+  } catch(e) { toast("Error: "+e.message); }
+}
   const sgs = SUBGROUPS[cid]; if(!sgs) return;
   const cl  = getCl(cid); if(!cl) return;
   const allMembers = cl.members.map(m=>({
@@ -2997,6 +3017,8 @@ function buildSgGroupCard(cid, sg, sgi) {
           }
           <button class="btn sm" onclick="document.getElementById('${sqlId}').style.display=document.getElementById('${sqlId}').style.display==='none'?'block':'none'">Ver SQL</button>
           <button class="btn sm" onclick="navigator.clipboard.writeText(document.getElementById('${sqlId}').textContent.trim()).then(()=>toast('SQL copiada ✓'))">Copiar SQL</button>
+          <button class="btn sm" title="Regenerar SQL desde el servidor (aplica fixes recientes)"
+            onclick="regenerateSgSqlAndRender('${esc(cid)}',${sgi})">↺ SQL</button>
           ${sg.bd_results&&sg.bd_results.length?`<button class="btn sm" data-mapbtn="${esc(cid)}_${sgi}" onclick="toggleBdMap('${esc(cid)}',${sgi})">🗺 Mapa</button>`:''}
         </div>
         <div id="${sqlId}" style="display:none;background:#1a1a2e;border-radius:6px;padding:8px 10px;font-family:monospace;font-size:10px;color:#a8b3cf;white-space:pre-wrap;line-height:1.6;max-height:90px;overflow-y:auto">${esc(sg.sql||'')}</div>
