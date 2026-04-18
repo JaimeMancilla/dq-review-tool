@@ -1330,14 +1330,8 @@ async function regenerateSgSqlAndRender(cid, sgi) {
     }
   } catch(e) { toast("Error: "+e.message); }
 }
+async function regenerateSgSql(cid){
   const sgs = SUBGROUPS[cid]; if(!sgs) return;
-  const cl  = getCl(cid); if(!cl) return;
-  const allMembers = cl.members.map(m=>({
-    item_index: m.item_index, store_id: m.store_id,
-    app_name: m.app_name, app_address: m.app_address,
-    cluster_index: m.cluster_index, scraper_source: m.scraper_source||""
-  }));
-  // Regenerar SQL para cada subgrupo que tenga miembros pero no tenga SQL reciente
   for(let i=0;i<sgs.length;i++){
     if(!sgs[i].members.length) continue;
     const sgMembers = allMembers.filter(m=>sgs[i].members.includes(m.item_index));

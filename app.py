@@ -491,29 +491,39 @@ def brand_words(name):
     }
 
     words_raw = norm(name).split()
+    # También preservar palabras originales con tildes para word_ilike
+    raw_words_orig = re.split(r'\s+', name.strip().lower())
 
     # Detectar si el nombre contiene una cadena + sub-entidad
     chain_word = next((w for w in words_raw if any(c in w for c in FAST_FOOD_CHAINS)), None)
     sub_word   = next((w for w in words_raw if w in FAST_FOOD_SUBS), None)
 
     if chain_word and sub_word:
-        # Retornar cadena + sub-entidad como las dos palabras clave
         return [chain_word, sub_word]
 
     # Flujo normal: palabras sin stopwords geo, longitud > 1
-    words = [w for w in words_raw if len(w) > 1 and w not in GEO_STOP]
+    # Usar palabras originales (con tildes) cuando estén disponibles
+    words = []
+    for i, w in enumerate(words_raw):
+        if len(w) > 1 and w not in GEO_STOP:
+            orig = re.sub(r'[^\w]', '', raw_words_orig[i]) if i < len(raw_words_orig) else w
+            words.append(orig if orig else w)
 
     # Eliminar artículos iniciales
-    while words and words[0] in func:
+    while words and norm(words[0]) in func:
         words = words[1:]
 
     result = words[:3]
 
     # Si solo queda 1 palabra genérica, incluir también palabra anterior
-    if len(result) == 1 and result[0] in generic:
-        idx = next((i for i,w in enumerate(words_raw) if w == result[0]), -1)
+    if len(result) == 1 and norm(result[0]) in generic:
+        idx = next((i for i,w in enumerate(words_raw) if w == norm(result[0])), -1)
         if idx > 0:
-            prev = [w for w in words_raw[max(0,idx-2):idx] if w not in GEO_STOP]
+            prev = []
+            for j in range(max(0,idx-2), idx):
+                if words_raw[j] not in GEO_STOP:
+                    orig = re.sub(r'[^\w]', '', raw_words_orig[j]) if j < len(raw_words_orig) else words_raw[j]
+                    prev.append(orig if orig else words_raw[j])
             result = prev + result
 
     return result[:3]
@@ -735,7 +745,7 @@ def generate_unified_sql(bad_members, country="mx"):
             blocks.append(f"    ({name_cond}\n     and ({addr_cond}))")
         else:
             # Sin dirección útil: solo condición de nombre
-            name_key = "_".join(sql_bwords)
+            name_key = "_".join(sql_bwords) + "_noaddr"
             if name_key not in seen:
                 seen.add(name_key)
                 blocks.append(f"    ({name_cond})")
