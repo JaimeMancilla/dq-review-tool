@@ -2133,29 +2133,31 @@ async function confirmResetFile(){
   if(!confirm(`¿Empezar de cero con "${filename}"?\n\nEsto borrará:\n• Subgrupos generados\n• Correcciones asignadas\n• Correcciones externas (Anotar)\n• Estado de revisado\n\nEl archivo original no se modifica.`)) return;
   const btn=document.getElementById("btnResetFile");
   btn.innerHTML='<span class="spinner"></span>';
-  const savedReviewType = REVIEW_TYPE; // preservar antes de cualquier cambio
+  const savedReviewType = REVIEW_TYPE;
   try{
-    const d=await api("/reset_file",{});
+    const d=await api("/reset_file", {filename: CURRENT_FILENAME||filename});
+    if(d.error){ toast("Error: "+d.error); btn.innerHTML="↺ Empezar de cero"; return; }
     if(d.ok){
       // Limpiar estado JS
       CLUSTERS=[];SUBGROUPS={};FILTER="all";DISH_GROUPS=[];
-      REVIEW_TYPE=savedReviewType; // restaurar tipo
-      // Ocultar pantallas de revisión y botones
+      REVIEW_TYPE=savedReviewType;
+      // Ocultar pantallas de revisión
       document.getElementById("mainScreen").classList.add("hidden");
       document.getElementById("dishesScreen").classList.add("hidden");
+      // Cerrar modal de subgrupos si está abierto
+      const sgModal = document.getElementById("sgModal");
+      if(sgModal) sgModal.classList.remove("open");
       document.getElementById("hdrFile").style.display="none";
       document.getElementById("hdrFile").textContent="";
       ["btnExport","btnMarkReviewed","btnMemory","btnBdUpdate","btnDashboard","btnResetFile"].forEach(id=>{
         const el=document.getElementById(id);
         if(el){el.style.display="none";el.disabled=false;el.style.opacity="1";el.title="";}
       });
-      // Volver al fileSelect del tipo correcto (reinicia dropzone y label)
       document.getElementById("uploadScreen").classList.remove("hidden");
       selectType(savedReviewType);
       toast(`✓ Reiniciado — sube el archivo de nuevo`, 4000);
     }
-  }catch(e){toast("Error: "+e.message);}
-  btn.innerHTML="↺ Empezar de cero"; // no importa si ya está oculto
+  }catch(e){ toast("Error: "+e.message); btn.innerHTML="↺ Empezar de cero"; }
 }
 
 async function exportFile(){
