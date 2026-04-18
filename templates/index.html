@@ -3374,6 +3374,23 @@ async function onBdDrop(e, targetCluster, cid, sgi) {
       if (!_sessionClusterState[targetCluster]) _sessionClusterState[targetCluster] = {moved_out: new Set(), moved_in: []};
       _sessionClusterState[targetCluster].moved_in.push({store_id: m.store_id, app_name: m.app_name, app_address: m.app_address});
     }
+    // Persistir _moved_out en bd_results de todos los subgrupos inmediatamente
+    // para que re-renders futuros muestren el tachado sin esperar confirmación
+    const sgsImm = SUBGROUPS[cid]||[];
+    sgsImm.forEach(otherSg => {
+      if (!otherSg.bd_results) return;
+      otherSg.bd_results = otherSg.bd_results.map(bdc => {
+        const state = _sessionClusterState[bdc.cluster_index];
+        if (!state) return bdc;
+        return {
+          ...bdc,
+          members: bdc.members.map(mb => ({
+            ...mb,
+            _moved_out: state.moved_out?.has(String(mb.store_id)) || mb._moved_out || false,
+          }))
+        };
+      });
+    });
     // Trackear movimiento pendiente
     if (!_bdPendingMoves[key]) _bdPendingMoves[key] = [];
     const moveEntry = {
