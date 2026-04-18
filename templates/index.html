@@ -3541,13 +3541,14 @@ async function confirmBdMoves(cid, sgi) {
   const sgMove = moves.find(m => m.is_subgroup);
   const newCluster = sgMove?.new_cluster || moves[0]?.new_cluster;
   const isNew = sgMove?.is_new || false;
+  const subgroupStoreIds = new Set(moves.filter(m => m.is_subgroup).map(m => String(m.store_id)));
 
   // 1. Guardar corrección del subgrupo
   const sgs = SUBGROUPS[cid]||[];
   if (sgs[sgi]) {
     sgs[sgi].correction = newCluster;
     sgs[sgi].is_new = isNew;
-    sgs[sgi]._confirmed_store_ids = [...subgroupStoreIds]; // persistir para re-renders
+    sgs[sgi]._confirmed_store_ids = [...subgroupStoreIds];
     await api("/set_correction", {cluster_id: cid, item_indexes: sgs[sgi].members, correction: newCluster});
   }
 
