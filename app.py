@@ -2574,18 +2574,18 @@ def bd_detect():
 
         t1_candidate_clusters = set()
         if not df_t1.empty:
-            for cid, grp in df_t1.groupby("cluster_index"):
+            for cid_t1, grp in df_t1.groupby("cluster_index"):
                 anchor = grp[grp["is_anchor"] == True]
                 if anchor.empty:
                     anchor = grp.iloc[[0]]
-                anchor_name = anchor.iloc[0]["app_name"] or ""
-                anchor_addr = anchor.iloc[0]["app_address"] or ""
-                members_list = grp[grp["is_anchor"] != True].to_dict("records")
-                if not members_list:
-                    continue
-                sims = batch_semantic_sim(anchor_name, anchor_addr, members_list)
-                if any(s < sim_t1 for s in sims):
-                    t1_candidate_clusters.add(cid)
+                anchor_name = str(anchor.iloc[0]["app_name"] or "")
+                members_non_anchor = grp[grp["is_anchor"] != True]
+                for _, mem in members_non_anchor.iterrows():
+                    sim = jaccard_sim(anchor_name, str(mem["app_name"] or ""))
+                    if sim < sim_t1:
+                        t1_candidate_clusters.add(cid_t1)
+                        break  # basta un miembro sospechoso por cluster
+        print(f"[bd_detect] T1 candidates: {len(t1_candidate_clusters)}")
 
         # ── DETECCIÓN TIPO 2: clusters cercanos con nombre similar ──────────────
         # Haversine simplificado en SQL — solo anchors (item_index = cluster_index)
@@ -2629,9 +2629,10 @@ def bd_detect():
         t2_candidate_pairs = []
         if not df_t2.empty:
             for _, row in df_t2.iterrows():
-                sim = jaccard_sim(row["cn_a"], row["cn_b"])
+                sim = jaccard_sim(str(row["cn_a"] or ""), str(row["cn_b"] or ""))
                 if sim >= sim_t2:
                     t2_candidate_pairs.append((row["ci_a"], row["ci_b"]))
+        print(f"[bd_detect] T2 candidates after sim filter: {len(t2_candidate_pairs)}")
 
         # ── Recopilar cluster_indexes candidatos ────────────────────────────────
         candidate_ids = set(t1_candidate_clusters)
