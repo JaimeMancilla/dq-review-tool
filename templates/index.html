@@ -1507,14 +1507,60 @@ async function saveSgCorr(cid,sgi,correction,is_new){
     rebuildBdPanel(getCl(cid)||{cluster_id:cid});
   }
 }
-function clearSgCorr(cid,sgi){
-  const sgs=SUBGROUPS[cid];if(sgs&&sgs[sgi]){sgs[sgi].correction="";sgs[sgi].is_new=false}
-  api("/set_correction",{cluster_id:cid,item_indexes:sgs[sgi].members,correction:""});
+async function clearSgCorr(cid, sgi) {
+  const sgs = SUBGROUPS[cid];
+  if (!sgs || !sgs[sgi]) return;
+  const sg = sgs[sgi];
+
+  // 1. Limpiar estado JS del subgrupo
+  const confirmedSids  = new Set((sg._confirmed_store_ids||[]).map(String));
+  const confirmedMovesIn = sg._confirmed_moves_in || {};
+  sg.correction = ""; sg.is_new = false;
+  sg._confirmed_store_ids = [];
+  sg._confirmed_moves_in  = {};
+
+  // 2. Revertir _moved_out en bd_results de todos los subgrupos
+  //    (quitar el tachado de los stores que este subgrupo movió)
+  sgs.forEach(otherSg => {
+    if (!otherSg.bd_results) return;
+    otherSg.bd_results = otherSg.bd_results.map(bdc => ({
+      ...bdc,
+      members: bdc.members.map(m => ({
+        ...m,
+        _moved_out: confirmedSids.has(String(m.store_id)) ? false : m._moved_out,
+      }))
+    }));
+  });
+
+  // 3. Revertir _sessionClusterState para los stores que salieron
+  confirmedSids.forEach(sid => {
+    Object.values(_sessionClusterState).forEach(state => {
+      if (state.moved_out instanceof Set) state.moved_out.delete(sid);
+    });
+  });
+
+  // 4. Borrar ext_corrections del backend asociadas a este subgrupo
+  try {
+    const extD = await api("/ext_correction/list");
+    const filename = document.getElementById("hdrFile").textContent||"";
+    for (const rec of (extD.records||[])) {
+      // Solo borrar las del archivo activo que correspondan a stores movidas por este subgrupo
+      const isFromThisSg = Object.values(confirmedMovesIn).some(arr =>
+        arr.some(mi => String(mi.store_id) === String(rec.store_id))
+      );
+      if (isFromThisSg) await api("/ext_correction/delete", {id: rec.id});
+    }
+  } catch(e) {}
+
+  // 5. Limpiar corrección en backend y re-renderizar
+  await api("/set_correction", {cluster_id: cid, item_indexes: sg.members, correction: ""});
+  api("/save_subgroups", {subgroups: SUBGROUPS});
   refreshClusterBadge(cid);
   renderFilterBar();
-  api("/save_subgroups", {subgroups: SUBGROUPS});
-  if(_sgModalCid===cid){ renderSgList(cid); renderSgActivePanel(cid, _sgActiveSgi); }
-  else rebuildBdPanel(getCl(cid)||{cluster_id:cid});
+  updateSgModalProgress(cid);
+  if (_sgModalCid === cid) { renderSgList(cid); renderSgActivePanel(cid, _sgActiveSgi); }
+  else rebuildBdPanel(getCl(cid)||{cluster_id: cid});
+  toast("↩ Corrección deshecha");
 }
 function refreshClusterBadge(cid) {
   const cl  = getCl(cid); if (!cl) return;
@@ -2895,7 +2941,7 @@ function buildSgGroupCard(cid, sg, sgi) {
   const corrHtml = sg.correction
     ? `<div class="corr-chip ${sg.is_new?'new':''}">
         <span>${esc(sg.correction)}</span>
-        <span class="chip-x" onclick="clearSgCorr('${esc(cid)}',${sgi});renderSgActivePanel('${esc(cid)}',${sgi});renderSgList('${esc(cid)}')">✕</span>
+        <span class="chip-x" onclick="clearSgCorr('${esc(cid)}',${sgi})">✕</span>
       </div>`
     : `<span style="font-size:11px;color:var(--muted)">Sin asignar</span>`;
 
@@ -3522,7 +3568,7 @@ async function assignThisCluster(clusterIndex, cid, sgi) {
     const corrEl = document.querySelector("#sgActivePanel .sg-corr-section");
     if (corrEl) corrEl.querySelector("div:last-child").innerHTML =
       `<div class="corr-chip"><span>${esc(clusterIndex)}</span>
-       <span class="chip-x" onclick="clearSgCorr('${esc(cid)}',${sgi});renderSgActivePanel('${esc(cid)}',${sgi});renderSgList('${esc(cid)}')">✕</span></div>`;
+       <span class="chip-x" onclick="clearSgCorr('${esc(cid)}',${sgi})">✕</span></div>`;
     const hdr2 = document.querySelector("#sgActivePanel .sg-group-hdr");
     if (hdr2) hdr2.className = "sg-group-hdr corrected";
     toast(`✅ Subgrupo → ${clusterIndex}`);
