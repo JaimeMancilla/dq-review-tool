@@ -2804,6 +2804,14 @@ function buildSgGroupCard(cid, sg, sgi) {
         ? "background:rgba(237,137,54,.12);border-bottom:1px solid var(--aborder)"
         : "background:var(--surf2);border-bottom:1px solid var(--border)";
 
+      // Badge "ya asignado" — si este cluster_index ya es corrección de otro subgrupo del mismo cid
+      const otherSgWithThisCorr = (SUBGROUPS[cid]||[])
+        .map((s,i) => ({s,i}))
+        .filter(({s,i}) => i !== sgi && s.correction === bdc.cluster_index);
+      const alreadyAssignedBadge = otherSgWithThisCorr.length
+        ? `<span style="font-size:9px;background:var(--abg);color:var(--amber);border:1px solid var(--aborder);border-radius:4px;padding:1px 6px;font-weight:700">✓ sg ${otherSgWithThisCorr.map(x=>x.i+1).join(", ")}</span>`
+        : "";
+
       return `<div class="sg-bd-cluster bd-drop-zone" id="bdz_${CSS.escape(bdc.cluster_index)}"
         data-cluster="${esc(bdc.cluster_index)}"
         ondragover="onBdDropZoneOver(event)" ondragleave="onBdDropZoneLeave(event)"
@@ -2813,6 +2821,7 @@ function buildSgGroupCard(cid, sg, sgi) {
           <span style="font-size:10px;color:var(--muted)">${bdc.members.length} stores</span>
           ${hasAnchorOfSg?`<span style="font-size:9px;color:var(--amber);font-weight:700">⚓ ancla aquí</span>`
             :hasAnchor?`<span style="font-size:9px;color:var(--muted)">⚓</span>`:""}
+          ${alreadyAssignedBadge}
           <button class="btn sm" style="margin-left:auto;font-size:10px;padding:1px 8px;background:var(--gbg);color:var(--green);border-color:var(--gborder)"
             onclick="assignThisCluster('${esc(bdc.cluster_index)}','${esc(cid)}',${sgi})">← Asignar este</button>
         </div>
@@ -2897,44 +2906,15 @@ function buildSgGroupCard(cid, sg, sgi) {
         <!-- Corrección -->
         <div class="sg-corr-section">
           <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Corrección</div>
-          <div style="margin-bottom:${sg.correction?'0':'8px'}">${corrHtml}</div>
-          ${!sg.correction ? `
-          <div style="display:flex;gap:5px;align-items:center">
-            <input id="manualCorrIn_${CSS.escape(cid)}_${sgi}" class="corr-input"
-              placeholder="Pegar cluster_index…"
-              style="flex:1;font-size:11px;padding:4px 8px"
-              onkeydown="if(event.key==='Enter')assignManualCorr('${esc(cid)}',${sgi})">
-            <button class="btn green sm" style="white-space:nowrap"
-              onclick="assignManualCorr('${esc(cid)}',${sgi})">✓ Asignar</button>
-          </div>
-          <div style="font-size:9px;color:var(--muted);margin-top:4px">Para stores ya corregidos en BD o correcciones manuales</div>
-          ` : ''}
+          <div>${corrHtml}</div>
         </div>
       </div>
     </div>
   </div>`;
 }
 
-async function assignManualCorr(cid, sgi) {
-  const input = document.getElementById(`manualCorrIn_${CSS.escape(cid)}_${sgi}`);
-  const val = (input?.value||"").trim();
-  if (!val) { toast("Pega el cluster_index primero"); return; }
 
-  const isNew = val.startsWith("NUEVO:");
-  const sgs = SUBGROUPS[cid]||[];
-  if (!sgs[sgi]) return;
 
-  sgs[sgi].correction = val;
-  sgs[sgi].is_new = isNew;
-  await api("/set_correction", {cluster_id: cid, item_indexes: sgs[sgi].members, correction: val});
-  api("/save_subgroups", {subgroups: SUBGROUPS});
-  refreshClusterBadge(cid);
-  renderFilterBar();
-  renderSgList(cid);
-  renderSgActivePanel(cid, sgi);
-  updateSgModalProgress(cid);
-  toast(`✅ Subgrupo → ${val}`);
-}
 
 // Drag desde panel izquierdo
 let _sgModalDrag = null;
