@@ -2630,9 +2630,6 @@ function renderSgList(cid) {
       </div>
       <div style="display:flex;align-items:center;gap:3px;flex-shrink:0">
         <span class="sg-list-count">${sg.members.length}s</span>
-        ${!isActive && !isCorr ? `<button class="btn sm" style="padding:1px 5px;font-size:10px;opacity:.6;min-width:0"
-          title="Fusionar con subgrupo activo"
-          onclick="event.stopPropagation();mergeSgIntoActive('${esc(cid)}',${sgi})">⊕</button>` : ''}
       </div>
     </div>`;
   }).join("") +
@@ -2768,7 +2765,7 @@ function onSgListDrop(e, cid, toSgi) {
   SUBGROUPS[cid] = sgs.filter(sg => sg.members.length > 0);
   renderSgList(cid);
   renderSgActivePanel(cid, _sgActiveSgi);
-  renderSgStoresList(cid);
+  renderSgGroupsPanel(cid);
   updateSgModalProgress(cid);
   toast(`Store movido al grupo ${toSgi === 'NEW' ? 'nuevo' : toSgi + 1}`);
 }
@@ -3093,7 +3090,7 @@ function onSgGroupDrop(e, cid, toSgi) {
   }
   SUBGROUPS[cid] = sgs.filter(sg => sg.members.length > 0);
   regenerateSgSql(cid).then(() => { renderSgList(cid); renderSgActivePanel(cid, _sgActiveSgi); });
-  renderSgStoresList(cid);
+  renderSgGroupsPanel(cid);
   updateSgModalProgress(cid);
 }
 
@@ -3103,7 +3100,7 @@ function removeSgChip(cid, sgi, ii) {
   if (sgs[sgi].members.length === 0) sgs.splice(sgi, 1);
   SUBGROUPS[cid] = sgs;
   renderSgList(cid); renderSgActivePanel(cid, _sgActiveSgi);
-  renderSgStoresList(cid);
+  renderSgGroupsPanel(cid);
   updateSgModalProgress(cid);
 }
 
