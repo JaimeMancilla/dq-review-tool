@@ -2566,11 +2566,11 @@ def bd_detect():
         """
         cur.execute(q_t1, [country] + city_param)
         rows_t1 = cur.fetchall()
-        cols_t1 = [d[0] for d in cur.description]
 
         # Agrupar por cluster
         import pandas as pd
-        df_t1 = pd.DataFrame(rows_t1, columns=cols_t1)
+        df_t1 = pd.DataFrame([dict(r) for r in rows_t1]) if rows_t1 else pd.DataFrame()
+        print(f"[bd_detect] T1 rows: {len(rows_t1)}, clusters: {df_t1['cluster_index'].nunique() if not df_t1.empty else 0}")
 
         t1_candidate_clusters = set()
         if not df_t1.empty:
@@ -2623,8 +2623,8 @@ def bd_detect():
         """
         cur.execute(q_t2, [country] + city_param + [dist_m])
         rows_t2 = cur.fetchall()
-        cols_t2 = [d[0] for d in cur.description]
-        df_t2 = pd.DataFrame(rows_t2, columns=cols_t2)
+        df_t2 = pd.DataFrame([dict(r) for r in rows_t2]) if rows_t2 else pd.DataFrame()
+        print(f"[bd_detect] T2 pairs raw: {len(rows_t2)}")
 
         t2_candidate_pairs = []
         if not df_t2.empty:
@@ -2662,8 +2662,8 @@ def bd_detect():
         """
         cur.execute(q_members, candidate_ids)
         rows_m = cur.fetchall()
-        cols_m = [d[0] for d in cur.description]
-        df_m   = pd.DataFrame(rows_m, columns=cols_m)
+        df_m = pd.DataFrame([dict(r) for r in rows_m]) if rows_m else pd.DataFrame()
+        print(f"[bd_detect] members rows: {len(rows_m)}, candidate_ids: {len(candidate_ids)}")
 
         # ── Construir clusters en formato UI ────────────────────────────────────
         clusters_out = []
