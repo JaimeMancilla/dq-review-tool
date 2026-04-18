@@ -2570,6 +2570,8 @@ function filterBdResults(query, cid, sgi, syncMap) {
   if (!container) return;
   const visibleClusters = new Set();
   Array.from(container.children).forEach(el => {
+    // Nunca ocultar la zona "Nuevo cluster"
+    if (el.id && el.id.startsWith('bdz_NEW_')) { el.style.display=''; return; }
     if (!q) {
       el.style.display='';
       const ci = el.dataset.cluster;
