@@ -2772,8 +2772,15 @@ function onSgListDrop(e, cid, toSgi) {
 }
 
 function selectSgItem(cid, sgi) {
+  // Destruir mapas cacheados del subgrupo anterior para evitar que se muestren en el nuevo
+  Object.keys(_bdMaps).forEach(key => {
+    if (key.startsWith(cid + '_')) {
+      try { _bdMaps[key].remove(); } catch(e) {}
+      delete _bdMaps[key];
+    }
+  });
   _sgActiveSgi = sgi;
-  renderSgList(cid); // actualizar selección en lista
+  renderSgList(cid);
   renderSgActivePanel(cid, sgi);
 }
 
