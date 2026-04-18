@@ -2628,7 +2628,12 @@ function renderSgList(cid) {
         ${addr?`<div class="sg-list-addr">${hlAddr}</div>`:''}
         ${corrBadge}
       </div>
-      <span class="sg-list-count">${sg.members.length}s</span>
+      <div style="display:flex;align-items:center;gap:3px;flex-shrink:0">
+        <span class="sg-list-count">${sg.members.length}s</span>
+        ${!isActive && !isCorr ? `<button class="btn sm" style="padding:1px 5px;font-size:10px;opacity:.6;min-width:0"
+          title="Fusionar con subgrupo activo"
+          onclick="event.stopPropagation();mergeSgIntoActive('${esc(cid)}',${sgi})">⊕</button>` : ''}
+      </div>
     </div>`;
   }).join("") +
   `<div class="sg-list-item" style="opacity:.6;font-style:italic"
@@ -2659,6 +2664,26 @@ function onSgListDragOver(e) {
 
 function onSgListDragLeave(e) {
   e.currentTarget.classList.remove("drop-target");
+}
+
+function mergeSgIntoActive(cid, fromSgi) {
+  const sgs = SUBGROUPS[cid];
+  if (!sgs) return;
+  const toSgi = _sgActiveSgi;
+  if (fromSgi === toSgi || !sgs[fromSgi] || !sgs[toSgi]) return;
+
+  // Mover todos los members del fromSgi al toSgi
+  sgs[toSgi].members = [...sgs[toSgi].members, ...sgs[fromSgi].members];
+  sgs.splice(fromSgi, 1);
+
+  // Ajustar índice activo
+  if (_sgActiveSgi > fromSgi) _sgActiveSgi--;
+
+  regenerateSgSql(cid);
+  api("/save_subgroups", {subgroups: SUBGROUPS});
+  renderSgGroupsPanel(cid);
+  updateSgModalProgress(cid);
+  toast(`Subgrupos fusionados`);
 }
 
 function onSgListDrop(e, cid, toSgi) {
