@@ -680,6 +680,23 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
 
 <script>
 let CLUSTERS   = [];
+
+// Mapeo scraper_source → app_id para generar cluster_index correctos
+const SCRAPER_APP_ID = {
+  "Pedidos Ya": "1", "pedidos ya": "1", "pedidosya": "1",
+  "Justo": "19", "justo": "19",
+  "Uber Eats": "2", "uber eats": "2", "ubereats": "2",
+  "Trip Advisor": "21", "tripadvisor": "21",
+  "Toteat": "23", "toteat": "23",
+  "Rappi": "3", "rappi": "3",
+  "Google": "7", "google": "7",
+  "Didi": "8", "didi": "8",
+};
+function scraperToAppId(scraperSource) {
+  if (!scraperSource) return null;
+  const s = scraperSource.trim();
+  return SCRAPER_APP_ID[s] || SCRAPER_APP_ID[s.toLowerCase()] || null;
+}
 let COUNTRY    = 'mx';
 let SUBGROUPS  = {};
 const SORT_ST  = {};
@@ -852,13 +869,16 @@ function renderStats(s){
   document.getElementById("statsBar").innerHTML=`
     <div class="stat"><div class="stat-lbl">Clusters</div><div class="stat-val">${s.total_clusters}</div></div>
     <div class="stat"><div class="stat-lbl">Stores</div><div class="stat-val">${s.total_rows}</div></div>
-    <div class="stat"><div class="stat-lbl">Correctos</div><div class="stat-val g">${s.total_ok}</div></div>
-    <div class="stat"><div class="stat-lbl">Incorrectos</div><div class="stat-val r">${s.total_bad}</div></div>`;
+    <div class="stat"><div class="stat-lbl">Sin cambios</div><div class="stat-val g">${s.total_ok}</div></div>
+    <div class="stat"><div class="stat-lbl">Con cambios</div><div class="stat-val r" title="Archivo: ${s.total_bad} · Externos: ${s.total_ext||0}">${s.total_bad + (s.total_ext||0)} <span style="font-size:10px;opacity:.6">(${s.total_bad}+${s.total_ext||0})</span></div></div>`;
 }
-function refreshStats(){
+async function refreshStats(){
   let rows=0,ok=0,bad=0;
-  CLUSTERS.forEach(cl=>cl.members.forEach(m=>{rows++;m.revision===1?ok++:bad++}));
-  renderStats({total_clusters:CLUSTERS.length,total_rows:rows,total_ok:ok,total_bad:bad});
+  // Excluir clusters from_search del conteo
+  CLUSTERS.filter(cl=>!cl.from_search).forEach(cl=>cl.members.forEach(m=>{rows++;m.revision===1?ok++:bad++}));
+  let ext=0;
+  try{const d=await api("/ext_correction/list");ext=(d.records||[]).filter(r=>r.file_name===CURRENT_FILENAME).length;}catch(e){}
+  renderStats({total_clusters:CLUSTERS.filter(cl=>!cl.from_search).length,total_rows:rows,total_ok:ok,total_bad:bad,total_ext:ext});
 }
 
 // ── sorting ───────────────────────────────────────────────────────────────────
@@ -941,6 +961,7 @@ function renderAll() {
   const list = document.getElementById("clusterList");
   list.innerHTML = "";
   const filtered = CLUSTERS.filter(cl => {
+    if (cl.from_search) return false; // clusters inyectados por la lupa, no del archivo
     if (FILTER === "all")     return true;
     if (FILTER === "pending") return !clusterProgress(cl).done;
     if (FILTER === "done")    return  clusterProgress(cl).done;
@@ -3496,7 +3517,7 @@ async function onBdDrop(e, targetCluster, cid, sgi) {
     if (m.from_cluster === targetCluster) return;
     let newCluster = targetCluster, isNew = false;
     if (targetCluster === "NEW") {
-      const appId = (m.scraper_source||"").trim();
+      const appId = scraperToAppId(m.scraper_source) || (m.scraper_source||"").trim();
       newCluster = appId ? `${appId}_${m.store_id}` : `NUEVO:${m.store_id}`;
       isNew = true;
     }
@@ -3590,7 +3611,7 @@ async function onBdDrop(e, targetCluster, cid, sgi) {
     const dragged = cl?.members.find(m=>m.item_index===ii);
     let newCluster = targetCluster, isNew = false;
     if (targetCluster === "NEW") {
-      const appId = dragged?.scraper_source?.trim()||"";
+      const appId = scraperToAppId(dragged?.scraper_source) || dragged?.scraper_source?.trim() || "";
       const storeId = ii.includes("_") ? ii.slice(ii.indexOf("_")+1) : ii;
       newCluster = appId ? `${appId}_${storeId}` : `NUEVO:${storeId}`;
       isNew = true;
