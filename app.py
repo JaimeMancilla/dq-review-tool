@@ -464,9 +464,14 @@ GEO_STOP = {
 def brand_words(name):
     """
     Extrae palabras de marca ignorando sufijos geográficos.
-    Para cadenas de comida rápida, las sub-entidades (Postres, Desayunos, Pollos,
-    Chicken, Turbo, Vegetal) se tratan como parte distintiva de la marca.
+    Para cadenas con guión (ej: "Castaño - Rosario Norte"), usa solo la parte
+    antes del guión para evitar incluir nombres de locales como palabras de marca.
     """
+    # Cortar en el primer guión — separa cadena de nombre de local
+    if ' - ' in name:
+        name = name.split(' - ')[0].strip()
+    elif '-' in name:
+        name = name.split('-')[0].strip()
     func = {"la","el","los","las","de","del","en","al","por","con","que","y","e","o"}
     generic = {"burger","pizza","tacos","taco","tortas","torta","wings",
                "alitas","sushi","coffee","cafe","grill","cocina","comida"}
@@ -599,28 +604,11 @@ def accent_variants(word):
 
 def word_ilike(field, word):
     """Genera condición ilike robusta a tildes y Ñ.
-    Para palabras con Ñ, corta antes de la Ñ para matchear tanto 'castano' como 'castaño'.
-    Para otras palabras con tilde, genera variantes.
+    Corta antes del primer carácter problemático (tilde, ñ, doble letra).
+    Si la palabra ya viene normalizada (sin tildes), igual aplica el corte por dobles.
     """
-    w_norm = norm(word)  # versión ASCII sin tildes ni Ñ
-    if not w_norm:
-        return f"{field} ilike '%{word}%'"
-
-    # Si la palabra normalizada difiere del original por Ñ,
-    # usar el prefijo antes de la Ñ (más robusto que variantes)
-    if 'n' in w_norm and 'ñ' in word.lower():
-        # Cortar antes de la Ñ → '%casta%' matchea 'castano' y 'castaño'
-        idx = word.lower().index('ñ')
-        prefix = norm(word[:idx])
-        if len(prefix) >= 3:
-            return f"{field} ilike '%{prefix}%'"
-
-    # Para otras palabras: variantes de tilde
-    variants = accent_variants(w_norm)
-    if len(variants) == 1:
-        return f"{field} ilike '%{w_norm}%'"
-    conditions = " or ".join(f"{field} ilike '%{v}%'" for v in sorted(variants))
-    return f"({conditions})"
+    # Usar addr_ilike_safe que ya implementa el corte correcto
+    return addr_ilike_safe(field, word)
 
 def addr_ilike_safe(field, word):
     """
