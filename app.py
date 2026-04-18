@@ -467,11 +467,13 @@ def brand_words(name):
     Para cadenas con guión (ej: "Castaño - Rosario Norte"), usa solo la parte
     antes del guión para evitar incluir nombres de locales como palabras de marca.
     """
-    # Cortar en el primer guión — separa cadena de nombre de local
+    # Cortar en el primer guión o coma — separa cadena de nombre de local
     if ' - ' in name:
         name = name.split(' - ')[0].strip()
     elif '-' in name:
         name = name.split('-')[0].strip()
+    if ',' in name:
+        name = name.split(',')[0].strip()
     func = {"la","el","los","las","de","del","en","al","por","con","que","y","e","o"}
     generic = {"burger","pizza","tacos","taco","tortas","torta","wings",
                "alitas","sushi","coffee","cafe","grill","cocina","comida"}
@@ -654,7 +656,11 @@ def addr_ilike_safe(field, word):
     if len(suffix) >= 3:
         return f"{field} ilike '%{suffix}%'"
 
-    # Sin corte útil: usar la palabra normalizada completa
+    # Sin corte útil: generar variantes con/sin tilde para cubrir ambos casos en la BD
+    variants = accent_variants(w_norm)
+    if len(variants) > 1:
+        conditions = " or ".join(f"{field} ilike '%{v}%'" for v in sorted(variants))
+        return f"({conditions})"
     return f"{field} ilike '%{w_norm}%'"
 
 def get_pg_table():
@@ -715,13 +721,20 @@ def generate_unified_sql(bad_members, country="mx"):
                 name_cond = " and ".join(word_ilike("app_name", w) for w in sql_bwords)
 
         # Condición de dirección — OR entre palabras clave (más permisivo, evita falsos negativos)
+        ADDR_BLACKLIST = {
+            "no", "sin", "especificado", "especificada", "null", "none",
+            "nulo", "nula", "vacio", "vacia", "nd", "na", "nr", "señala",
+            "indica", "definido", "definida", "disponible", "dato", "datos"
+        }
         akeys = extract_addr_keys(addr)
+        # Filtrar claves que sean palabras inútiles
+        akeys = [k for k in akeys if norm(k) not in ADDR_BLACKLIST and len(norm(k)) >= 3]
         if akeys:
             addr_parts = [addr_ilike_safe("app_address", w) for w in akeys]
             addr_cond = " or ".join(addr_parts) if len(addr_parts) > 1 else addr_parts[0]
             blocks.append(f"    ({name_cond}\n     and ({addr_cond}))")
         else:
-            # Sin dirección útil: agregar solo condición de nombre (sin deduplicar más)
+            # Sin dirección útil: solo condición de nombre
             name_key = "_".join(sql_bwords)
             if name_key not in seen:
                 seen.add(name_key)
