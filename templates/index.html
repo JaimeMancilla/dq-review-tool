@@ -2481,6 +2481,7 @@ function closeFusionModal(){
 }
 // ── Modal de Subgrupos ────────────────────────────────────────────────────────
 let _sgModalCid = null;
+let _sgSearchQuery = ''; // query de la lupa para propagar al segundo modal
 
 async function openSgModal(cid) {
   _sgModalCid = cid;
@@ -3121,7 +3122,6 @@ async function runSgQueryModal(cid, sgi) {
   const sgs = SUBGROUPS[cid]; if (!sgs || !sgs[sgi]) return;
   const sql = sgs[sgi].sql;
   if (!sql) { toast("Sin SQL — regenerando…"); await regenerateSgSql(cid); return; }
-  // Buscar botón en el panel activo
   const activePanel = document.getElementById("sgActivePanel");
   const btn = activePanel ? activePanel.querySelector(".btn.blue.sm") : null;
   if (btn) { btn.innerHTML = '<span class="spinner"></span>'; btn.disabled = true; }
@@ -3129,17 +3129,47 @@ async function runSgQueryModal(cid, sgi) {
     const d = await api("/pg_query", {sql});
     if (d.error) { toast("Error BD: " + d.error); }
     else {
-      // Aplicar estado de sesión sobre resultados BD
-      const clusters = (d.clusters_found || []).map(bdc => {
+      let allClusters = d.clusters_found || [];
+
+      // Si hay _search_context (query de la lupa), hacer segunda búsqueda y mergear
+      const searchCtx = sgs[sgi]._search_context;
+      if (searchCtx) {
+        try {
+          const d2 = await api("/cluster_search", {query: searchCtx, country: COUNTRY||'mx'});
+          if (d2.clusters?.length) {
+            // Traer members de los clusters encontrados que no estén ya en allClusters
+            const existingCIs = new Set(allClusters.map(b => b.cluster_index));
+            for (const cl2 of d2.clusters) {
+              if (!existingCIs.has(cl2.cluster_id)) {
+                allClusters.push({
+                  cluster_index:   cl2.cluster_id,
+                  cluster_name:    cl2.anchor_name||'',
+                  cluster_address: cl2.anchor_address||'',
+                  members: (cl2.members||[]).map(m => ({
+                    store_id:    m.store_id||'',
+                    app_name:    m.app_name||'',
+                    app_address: m.app_address||'',
+                    item_index:  m.item_index||'',
+                    is_anchor:   m.is_anchor||false,
+                    scraper_source: m.scraper_source||''
+                  }))
+                });
+              }
+            }
+          }
+        } catch(e2) {}
+      }
+
+      // Aplicar _sessionClusterState
+      const clusters = allClusters.map(bdc => {
         const state = _sessionClusterState[bdc.cluster_index];
         if (!state) return bdc;
-        // Marcar como moved_out los que ya se movieron
+        const movedOutSet = state.moved_out instanceof Set
+          ? state.moved_out : new Set((state.moved_out||[]).map(String));
         const members = bdc.members.map(m => ({
-          ...m,
-          _moved_out: state.moved_out?.has(String(m.store_id)) || false
+          ...m, _moved_out: movedOutSet.has(String(m.store_id)) || false
         }));
-        // Agregar los moved_in
-        const incoming = (state.moved_in || []).filter(
+        const incoming = (state.moved_in||[]).filter(
           mi => !members.some(m => m.store_id === mi.store_id)
         ).map(mi => ({...mi, _moved_in: true, is_anchor: false}));
         return {...bdc, members: [...members, ...incoming]};
@@ -4323,6 +4353,7 @@ async function doSgClusterSearch() {
   const input = document.getElementById("sgClusterSearchInput");
   const q = (input?.value||"").trim();
   if (!q) return;
+  _sgSearchQuery = q; // guardar para propagar al segundo modal
   const results = document.getElementById("sgClusterSearchResults");
   results.innerHTML = '<div style="padding:16px;text-align:center"><span class="spinner"></span></div>';
 
@@ -4392,6 +4423,12 @@ async function openSearchedClusterInModal(cl) {
         rep_name: cl.anchor_name, rep_addr: cl.anchor_address||'',
         sql:'', bd_results:[], correction:'', is_new:false
       }];
+    }
+    // Propagar query de la lupa a todos los subgrupos del segundo modal
+    if (_sgSearchQuery) {
+      (SUBGROUPS[cl.cluster_id]||[]).forEach(sg => {
+        sg._search_context = _sgSearchQuery;
+      });
     }
   }
 
