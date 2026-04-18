@@ -1512,15 +1512,14 @@ async function clearSgCorr(cid, sgi) {
   if (!sgs || !sgs[sgi]) return;
   const sg = sgs[sgi];
 
-  // 1. Limpiar estado JS del subgrupo
-  const confirmedSids  = new Set((sg._confirmed_store_ids||[]).map(String));
-  const confirmedMovesIn = sg._confirmed_moves_in || {};
+  // Limpiar estado JS del subgrupo — NO borrar ext_corrections (son independientes)
+  const confirmedSids = new Set((sg._confirmed_store_ids||[]).map(String));
   sg.correction = ""; sg.is_new = false;
   sg._confirmed_store_ids = [];
   sg._confirmed_moves_in  = {};
 
-  // 2. Revertir _moved_out en bd_results de todos los subgrupos
-  //    (quitar el tachado de los stores que este subgrupo movió)
+  // Revertir _moved_out solo para stores del subgrupo (is_subgroup)
+  // Las stores externas mantienen su tachado porque sus ext_corrections siguen vigentes
   sgs.forEach(otherSg => {
     if (!otherSg.bd_results) return;
     otherSg.bd_results = otherSg.bd_results.map(bdc => ({
@@ -1532,27 +1531,13 @@ async function clearSgCorr(cid, sgi) {
     }));
   });
 
-  // 3. Revertir _sessionClusterState para los stores que salieron
+  // Revertir _sessionClusterState solo para stores del subgrupo
   confirmedSids.forEach(sid => {
     Object.values(_sessionClusterState).forEach(state => {
       if (state.moved_out instanceof Set) state.moved_out.delete(sid);
     });
   });
 
-  // 4. Borrar ext_corrections del backend asociadas a este subgrupo
-  try {
-    const extD = await api("/ext_correction/list");
-    const filename = document.getElementById("hdrFile").textContent||"";
-    for (const rec of (extD.records||[])) {
-      // Solo borrar las del archivo activo que correspondan a stores movidas por este subgrupo
-      const isFromThisSg = Object.values(confirmedMovesIn).some(arr =>
-        arr.some(mi => String(mi.store_id) === String(rec.store_id))
-      );
-      if (isFromThisSg) await api("/ext_correction/delete", {id: rec.id});
-    }
-  } catch(e) {}
-
-  // 5. Limpiar corrección en backend y re-renderizar
   await api("/set_correction", {cluster_id: cid, item_indexes: sg.members, correction: ""});
   api("/save_subgroups", {subgroups: SUBGROUPS});
   refreshClusterBadge(cid);
@@ -1560,7 +1545,7 @@ async function clearSgCorr(cid, sgi) {
   updateSgModalProgress(cid);
   if (_sgModalCid === cid) { renderSgList(cid); renderSgActivePanel(cid, _sgActiveSgi); }
   else rebuildBdPanel(getCl(cid)||{cluster_id: cid});
-  toast("↩ Corrección deshecha");
+  toast("↩ Corrección del subgrupo deshecha");
 }
 function refreshClusterBadge(cid) {
   const cl  = getCl(cid); if (!cl) return;
