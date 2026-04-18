@@ -2817,12 +2817,15 @@ function buildSgGroupCard(cid, sg, sgi) {
     const name = m ? m.app_name : ii.slice(-12);
     const addr = m ? (m.app_address||'') : '';
     const storeId = m ? (m.store_id||'') : '';
+    const isAnchor = m ? m.is_anchor : (ii === cid);
     return `<div class="sg-chip" draggable="true"
       data-ii="${esc(ii)}" data-from-sgi="${sgi}" data-cid="${esc(cid)}"
       ondragstart="onSgChipDragStart(event)"
       ondragend="onSgChipDragEnd(event)"
-      title="${esc(ii)}">
-      <div class="sg-chip-name">${esc(name)}</div>
+      title="${esc(ii)}${isAnchor?' — ⚓ ANCLA del cluster':''}">
+      <div class="sg-chip-name">
+        ${isAnchor?`<span style="font-size:9px;color:var(--amber);margin-right:3px" title="Ancla del cluster">⚓</span>`:''}${esc(name)}
+      </div>
       ${addr ? `<div class="sg-chip-addr">${esc(addr)}</div>` : ''}
       ${storeId ? `<div style="font-family:monospace;font-size:8px;color:var(--muted);margin-top:2px;opacity:.7">${esc(storeId)}</div>` : ''}
       <span class="sg-chip-x" onclick="removeSgChip('${esc(cid)}',${sgi},'${esc(ii)}')">✕</span>
