@@ -2154,6 +2154,12 @@ async function confirmResetFile(){
         if(el){el.style.display="none";el.disabled=false;el.style.opacity="1";el.title="";}
       });
       document.getElementById("uploadScreen").classList.remove("hidden");
+      // Resetear dropzone al estado original (puede mostrar "Procesando..." del upload anterior)
+      const dz = document.getElementById("dropZone");
+      if(dz) dz.innerHTML = `<input type="file" id="mainFile" accept=".xlsx,.csv">
+        <div class="drop-title">Arrastra tu archivo de revisión</div>
+        <div class="drop-sub">Excel (.xlsx) o CSV</div>
+        <button class="btn primary" onclick="event.stopPropagation();document.getElementById('mainFile').click()">Seleccionar archivo</button>`;
       selectType(savedReviewType);
       toast(`✓ Reiniciado — sube el archivo de nuevo`, 4000);
     }
