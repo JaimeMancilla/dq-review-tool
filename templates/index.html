@@ -3438,6 +3438,7 @@ async function assignThisCluster(clusterIndex, cid, sgi) {
     const hdr2 = document.querySelector("#sgActivePanel .sg-group-hdr");
     if (hdr2) hdr2.className = "sg-group-hdr corrected";
     toast(`✅ Subgrupo → ${clusterIndex}`);
+    renderSgActivePanel(cid, sgi);
   }
 }
 
@@ -3518,6 +3519,24 @@ async function confirmBdMoves(cid, sgi) {
   updateSgModalProgress(cid);
   delete _bdPendingMoves[key];
   delete _bdUndoStack[key];
+
+  // Persistir _moved_out en bd_results para que re-renders futuros muestren el tachado
+  const sgsRef = SUBGROUPS[cid]||[];
+  if (sgsRef[sgi] && sgsRef[sgi].bd_results) {
+    sgsRef[sgi].bd_results = sgsRef[sgi].bd_results.map(bdc => {
+      const state = _sessionClusterState[bdc.cluster_index];
+      if (!state) return bdc;
+      return {
+        ...bdc,
+        members: bdc.members.map(m => ({
+          ...m,
+          _moved_out: state.moved_out?.has(String(m.store_id)) || m._moved_out || false,
+        }))
+      };
+    });
+  }
+  // Re-renderizar el panel activo para reflejar el estado persistido
+  renderSgActivePanel(cid, sgi);
 
   // Ocultar botones de acción
   const actionsWrap = document.getElementById(`bdActions_${CSS.escape(cid)}_${sgi}`);
