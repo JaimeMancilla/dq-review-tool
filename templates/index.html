@@ -2723,18 +2723,22 @@ function renderSgActivePanel(cid, sgi) {
   const el = document.getElementById("sgActivePanel");
   if (!el || !sg) return;
 
-  // Antes de renderizar: aplicar _sessionClusterState sobre bd_results del subgrupo activo
-  // para que los moved_out queden reflejados aunque _sessionClusterState esté vacío
-  // (por ejemplo tras restaurar sesión)
+  // Antes de renderizar: aplicar _sessionClusterState sobre bd_results
+  // moved_out puede ser Set (creado en sesión) o Array (deserializado desde JSON)
   if (sg.bd_results) {
     sg.bd_results = sg.bd_results.map(bdc => {
       const state = _sessionClusterState[bdc.cluster_index];
       if (!state) return bdc;
+      // Normalizar moved_out a Set si viene como Array
+      const movedOutSet = state.moved_out instanceof Set
+        ? state.moved_out
+        : new Set((state.moved_out||[]).map(String));
+      state.moved_out = movedOutSet; // corregir in-place para futuros usos
       return {
         ...bdc,
         members: bdc.members.map(m => ({
           ...m,
-          _moved_out: state.moved_out?.has(String(m.store_id)) || m._moved_out || false,
+          _moved_out: movedOutSet.has(String(m.store_id)) || m._moved_out || false,
         }))
       };
     });
@@ -3384,11 +3388,15 @@ async function onBdDrop(e, targetCluster, cid, sgi) {
       otherSg.bd_results = otherSg.bd_results.map(bdc => {
         const state = _sessionClusterState[bdc.cluster_index];
         if (!state) return bdc;
+        const movedOutSet = state.moved_out instanceof Set
+          ? state.moved_out
+          : new Set((state.moved_out||[]).map(String));
+        state.moved_out = movedOutSet;
         return {
           ...bdc,
           members: bdc.members.map(mb => ({
             ...mb,
-            _moved_out: state.moved_out?.has(String(mb.store_id)) || mb._moved_out || false,
+            _moved_out: movedOutSet.has(String(mb.store_id)) || mb._moved_out || false,
           }))
         };
       });
@@ -3566,11 +3574,15 @@ async function confirmBdMoves(cid, sgi) {
     otherSg.bd_results = otherSg.bd_results.map(bdc => {
       const state = _sessionClusterState[bdc.cluster_index];
       if (!state) return bdc;
+      const movedOutSet = state.moved_out instanceof Set
+        ? state.moved_out
+        : new Set((state.moved_out||[]).map(String));
+      state.moved_out = movedOutSet;
       return {
         ...bdc,
         members: bdc.members.map(m => ({
           ...m,
-          _moved_out: state.moved_out?.has(String(m.store_id)) || m._moved_out || false,
+          _moved_out: movedOutSet.has(String(m.store_id)) || m._moved_out || false,
         }))
       };
     });
