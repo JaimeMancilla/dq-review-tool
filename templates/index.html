@@ -2133,42 +2133,29 @@ async function confirmResetFile(){
   if(!confirm(`¿Empezar de cero con "${filename}"?\n\nEsto borrará:\n• Subgrupos generados\n• Correcciones asignadas\n• Correcciones externas (Anotar)\n• Estado de revisado\n\nEl archivo original no se modifica.`)) return;
   const btn=document.getElementById("btnResetFile");
   btn.innerHTML='<span class="spinner"></span>';
+  const savedReviewType = REVIEW_TYPE; // preservar antes de cualquier cambio
   try{
     const d=await api("/reset_file",{});
     if(d.ok){
-      // Limpiar estado JS completamente
+      // Limpiar estado JS
       CLUSTERS=[];SUBGROUPS={};FILTER="all";DISH_GROUPS=[];
-      // Resetear botón "Marcar revisado"
-      const btnMR=document.getElementById("btnMarkReviewed");
-      btnMR.innerHTML="✓ Marcar revisado";
-      btnMR.dataset.reviewed="0";
-      btnMR.style.background="";btnMR.style.color="";btnMR.style.borderColor="";
-      // Deshabilitar Export y BdUpdate
-      const btnExp=document.getElementById("btnExport");
-      const btnBd=document.getElementById("btnBdUpdate");
-      btnExp.disabled=true;btnExp.style.opacity="0.45";btnExp.title="Marca como revisado primero";
-      btnBd.disabled=true;btnBd.style.opacity="0.45";btnBd.title="Marca como revisado primero";
-      // Limpiar listas renderizadas
-      document.getElementById("clusterList").innerHTML="";
-      document.getElementById("dishesList").innerHTML="";
-      // Volver a subir el archivo automáticamente (si hay uno activo)
-      // Para no perder el contexto de tipo, simplemente recargamos volviendo al fileSelect
-      toast(`✓ Reiniciado — vuelve a subir el archivo`, 4000);
-      // Ir a pantalla de selección de archivo (mantiene el tipo elegido)
+      REVIEW_TYPE=savedReviewType; // restaurar tipo
+      // Ocultar pantallas de revisión y botones
       document.getElementById("mainScreen").classList.add("hidden");
       document.getElementById("dishesScreen").classList.add("hidden");
-      document.getElementById("uploadScreen").classList.remove("hidden");
-      document.getElementById("typeSelect").classList.add("hidden");
-      document.getElementById("storesSubtype").classList.add("hidden");
-      document.getElementById("fileSelect").classList.remove("hidden");
       document.getElementById("hdrFile").style.display="none";
+      document.getElementById("hdrFile").textContent="";
       ["btnExport","btnMarkReviewed","btnMemory","btnBdUpdate","btnDashboard","btnResetFile"].forEach(id=>{
         const el=document.getElementById(id);
-        el.style.display="none";el.disabled=false;el.style.opacity="1";el.title="";
+        if(el){el.style.display="none";el.disabled=false;el.style.opacity="1";el.title="";}
       });
+      // Volver al fileSelect del tipo correcto (reinicia dropzone y label)
+      document.getElementById("uploadScreen").classList.remove("hidden");
+      selectType(savedReviewType);
+      toast(`✓ Reiniciado — sube el archivo de nuevo`, 4000);
     }
   }catch(e){toast("Error: "+e.message);}
-  btn.innerHTML="↺ Empezar de cero";
+  btn.innerHTML="↺ Empezar de cero"; // no importa si ya está oculto
 }
 
 async function exportFile(){
