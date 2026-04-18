@@ -2729,22 +2729,22 @@ function renderSgActivePanel(cid, sgi) {
   const el = document.getElementById("sgActivePanel");
   if (!el || !sg) return;
 
-  // Antes de renderizar: aplicar _sessionClusterState sobre bd_results
-  // moved_out puede ser Set (creado en sesión) o Array (deserializado desde JSON)
+  // Aplicar _sessionClusterState + _confirmed_store_ids sobre bd_results
   if (sg.bd_results) {
+    const confirmedSids = new Set((sg._confirmed_store_ids||[]).map(String));
     sg.bd_results = sg.bd_results.map(bdc => {
       const state = _sessionClusterState[bdc.cluster_index];
-      if (!state) return bdc;
-      // Normalizar moved_out a Set si viene como Array
-      const movedOutSet = state.moved_out instanceof Set
+      const movedOutSet = state?.moved_out instanceof Set
         ? state.moved_out
-        : new Set((state.moved_out||[]).map(String));
-      state.moved_out = movedOutSet; // corregir in-place para futuros usos
+        : new Set((state?.moved_out||[]).map(String));
+      if (state) state.moved_out = movedOutSet;
       return {
         ...bdc,
         members: bdc.members.map(m => ({
           ...m,
-          _moved_out: movedOutSet.has(String(m.store_id)) || m._moved_out || false,
+          _moved_out: movedOutSet.has(String(m.store_id))
+            || confirmedSids.has(String(m.store_id))
+            || m._moved_out || false,
         }))
       };
     });
@@ -3547,6 +3547,7 @@ async function confirmBdMoves(cid, sgi) {
   if (sgs[sgi]) {
     sgs[sgi].correction = newCluster;
     sgs[sgi].is_new = isNew;
+    sgs[sgi]._confirmed_store_ids = [...subgroupStoreIds]; // persistir para re-renders
     await api("/set_correction", {cluster_id: cid, item_indexes: sgs[sgi].members, correction: newCluster});
   }
 
@@ -3570,23 +3571,26 @@ async function confirmBdMoves(cid, sgi) {
   delete _bdPendingMoves[key];
   delete _bdUndoStack[key];
 
-  // Persistir _moved_out en bd_results de TODOS los subgrupos del cluster,
-  // no solo el activo — así otros subgrupos ya cargados muestran el tachado sin re-ejecutar BD
+  // Persistir _moved_out en bd_results de TODOS los subgrupos
+  // Para moves externos: via _sessionClusterState
+  // Para moves del subgrupo (is_subgroup, from_cluster=null): via store_id directo
+  const subgroupStoreIds = new Set(moves.filter(m => m.is_subgroup).map(m => String(m.store_id)));
   const sgsRef = SUBGROUPS[cid]||[];
-  sgsRef.forEach((otherSg, otherSgi) => {
+  sgsRef.forEach((otherSg) => {
     if (!otherSg.bd_results) return;
     otherSg.bd_results = otherSg.bd_results.map(bdc => {
       const state = _sessionClusterState[bdc.cluster_index];
-      if (!state) return bdc;
-      const movedOutSet = state.moved_out instanceof Set
+      const movedOutSet = state?.moved_out instanceof Set
         ? state.moved_out
-        : new Set((state.moved_out||[]).map(String));
-      state.moved_out = movedOutSet;
+        : new Set((state?.moved_out||[]).map(String));
+      if (state) state.moved_out = movedOutSet;
       return {
         ...bdc,
         members: bdc.members.map(m => ({
           ...m,
-          _moved_out: movedOutSet.has(String(m.store_id)) || m._moved_out || false,
+          _moved_out: movedOutSet.has(String(m.store_id))
+            || subgroupStoreIds.has(String(m.store_id))
+            || m._moved_out || false,
         }))
       };
     });
