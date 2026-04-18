@@ -2846,6 +2846,19 @@ function buildSgGroupCard(cid, sg, sgi) {
         ? `<span style="font-size:9px;background:var(--abg);color:var(--amber);border:1px solid var(--aborder);border-radius:4px;padding:1px 6px;font-weight:700">✓ sg ${otherSgWithThisCorr.map(x=>x.i+1).join(", ")}</span>`
         : "";
 
+      // Chips de stores confirmadas como "movidas a este cluster" (persistido tras confirmar)
+      const confirmedMovesIn = (sg._confirmed_moves_in||{})[bdc.cluster_index] || [];
+      const confirmedInHtml = confirmedMovesIn
+        .filter(mi => !bdc.members.some(m => String(m.store_id) === mi.store_id)) // no duplicar si ya está en members
+        .map(mi => `<div style="display:flex;flex-direction:column;border:1px solid var(--pborder,#c4b5fd);border-radius:5px;padding:5px 8px;font-size:10px;background:var(--pbg,#f5f3ff);margin-bottom:3px">
+          <div style="display:flex;align-items:center;gap:4px">
+            <span style="font-size:9px;color:var(--purple,#7c3aed)">↳</span>
+            <span style="font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${esc(mi.app_name)} <span style="font-size:9px;color:var(--purple,#7c3aed)">${mi.is_subgroup?"subgrupo":"movido"}</span></span>
+          </div>
+          <div style="font-size:9px;color:var(--muted);margin-top:2px">${esc((mi.app_address||"").slice(0,55))}</div>
+          <div style="font-family:monospace;font-size:8px;color:var(--muted);margin-top:2px;opacity:.7">${esc(mi.store_id)}</div>
+        </div>`).join("");
+
       return `<div class="sg-bd-cluster bd-drop-zone" id="bdz_${CSS.escape(bdc.cluster_index)}"
         data-cluster="${esc(bdc.cluster_index)}"
         ondragover="onBdDropZoneOver(event)" ondragleave="onBdDropZoneLeave(event)"
@@ -2857,7 +2870,7 @@ function buildSgGroupCard(cid, sg, sgi) {
             :hasAnchor?`<span style="font-size:9px;color:var(--muted)">⚓</span>`:""}
           ${alreadyAssignedBadge}
         </div>
-        <div style="padding:5px 8px" id="bdt_${CSS.escape(bdc.cluster_index)}">${chipsHtml2}</div>
+        <div style="padding:5px 8px" id="bdt_${CSS.escape(bdc.cluster_index)}">${chipsHtml2}${confirmedInHtml}</div>
         <div style="font-size:10px;color:var(--blue);padding:3px 8px 5px;opacity:.6;font-style:italic">← Arrastra stores aquí</div>
       </div>`;
     }).join("");
@@ -3543,12 +3556,25 @@ async function confirmBdMoves(cid, sgi) {
   const isNew = sgMove?.is_new || false;
   const subgroupStoreIds = new Set(moves.filter(m => m.is_subgroup).map(m => String(m.store_id)));
 
+  // Construir mapa de moved_in por cluster destino (para trazabilidad visual)
+  const movedInByCluster = {};
+  moves.forEach(m => {
+    const dest = m.new_cluster;
+    if (!dest || dest === "NEW" || dest.startsWith("NUEVO:")) return;
+    if (!movedInByCluster[dest]) movedInByCluster[dest] = [];
+    movedInByCluster[dest].push({
+      store_id: String(m.store_id), app_name: m.app_name,
+      app_address: m.app_address, is_subgroup: m.is_subgroup
+    });
+  });
+
   // 1. Guardar corrección del subgrupo
   const sgs = SUBGROUPS[cid]||[];
   if (sgs[sgi]) {
     sgs[sgi].correction = newCluster;
     sgs[sgi].is_new = isNew;
     sgs[sgi]._confirmed_store_ids = [...subgroupStoreIds];
+    sgs[sgi]._confirmed_moves_in = movedInByCluster; // {cluster_index: [{store_id, app_name, ...}]}
     await api("/set_correction", {cluster_id: cid, item_indexes: sgs[sgi].members, correction: newCluster});
   }
 
