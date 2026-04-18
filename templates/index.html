@@ -2809,6 +2809,7 @@ function buildSgGroupCard(cid, sg, sgi) {
           : "";
 
         return `<div style="display:flex;flex-direction:column;border:1px solid var(--border2);border-radius:5px;padding:5px 8px;font-size:10px;${chipBg};${extraStyle};margin-bottom:3px"
+          data-store-id="${esc(String(m.store_id||''))}"
           ${draggable?`draggable="true" ondragstart="onBdRowDragStart(event,'${dragJson}')" ondragend="event.target.style.opacity='1'"`:""}
           >
           <div style="display:flex;align-items:center;gap:4px">
@@ -3340,16 +3341,22 @@ async function onBdDrop(e, targetCluster, cid, sgi) {
       newCluster = appId ? `${appId}_${m.store_id}` : `NUEVO:${m.store_id}`;
       isNew = true;
     }
-    // Tachar en origen
+    // Tachar en origen — usar data-store-id para evitar tachar stores con mismo nombre
     const fromC = document.getElementById("bdt_" + CSS.escape(m.from_cluster));
     if (fromC) Array.from(fromC.children).forEach(chip => {
-      if (chip.textContent.includes(m.app_name) && !chip.dataset.tachado) {
+      const chipSid = chip.dataset.storeId;
+      if (chipSid === String(m.store_id) && !chip.dataset.tachado) {
         chip.style.opacity="0.35"; chip.style.textDecoration="line-through";
         chip.setAttribute("draggable","false"); chip.dataset.tachado="1";
       }
     });
+    // Evitar mover el mismo store_id dos veces
+    if (!_bdPendingMoves[key]) _bdPendingMoves[key] = [];
+    if (_bdPendingMoves[key].some(mv => String(mv.store_id) === String(m.store_id))) {
+      toast("⚠ Este store ya fue movido en este subgrupo"); _bdDragData = null; return;
+    }
     // Agregar chip en destino
-    _bdDropAddChip(targetCluster, cid, sgi, m.app_name, m.app_address, newCluster);
+    _bdDropAddChip(targetCluster, cid, sgi, m.app_name, m.app_address, newCluster, m.store_id);
     // Actualizar _sessionClusterState inmediatamente
     if (m.from_cluster && m.from_cluster !== "NEW") {
       if (!_sessionClusterState[m.from_cluster]) _sessionClusterState[m.from_cluster] = {moved_out: new Set(), moved_in: []};
@@ -3393,6 +3400,12 @@ async function onBdDrop(e, targetCluster, cid, sgi) {
     const {ii, fromSgi, cid: dragCid} = _sgModalDrag;
     _sgModalDrag = null;
     if (!ii || dragCid !== cid) return;
+
+    // Guard: cada store del subgrupo solo puede moverse una vez
+    const sgKey = `${cid}_${fromSgi}`;
+    const alreadyMoved = (_bdPendingMoves[sgKey]||[]).some(mv => mv.is_subgroup && mv.item_index === ii);
+    if (alreadyMoved) { toast("⚠ Este store ya fue asignado"); return; }
+
     const cl = getCl(cid);
     const dragged = cl?.members.find(m=>m.item_index===ii);
     let newCluster = targetCluster, isNew = false;
@@ -3405,14 +3418,13 @@ async function onBdDrop(e, targetCluster, cid, sgi) {
     const appName = dragged?.app_name || ii;
     const appAddr = dragged?.app_address || "";
     // Agregar chip en destino
-    _bdDropAddChip(targetCluster, cid, sgi, appName, appAddr, newCluster);
+    _bdDropAddChip(targetCluster, cid, sgi, appName, appAddr, newCluster, dragged?.store_id||"");
     // Actualizar _sessionClusterState
     if (targetCluster !== "NEW") {
       if (!_sessionClusterState[targetCluster]) _sessionClusterState[targetCluster] = {moved_out: new Set(), moved_in: []};
       _sessionClusterState[targetCluster].moved_in.push({store_id: dragged?.store_id||ii, app_name: appName, app_address: appAddr});
     }
     // Trackear
-    const sgKey = `${cid}_${fromSgi}`;
     if (!_bdPendingMoves[sgKey]) _bdPendingMoves[sgKey] = [];
     _bdPendingMoves[sgKey].push({
       store_id: dragged?.store_id||ii, app_name: appName, app_address: appAddr,
@@ -3616,13 +3628,13 @@ function undoLastBdMove(cid, sgi) {
   toast("↩ Movimiento deshecho");
 }
 
-function _bdDropAddChip(targetCluster, cid, sgi, appName, appAddr, newCluster) {
+function _bdDropAddChip(targetCluster, cid, sgi, appName, appAddr, newCluster, storeId) {
   if (targetCluster === "NEW") {
     const z = document.getElementById(`bdz_NEW_${CSS.escape(cid)}_${sgi}`);
     if (z) {
       const d2 = document.createElement("div");
       d2.style.cssText="font-size:11px;color:var(--green);padding:4px 8px;border:1px solid var(--gborder);border-radius:5px;margin:3px 8px";
-      d2.innerHTML=`↳ <strong>${esc(appName)}</strong> <span style="font-family:monospace;font-size:10px">${esc(newCluster)}</span>`;
+      d2.innerHTML=`↳ <strong>${esc(appName)}</strong> <span style="font-family:monospace;font-size:10px">${esc(newCluster)}</span>${storeId?`<div style="font-family:monospace;font-size:9px;color:var(--muted);margin-top:2px">${esc(String(storeId))}</div>`:""}`;
       z.appendChild(d2);
     }
   } else {
@@ -3630,7 +3642,7 @@ function _bdDropAddChip(targetCluster, cid, sgi, appName, appAddr, newCluster) {
     if (t) {
       const d2 = document.createElement("div");
       d2.style.cssText="display:flex;flex-direction:column;border:1px solid var(--pborder,#c4b5fd);border-radius:5px;padding:5px 8px;font-size:10px;background:var(--pbg,#f5f3ff);margin-bottom:3px";
-      d2.innerHTML=`<div style="display:flex;align-items:center;gap:4px"><span style="font-size:9px;color:var(--purple,#7c3aed)">↳</span><span style="font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${esc(appName)} <span style="font-size:9px;color:var(--purple,#7c3aed)">movido</span></span></div><div style="font-size:9px;color:var(--muted);margin-top:2px">${esc((appAddr||"").slice(0,55))}</div>`;
+      d2.innerHTML=`<div style="display:flex;align-items:center;gap:4px"><span style="font-size:9px;color:var(--purple,#7c3aed)">↳</span><span style="font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${esc(appName)} <span style="font-size:9px;color:var(--purple,#7c3aed)">movido</span></span></div><div style="font-size:9px;color:var(--muted);margin-top:2px">${esc((appAddr||"").slice(0,55))}</div>${storeId?`<div style="font-family:monospace;font-size:8px;color:var(--muted);margin-top:2px;opacity:.7">${esc(String(storeId))}</div>`:""}`;
       t.appendChild(d2);
     }
   }
