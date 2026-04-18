@@ -2529,12 +2529,17 @@ def bd_detect():
              if review_type == "stores_retail"
              else "sales_opportunity.dim_maestra")
 
-    conn = get_pg()
-    if conn is None:
+    import psycopg2, psycopg2.extras
+    cfg = get_pg_config()
+    if not cfg:
         return jsonify({"error": "Sin conexión a PostgreSQL"})
+    try:
+        conn = psycopg2.connect(**cfg, connect_timeout=30)
+    except Exception as e:
+        return jsonify({"error": f"Error de conexión: {str(e)}"})
 
     try:
-        cur = conn.cursor()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
         # ── DETECCIÓN TIPO 1: miembros con similitud baja vs ancla ──────────────
         # Traer clusters con más de 1 miembro, filtrar por ciudad si se especifica
