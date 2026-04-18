@@ -2510,6 +2510,222 @@ def places_verify(place_id):
     conn.commit(); conn.close()
     return jsonify({"ok": True, "id": place_id, "verified": verified})
 
+@app.route("/bd_detect", methods=["POST"])
+def bd_detect():
+    """
+    Detecta candidatos a error tipo 1 (miembro vs ancla) y tipo 2 (clusters cercanos).
+    Retorna clusters en el mismo formato que /upload para reutilizar la UI existente.
+    """
+    data        = request.json or {}
+    country     = data.get("country", "cl")
+    city        = data.get("city")
+    dist_m      = float(data.get("dist_m", 20))
+    sim_t2      = float(data.get("sim_threshold_t2", 0.65))
+    sim_t1      = float(data.get("sim_threshold_t1", 0.70))
+    limit       = int(data.get("limit", 100))
+    review_type = data.get("review_type", "stores_restaurant")
+
+    table = ("sales_opportunity.dim_maestra_retail"
+             if review_type == "stores_retail"
+             else "sales_opportunity.dim_maestra")
+
+    conn = get_pg()
+    if conn is None:
+        return jsonify({"error": "Sin conexión a PostgreSQL"})
+
+    try:
+        cur = conn.cursor()
+
+        # ── DETECCIÓN TIPO 1: miembros con similitud baja vs ancla ──────────────
+        # Traer clusters con más de 1 miembro, filtrar por ciudad si se especifica
+        city_filter = "AND cluster_ciudad ILIKE %s" if city else ""
+        city_param  = [f"%{city}%"] if city else []
+
+        q_t1 = f"""
+            SELECT cluster_index, cluster_name, cluster_address,
+                   cluster_latitude, cluster_longitude, cluster_ciudad,
+                   store_id, app_name, app_address, scraper_source,
+                   item_index, is_anchor
+            FROM (
+                SELECT *,
+                       (item_index = cluster_index) AS is_anchor,
+                       COUNT(*) OVER (PARTITION BY cluster_index) AS member_count
+                FROM {table}
+                WHERE country = %s {city_filter}
+                  AND app_name IS NOT NULL
+                  AND app_name != ''
+            ) sub
+            WHERE member_count > 1
+            ORDER BY cluster_index, is_anchor DESC
+            LIMIT 5000
+        """
+        cur.execute(q_t1, [country] + city_param)
+        rows_t1 = cur.fetchall()
+        cols_t1 = [d[0] for d in cur.description]
+
+        # Agrupar por cluster
+        import pandas as pd
+        df_t1 = pd.DataFrame(rows_t1, columns=cols_t1)
+
+        t1_candidate_clusters = set()
+        if not df_t1.empty:
+            for cid, grp in df_t1.groupby("cluster_index"):
+                anchor = grp[grp["is_anchor"] == True]
+                if anchor.empty:
+                    anchor = grp.iloc[[0]]
+                anchor_name = anchor.iloc[0]["app_name"] or ""
+                anchor_addr = anchor.iloc[0]["app_address"] or ""
+                members_list = grp[grp["is_anchor"] != True].to_dict("records")
+                if not members_list:
+                    continue
+                sims = batch_semantic_sim(anchor_name, anchor_addr, members_list)
+                if any(s < sim_t1 for s in sims):
+                    t1_candidate_clusters.add(cid)
+
+        # ── DETECCIÓN TIPO 2: clusters cercanos con nombre similar ──────────────
+        # Haversine simplificado en SQL — solo anchors (item_index = cluster_index)
+        q_t2 = f"""
+            WITH anchors AS (
+                SELECT DISTINCT ON (cluster_index)
+                    cluster_index, cluster_name, cluster_address,
+                    cluster_latitude, cluster_longitude, cluster_ciudad
+                FROM {table}
+                WHERE country = %s {city_filter}
+                  AND cluster_latitude IS NOT NULL
+                  AND cluster_longitude IS NOT NULL
+                  AND cluster_name IS NOT NULL
+                ORDER BY cluster_index
+            )
+            SELECT
+                a.cluster_index   AS ci_a, a.cluster_name AS cn_a,
+                a.cluster_address AS ca_a,
+                b.cluster_index   AS ci_b, b.cluster_name AS cn_b,
+                b.cluster_address AS ca_b,
+                111320 * sqrt(
+                    power(a.cluster_latitude  - b.cluster_latitude,  2) +
+                    power((a.cluster_longitude - b.cluster_longitude)
+                          * cos(radians(a.cluster_latitude)), 2)
+                ) AS dist_m
+            FROM anchors a
+            JOIN anchors b ON a.cluster_index < b.cluster_index
+            WHERE 111320 * sqrt(
+                    power(a.cluster_latitude  - b.cluster_latitude,  2) +
+                    power((a.cluster_longitude - b.cluster_longitude)
+                          * cos(radians(a.cluster_latitude)), 2)
+                  ) < %s
+            ORDER BY dist_m
+            LIMIT 2000
+        """
+        cur.execute(q_t2, [country] + city_param + [dist_m])
+        rows_t2 = cur.fetchall()
+        cols_t2 = [d[0] for d in cur.description]
+        df_t2 = pd.DataFrame(rows_t2, columns=cols_t2)
+
+        t2_candidate_pairs = []
+        if not df_t2.empty:
+            for _, row in df_t2.iterrows():
+                sim = jaccard_sim(row["cn_a"], row["cn_b"])
+                if sim >= sim_t2:
+                    t2_candidate_pairs.append((row["ci_a"], row["ci_b"]))
+
+        # ── Recopilar cluster_indexes candidatos ────────────────────────────────
+        candidate_ids = set(t1_candidate_clusters)
+        for ci_a, ci_b in t2_candidate_pairs:
+            candidate_ids.add(ci_a)
+            candidate_ids.add(ci_b)
+
+        if not candidate_ids:
+            return jsonify({"clusters": [], "stats": {
+                "total_clusters": 0, "total_rows": 0,
+                "total_ok": 0, "total_bad": 0
+            }})
+
+        # Limitar
+        candidate_ids = list(candidate_ids)[:limit]
+
+        # ── Traer todos los miembros de los clusters candidatos ─────────────────
+        placeholders = ",".join(["%s"] * len(candidate_ids))
+        q_members = f"""
+            SELECT cluster_index, cluster_name, cluster_address,
+                   cluster_latitude, cluster_longitude, cluster_ciudad,
+                   store_id, app_name, app_address, scraper_source,
+                   item_index, app_latitude, app_longitude,
+                   (item_index = cluster_index) AS is_anchor
+            FROM {table}
+            WHERE cluster_index IN ({placeholders})
+            ORDER BY cluster_index, is_anchor DESC
+        """
+        cur.execute(q_members, candidate_ids)
+        rows_m = cur.fetchall()
+        cols_m = [d[0] for d in cur.description]
+        df_m   = pd.DataFrame(rows_m, columns=cols_m)
+
+        # ── Construir clusters en formato UI ────────────────────────────────────
+        clusters_out = []
+        for cid, grp in df_m.groupby("cluster_index"):
+            anchor_row = grp[grp["is_anchor"] == True]
+            if anchor_row.empty:
+                anchor_row = grp.iloc[[0]]
+            ar = anchor_row.iloc[0]
+
+            members = []
+            for _, r in grp.iterrows():
+                members.append({
+                    "item_index":    str(r["item_index"]),
+                    "store_id":      str(r["store_id"]),
+                    "cluster_index": str(r["cluster_index"]),
+                    "app_name":      str(r["app_name"] or ""),
+                    "app_address":   str(r["app_address"] or ""),
+                    "app_latitude":  float(r["app_latitude"]) if r["app_latitude"] else None,
+                    "app_longitude": float(r["app_longitude"]) if r["app_longitude"] else None,
+                    "scraper_source": str(r["scraper_source"] or ""),
+                    "is_anchor":     bool(r["is_anchor"]),
+                    "revision":      0,
+                    "correccion":    "",
+                    "score":         None,
+                })
+
+            # Marcar tipo de error detectado para referencia visual
+            error_types = []
+            if cid in t1_candidate_clusters:
+                error_types.append("T1")
+            if any(cid in pair for pair in t2_candidate_pairs):
+                error_types.append("T2")
+
+            clusters_out.append({
+                "cluster_id":      str(cid),
+                "anchor_name":     str(ar["cluster_name"] or ""),
+                "anchor_address":  str(ar["cluster_address"] or ""),
+                "cluster_ciudad":  str(ar["cluster_ciudad"] or ""),
+                "members":         members,
+                "count":           len(members),
+                "ok_count":        0,
+                "bad_count":       len(members),
+                "total":           len(members),
+                "error_types":     error_types,
+            })
+
+        stats = {
+            "total_clusters": len(clusters_out),
+            "total_rows":     sum(len(c["members"]) for c in clusters_out),
+            "total_ok":       0,
+            "total_bad":      sum(len(c["members"]) for c in clusters_out),
+        }
+
+        # Guardar review_type en sesión
+        session["review_type"] = review_type
+
+        return jsonify({"clusters": clusters_out, "stats": stats,
+                        "t1_count": len(t1_candidate_clusters),
+                        "t2_count": len(t2_candidate_pairs)})
+
+    except Exception as e:
+        import traceback
+        return jsonify({"error": str(e), "trace": traceback.format_exc()})
+    finally:
+        conn.close()
+
+
 if __name__=="__main__":
     print("\n"+"="*54)
     print("  DQ Matching Tool")

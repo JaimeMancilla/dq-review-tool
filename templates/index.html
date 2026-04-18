@@ -264,18 +264,39 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
       <div style="font-size:18px;font-weight:700;margin-bottom:8px">Stores — ¿Qué segmento?</div>
       <div style="font-size:13px;color:var(--muted);margin-bottom:32px">Esto determina la tabla de referencia</div>
       <div style="display:flex;gap:16px;justify-content:center;margin-bottom:24px">
-        <div class="type-card" onclick="selectType('stores_restaurant')">
+        <div class="type-card" onclick="selectSegment('stores_restaurant')">
           <div style="font-size:28px;margin-bottom:10px">🍴</div>
           <div style="font-weight:700;font-size:15px;margin-bottom:4px">Restaurant</div>
           <div style="font-size:12px;color:var(--muted)">dim_maestra</div>
         </div>
-        <div class="type-card" onclick="selectType('stores_retail')">
+        <div class="type-card" onclick="selectSegment('stores_retail')">
           <div style="font-size:28px;margin-bottom:10px">🛒</div>
           <div style="font-weight:700;font-size:15px;margin-bottom:4px">Retail</div>
           <div style="font-size:12px;color:var(--muted)">dim_maestra_retail</div>
         </div>
       </div>
       <button class="btn sm" onclick="backToTypeSelect()">← Cambiar tipo</button>
+    </div>
+
+    <!-- Paso 1b: ¿Archivo o BD directo? -->
+    <div id="sourceSelect" class="hidden" style="text-align:center;padding:40px 0 24px">
+      <div style="font-size:18px;font-weight:700;margin-bottom:8px">¿Cómo quieres revisar?</div>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:32px">
+        Segmento: <span id="segmentLabel" style="font-weight:600;color:var(--blue)"></span>
+      </div>
+      <div style="display:flex;gap:16px;justify-content:center;margin-bottom:24px">
+        <div class="type-card" onclick="selectType(REVIEW_TYPE)">
+          <div style="font-size:28px;margin-bottom:10px">📂</div>
+          <div style="font-weight:700;font-size:15px;margin-bottom:4px">Cargar archivo</div>
+          <div style="font-size:12px;color:var(--muted)">Excel o CSV de revisión</div>
+        </div>
+        <div class="type-card" onclick="openBdDetect()">
+          <div style="font-size:28px;margin-bottom:10px">🔍</div>
+          <div style="font-weight:700;font-size:15px;margin-bottom:4px">Consultar BD directo</div>
+          <div style="font-size:12px;color:var(--muted)">Detectar errores automáticamente</div>
+        </div>
+      </div>
+      <button class="btn sm" onclick="backToSegment()">← Cambiar segmento</button>
     </div>
     <!-- Paso 2: carga de archivo -->
     <div id="fileSelect" class="hidden">
@@ -288,6 +309,103 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
         <div class="drop-title">Arrastra tu archivo de revisión</div>
         <div class="drop-sub">Excel (.xlsx) o CSV</div>
         <button class="btn primary" onclick="event.stopPropagation();document.getElementById('mainFile').click()">Seleccionar archivo</button>
+      </div>
+    </div>
+
+    <!-- Paso 2b: configuración BD directo -->
+    <div id="bdDetectScreen" class="hidden" style="max-width:480px;margin:0 auto;padding:32px 0 24px">
+      <div style="text-align:center;margin-bottom:28px">
+        <div style="font-size:18px;font-weight:700;margin-bottom:6px">🔍 Consultar BD directo</div>
+        <div style="font-size:12px;color:var(--muted)">
+          Segmento: <span id="bdDetectSegLabel" style="font-weight:600;color:var(--blue)"></span>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:16px">
+        <!-- País -->
+        <div>
+          <label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">País</label>
+          <select id="bdDetectCountry" style="width:100%;padding:8px 10px;border:1px solid var(--border2);border-radius:var(--r);background:var(--bg);color:var(--text);font-size:13px">
+            <option value="cl">Chile</option>
+            <option value="mx">México</option>
+            <option value="ar">Argentina</option>
+            <option value="co">Colombia</option>
+            <option value="pe">Perú</option>
+            <option value="br">Brasil</option>
+            <option value="cr">Costa Rica</option>
+            <option value="ec">Ecuador</option>
+            <option value="gt">Guatemala</option>
+            <option value="do">República Dominicana</option>
+            <option value="pa">Panamá</option>
+            <option value="py">Paraguay</option>
+            <option value="sv">El Salvador</option>
+          </select>
+        </div>
+
+        <!-- Ciudad -->
+        <div>
+          <label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">Ciudad <span style="font-weight:400;opacity:.7">(opcional — deja vacío para todo el país)</span></label>
+          <input id="bdDetectCity" type="text" placeholder="ej: Santiago, Ciudad de México..."
+            style="width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid var(--border2);border-radius:var(--r);background:var(--bg);color:var(--text);font-size:13px">
+        </div>
+
+        <!-- Thresholds -->
+        <div style="background:var(--surf);border:1px solid var(--border2);border-radius:var(--r);padding:14px 16px">
+          <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:12px;text-transform:uppercase;letter-spacing:.05em">Parámetros de detección</div>
+
+          <div style="margin-bottom:12px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+              <label style="font-size:12px;color:var(--text)">Distancia máx. entre clusters (error tipo 2)</label>
+              <span id="bdDetectDistVal" style="font-size:12px;font-weight:700;color:var(--blue);min-width:45px;text-align:right">20 m</span>
+            </div>
+            <input type="range" id="bdDetectDist" min="5" max="200" value="20" step="5"
+              style="width:100%"
+              oninput="document.getElementById('bdDetectDistVal').textContent=this.value+' m'">
+          </div>
+
+          <div style="margin-bottom:12px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+              <label style="font-size:12px;color:var(--text)">Similitud mínima de nombre (error tipo 2)</label>
+              <span id="bdDetectSimVal" style="font-size:12px;font-weight:700;color:var(--blue);min-width:45px;text-align:right">0.65</span>
+            </div>
+            <input type="range" id="bdDetectSim" min="0.3" max="0.95" value="0.65" step="0.05"
+              style="width:100%"
+              oninput="document.getElementById('bdDetectSimVal').textContent=parseFloat(this.value).toFixed(2)">
+          </div>
+
+          <div>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+              <label style="font-size:12px;color:var(--text)">Umbral de error tipo 1 (miembro vs ancla)</label>
+              <span id="bdDetectT1Val" style="font-size:12px;font-weight:700;color:var(--blue);min-width:45px;text-align:right">0.70</span>
+            </div>
+            <input type="range" id="bdDetectT1" min="0.3" max="0.95" value="0.70" step="0.05"
+              style="width:100%"
+              oninput="document.getElementById('bdDetectT1Val').textContent=parseFloat(this.value).toFixed(2)">
+            <div style="font-size:10px;color:var(--muted);margin-top:3px">Miembros con similitud menor a este valor serán candidatos a salir del cluster</div>
+          </div>
+        </div>
+
+        <!-- Límite de resultados -->
+        <div>
+          <label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">Máx. clusters a revisar</label>
+          <select id="bdDetectLimit" style="width:100%;padding:8px 10px;border:1px solid var(--border2);border-radius:var(--r);background:var(--bg);color:var(--text);font-size:13px">
+            <option value="50">50</option>
+            <option value="100" selected>100</option>
+            <option value="200">200</option>
+            <option value="500">500</option>
+          </select>
+        </div>
+
+        <div style="display:flex;gap:8px;margin-top:4px">
+          <button class="btn sm" onclick="backToSegment()" style="flex:0">← Volver</button>
+          <button class="btn primary" style="flex:1;font-weight:700" onclick="runBdDetect()">
+            ▶ Detectar errores
+          </button>
+        </div>
+
+        <div id="bdDetectStatus" style="display:none;text-align:center;padding:16px;font-size:13px;color:var(--muted)">
+          <span class="spinner"></span> Ejecutando detección…
+        </div>
       </div>
     </div>
   </div>
@@ -711,10 +829,21 @@ function selectStores() {
   document.getElementById("storesSubtype").classList.remove("hidden");
 }
 
+// Nuevo: seleccionar segmento → mostrar pantalla de fuente (archivo vs BD)
+function selectSegment(type) {
+  REVIEW_TYPE = type;
+  const labels = {"stores_restaurant": "🍴 Restaurant", "stores_retail": "🛒 Retail"};
+  document.getElementById("storesSubtype").classList.add("hidden");
+  document.getElementById("sourceSelect").classList.remove("hidden");
+  document.getElementById("segmentLabel").textContent = labels[type] || type;
+  document.getElementById("bdDetectSegLabel").textContent = labels[type] || type;
+}
+
 function selectType(type) {
   REVIEW_TYPE = type;
   document.getElementById("typeSelect").classList.add("hidden");
   document.getElementById("storesSubtype").classList.add("hidden");
+  document.getElementById("sourceSelect").classList.add("hidden");
   document.getElementById("fileSelect").classList.remove("hidden");
   const labels = {
     "stores_restaurant": "🍴 Stores — Restaurant",
@@ -725,16 +854,82 @@ function selectType(type) {
   initDropzone();
 }
 
+function openBdDetect() {
+  document.getElementById("sourceSelect").classList.add("hidden");
+  document.getElementById("bdDetectScreen").classList.remove("hidden");
+}
+
+function backToSegment() {
+  document.getElementById("sourceSelect").classList.remove("hidden");
+  document.getElementById("bdDetectScreen").classList.add("hidden");
+  document.getElementById("fileSelect").classList.add("hidden");
+}
+
 function backToTypeSelect() {
   REVIEW_TYPE = null;
   document.getElementById("uploadScreen").classList.remove("hidden");
   document.getElementById("typeSelect").classList.remove("hidden");
   document.getElementById("storesSubtype").classList.add("hidden");
+  document.getElementById("sourceSelect").classList.add("hidden");
   document.getElementById("fileSelect").classList.add("hidden");
+  document.getElementById("bdDetectScreen").classList.add("hidden");
   document.getElementById("dashboardScreen").classList.add("hidden");
 }
 
-const esc = s => String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+async function runBdDetect() {
+  if (!PG_READY) { toast("⚠ BD no conectada"); return; }
+  const country  = document.getElementById("bdDetectCountry").value;
+  const city     = document.getElementById("bdDetectCity").value.trim();
+  const dist     = parseInt(document.getElementById("bdDetectDist").value);
+  const sim_t2   = parseFloat(document.getElementById("bdDetectSim").value);
+  const sim_t1   = parseFloat(document.getElementById("bdDetectT1").value);
+  const limit    = parseInt(document.getElementById("bdDetectLimit").value);
+
+  const status = document.getElementById("bdDetectStatus");
+  status.style.display = "block";
+  document.querySelector("#bdDetectScreen .btn.primary").disabled = true;
+
+  try {
+    const d = await api("/bd_detect", {
+      country, city: city||null, dist_m: dist,
+      sim_threshold_t2: sim_t2, sim_threshold_t1: sim_t1,
+      limit, review_type: REVIEW_TYPE
+    });
+    if (d.error) { toast("Error: " + d.error); return; }
+    if (!d.clusters || !d.clusters.length) {
+      toast("Sin candidatos con esos parámetros — prueba ampliar distancia o bajar similitud");
+      return;
+    }
+    // Cargar en la UI igual que un archivo
+    CLUSTERS = d.clusters;
+    COUNTRY  = country;
+    SUBGROUPS = {};
+    FILTER = "all";
+    CURRENT_FILENAME = `BD:${country}${city?':'+city:''}`;
+    renderStats(d.stats || {total_clusters: d.clusters.length, total_rows: 0, total_ok: 0, total_bad: d.clusters.length});
+    renderFilterBar();
+    renderAll();
+    document.getElementById("uploadScreen").classList.add("hidden");
+    document.getElementById("mainScreen").classList.remove("hidden");
+    const hdrFile = document.getElementById("hdrFile");
+    hdrFile.textContent = `BD ${country.toUpperCase()}${city?' · '+city:''}`;
+    hdrFile.style.display = "";
+    // En modo BD directo: solo Actualizar BD habilitado, sin Export ni MarkReviewed
+    const btnBd = document.getElementById("btnBdUpdate");
+    btnBd.style.display = ""; btnBd.disabled = false; btnBd.style.opacity = "1";
+    document.getElementById("btnExport").style.display = "none";
+    document.getElementById("btnMarkReviewed").style.display = "none";
+    document.getElementById("btnResetFile").style.display = "none";
+    toast(`✓ ${d.clusters.length} clusters — T1:${d.t1_count} T2:${d.t2_count}`);
+  } catch(e) {
+    toast("Error: " + e.message);
+  } finally {
+    status.style.display = "none";
+    document.querySelector("#bdDetectScreen .btn.primary").disabled = false;
+  }
+}
+
+
 // Aviso al cerrar pestaña con trabajo en progreso
 window.addEventListener('beforeunload', e => {
   if(CLUSTERS.length){ e.preventDefault(); e.returnValue=''; }
@@ -998,11 +1193,19 @@ function buildCard(cl){
   } else {
     statusBadge = `<span class="badge bad">${bad} incorrecto${bad>1?"s":""}</span>`;
   }
+  const errorBadge = (cl.error_types && cl.error_types.length)
+    ? cl.error_types.map(t => t === "T1"
+        ? `<span class="badge" style="background:#fef3c7;color:#92400e;border:1px solid #fcd34d" title="Error tipo 1: miembro con baja similitud vs ancla">T1 sucio</span>`
+        : `<span class="badge" style="background:#ede9fe;color:#5b21b6;border:1px solid #c4b5fd" title="Error tipo 2: cluster cercano con nombre similar">T2 fusión</span>`
+      ).join("")
+    : "";
+
   wrap.innerHTML=`
     <div class="c-hdr" onclick="toggleCard(this)">
       <span class="c-id">${esc(cl.cluster_id)}</span>
       <span class="c-anchor">${esc(cl.anchor_name)}</span>
       <span class="badge n">${cl.count} stores</span>
+      ${errorBadge}
       ${modelBadge}
       ${statusBadge}
       ${cl.already_reviewed?`<span class="badge" style="background:var(--surf2);color:var(--muted);font-size:9px;border:1px solid var(--border2)">ya revisado</span>`:""}
