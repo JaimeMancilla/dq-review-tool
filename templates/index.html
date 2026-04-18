@@ -3553,9 +3553,31 @@ async function confirmBdMoves(cid, sgi) {
   const btn = document.getElementById(`bdConfirm_${CSS.escape(cid)}_${sgi}`);
   if (btn) { btn.innerHTML = '<span class="spinner"></span> Guardando…'; btn.disabled = true; }
 
-  // Determinar new_cluster del subgrupo (la store del subgrupo)
+  // Determinar new_cluster del subgrupo
+  // Si la store del subgrupo fue arrastrada → usar ese destino
+  // Si no → buscar el cluster BD donde la store del subgrupo ya tiene isMatch (✓)
   const sgMove = moves.find(m => m.is_subgroup);
-  const newCluster = sgMove?.new_cluster || moves[0]?.new_cluster;
+  let newCluster = sgMove?.new_cluster;
+  if (!newCluster) {
+    // Buscar en bd_results el cluster donde algún member tiene store_id del subgrupo
+    const sgsRef2 = SUBGROUPS[cid]||[];
+    const sgObj = sgsRef2[sgi];
+    if (sgObj?.bd_results) {
+      const cl = getCl(cid);
+      const sgMemberStoreIds = new Set(
+        (sgObj.members||[]).map(ii => {
+          const m = cl?.members.find(m => m.item_index === ii);
+          return m ? String(m.store_id) : null;
+        }).filter(Boolean)
+      );
+      const matchCluster = sgObj.bd_results.find(bdc =>
+        bdc.members.some(m => sgMemberStoreIds.has(String(m.store_id||"")))
+      );
+      newCluster = matchCluster?.cluster_index || moves[0]?.new_cluster;
+    } else {
+      newCluster = moves[0]?.new_cluster;
+    }
+  }
   const isNew = sgMove?.is_new || false;
   const subgroupStoreIds = new Set(moves.filter(m => m.is_subgroup).map(m => String(m.store_id)));
 
