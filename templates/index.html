@@ -3829,12 +3829,39 @@ function undoLastBdMove(cid, sgi) {
 
 function _bdDropAddChip(targetCluster, cid, sgi, appName, appAddr, newCluster, storeId) {
   if (targetCluster === "NEW") {
-    const z = document.getElementById(`bdz_NEW_${CSS.escape(cid)}_${sgi}`);
-    if (z) {
-      const d2 = document.createElement("div");
-      d2.style.cssText="font-size:11px;color:var(--green);padding:4px 8px;border:1px solid var(--gborder);border-radius:5px;margin:3px 8px";
-      d2.innerHTML=`↳ <strong>${esc(appName)}</strong> <span style="font-family:monospace;font-size:10px">${esc(newCluster)}</span>${storeId?`<div style="font-family:monospace;font-size:9px;color:var(--muted);margin-top:2px">${esc(String(storeId))}</div>`:""}`;
-      z.appendChild(d2);
+    // Crear un nuevo bloque de cluster visible en vez de acumular en bdz_NEW
+    // Así cada store nuevo tiene su propio cluster destino independiente
+    const newZone = document.getElementById(`bdz_NEW_${CSS.escape(cid)}_${sgi}`);
+    if (newZone) {
+      const blockId = `bdz_${CSS.escape(newCluster)}`;
+      // Si ya existe un bloque para este newCluster, agregar el chip ahí
+      let block = document.getElementById(blockId);
+      if (!block) {
+        block = document.createElement("div");
+        block.id = blockId;
+        block.className = "sg-bd-cluster bd-drop-zone";
+        block.dataset.cluster = newCluster;
+        block.style.cssText = "border:1px solid var(--gborder);border-radius:var(--r);overflow:hidden;margin-bottom:4px";
+        block.setAttribute("ondragover", "onBdDropZoneOver(event)");
+        block.setAttribute("ondragleave", "onBdDropZoneLeave(event)");
+        block.setAttribute("ondrop", `onBdDrop(event,'${newCluster}','${cid}',${sgi})`);
+        block.innerHTML = `
+          <div style="display:flex;align-items:center;gap:6px;padding:5px 8px;background:var(--gbg);border-bottom:1px solid var(--gborder)">
+            <span style="font-family:monospace;font-size:10px;font-weight:700;color:var(--green)">${esc(newCluster)}</span>
+            <span style="font-size:9px;color:var(--green)">✦ Nuevo cluster</span>
+          </div>
+          <div style="padding:5px 8px" id="bdt_${CSS.escape(newCluster)}"></div>
+          <div style="font-size:10px;color:var(--blue);padding:3px 8px 5px;opacity:.6;font-style:italic">← Arrastra stores aquí</div>`;
+        newZone.parentNode.insertBefore(block, newZone);
+      }
+      // Agregar chip en el bloque
+      const t = document.getElementById("bdt_" + CSS.escape(newCluster));
+      if (t) {
+        const d2 = document.createElement("div");
+        d2.style.cssText="display:flex;flex-direction:column;border:1px solid var(--pborder,#c4b5fd);border-radius:5px;padding:5px 8px;font-size:10px;background:var(--pbg,#f5f3ff);margin-bottom:3px";
+        d2.innerHTML=`<div style="display:flex;align-items:center;gap:4px"><span style="font-size:9px;color:var(--purple,#7c3aed)">↳</span><span style="font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${esc(appName)} <span style="font-size:9px;color:var(--purple,#7c3aed)">movido</span></span></div><div style="font-size:9px;color:var(--muted);margin-top:2px">${esc((appAddr||"").slice(0,55))}</div>${storeId?`<div style="font-family:monospace;font-size:8px;color:var(--muted);margin-top:2px;opacity:.7">${esc(String(storeId))}</div>`:""}`;
+        t.appendChild(d2);
+      }
     }
   } else {
     const t = document.getElementById("bdt_" + CSS.escape(targetCluster));
