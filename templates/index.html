@@ -3573,9 +3573,6 @@ async function confirmBdMoves(cid, sgi) {
   delete _bdUndoStack[key];
 
   // Persistir _moved_out en bd_results de TODOS los subgrupos
-  // Para moves externos: via _sessionClusterState
-  // Para moves del subgrupo (is_subgroup, from_cluster=null): via store_id directo
-  const subgroupStoreIds = new Set(moves.filter(m => m.is_subgroup).map(m => String(m.store_id)));
   const sgsRef = SUBGROUPS[cid]||[];
   sgsRef.forEach((otherSg) => {
     if (!otherSg.bd_results) return;
