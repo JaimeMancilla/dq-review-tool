@@ -1135,22 +1135,14 @@ async function bdExplOpenCluster(clusterId) {
     : "sales_opportunity.dim_maestra";
 
   toast("Cargando cluster...");
-  const d = await api("/pg_query", {
-    sql: `SELECT cluster_index, cluster_name, cluster_address,
-                 cluster_latitude, cluster_longitude, cluster_ciudad,
-                 store_id, app_name, app_address, scraper_source,
-                 item_index, app_latitude, app_longitude,
-                 (item_index = cluster_index) AS is_anchor
-          FROM ${table}
-          WHERE cluster_index = '${clusterId.replace(/'/g,"''")}'
-          ORDER BY is_anchor DESC`
+  const d = await api("/cluster_members", {
+    cluster_id: clusterId,
+    review_type: REVIEW_TYPE || "stores_restaurant"
   });
-  if (d.error || !d.clusters_found?.length) {
-    toast("Error: " + (d.error||"sin datos")); return;
-  }
-
-  const members = (d.clusters_found[0]?.members || []).map(m => ({
-    ...m, revision: 0, correccion: "", is_anchor: m.is_anchor||false
+  if (d.error || !d.members?.length) { toast("Error: " + (d.error||"sin datos")); return; }
+  const members = d.members.map(m => ({
+    ...m, revision: 0, correccion: "",
+    is_anchor: m.is_anchor === "true" || m.is_anchor === true
   }));
   const anchor = members.find(m=>m.is_anchor) || members[0] || {};
   const cl = {

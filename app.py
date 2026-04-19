@@ -1581,6 +1581,7 @@ order by cluster_index, store_id"""
 
     return jsonify({"clusters_found": clusters_found, "row_count": len(all_rows)})
 
+
 @app.route("/upload", methods=["POST"])
 def upload():
     f = request.files.get("file")
@@ -2705,7 +2706,60 @@ def places_verify(place_id):
     conn.commit(); conn.close()
     return jsonify({"ok": True, "id": place_id, "verified": verified})
 
-@app.route("/scoring/run", methods=["POST"])
+@app.route("/cluster_members", methods=["POST"])
+def cluster_members():
+    """Trae todos los members de un cluster_index específico."""
+    data        = request.json or {}
+    cluster_id  = data.get("cluster_id")
+    review_type = data.get("review_type", session.get("review_type", "stores_restaurant"))
+    if not cluster_id:
+        return jsonify({"error": "cluster_id requerido"})
+    table = ("sales_opportunity.dim_maestra_retail"
+             if review_type == "stores_retail"
+             else "sales_opportunity.dim_maestra")
+    sql = f"""
+        SELECT cluster_index, store_id, item_index, cluster_name, cluster_address,
+               app_name, app_address, app_longitude, app_latitude, scraper_source,
+               cluster_latitude, cluster_longitude, cluster_ciudad,
+               (item_index = cluster_index) AS is_anchor
+        FROM {table}
+        WHERE cluster_index = %s
+        ORDER BY is_anchor DESC, store_id
+    """
+    try:
+        import psycopg2, psycopg2.extras
+        cfg = get_pg_config()
+        conn = psycopg2.connect(**cfg, connect_timeout=15)
+        cur  = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute(sql, (cluster_id,))
+        rows = [dict(r) for r in cur.fetchall()]
+        conn.close()
+        if not rows:
+            return jsonify({"error": "sin datos", "cluster_id": cluster_id})
+        members = [{
+            "item_index":    str(r["item_index"]),
+            "store_id":      str(r["store_id"]),
+            "cluster_index": str(r["cluster_index"]),
+            "app_name":      str(r["app_name"] or ""),
+            "app_address":   str(r["app_address"] or ""),
+            "app_latitude":  float(r["app_latitude"]) if r["app_latitude"] else None,
+            "app_longitude": float(r["app_longitude"]) if r["app_longitude"] else None,
+            "scraper_source": str(r["scraper_source"] or ""),
+            "is_anchor":     bool(r["is_anchor"]),
+            "revision":      0, "correccion": "",
+        } for r in rows]
+        anchor = next((m for m in members if m["is_anchor"]), members[0])
+        return jsonify({
+            "cluster_id":     cluster_id,
+            "anchor_name":    rows[0].get("cluster_name") or anchor["app_name"],
+            "anchor_address": rows[0].get("cluster_address") or anchor["app_address"],
+            "members":        members
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)})
+
+
+
 def scoring_run():
     import threading
     data        = request.json or {}
