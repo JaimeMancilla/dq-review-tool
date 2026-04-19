@@ -876,6 +876,8 @@ function backToTypeSelect() {
   document.getElementById("dashboardScreen").classList.add("hidden");
 }
 
+const esc = s => String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+
 async function runBdDetect() {
   if (!PG_READY) { toast("⚠ BD no conectada"); return; }
   const country  = document.getElementById("bdDetectCountry").value;
@@ -895,20 +897,26 @@ async function runBdDetect() {
       sim_threshold_t2: sim_t2, sim_threshold_t1: sim_t1,
       limit, review_type: REVIEW_TYPE
     });
+    console.log("[bd_detect] response:", d);
     if (d.error) { toast("Error: " + d.error); return; }
     if (!d.clusters || !d.clusters.length) {
+      console.log("[bd_detect] sin clusters");
       toast("Sin candidatos con esos parámetros — prueba ampliar distancia o bajar similitud");
       return;
     }
+    console.log("[bd_detect] clusters:", d.clusters.length, "primer cluster:", d.clusters[0]);
     // Cargar en la UI igual que un archivo
     CLUSTERS = d.clusters;
     COUNTRY  = country;
     SUBGROUPS = {};
     FILTER = "all";
     CURRENT_FILENAME = `BD:${country}${city?':'+city:''}`;
+    console.log("[bd_detect] CLUSTERS set, calling renderStats...");
     renderStats(d.stats || {total_clusters: d.clusters.length, total_rows: 0, total_ok: 0, total_bad: d.clusters.length});
     renderFilterBar();
+    console.log("[bd_detect] calling renderAll...");
     renderAll();
+    console.log("[bd_detect] hiding uploadScreen...");
     document.getElementById("uploadScreen").classList.add("hidden");
     document.getElementById("mainScreen").classList.remove("hidden");
     const hdrFile = document.getElementById("hdrFile");
