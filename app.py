@@ -2746,10 +2746,12 @@ def scoring_clusters():
     data        = request.json or {}
     country     = data.get("country", "cl")
     review_type = data.get("review_type", "stores_restaurant")
-    city        = data.get("city")
-    estado      = data.get("estado_revision")
-    chain       = data.get("main_chain")
-    is_chain    = data.get("is_chain")
+    city        = data.get("city")           # legacy single value
+    cities      = data.get("cities")         # list
+    estado_pg   = data.get("estado_pg")      # cluster_estado filter
+    estados     = data.get("estados")        # list
+    chain       = data.get("main_chain")     # legacy single value
+    chains      = data.get("chains")         # list
     alert_t1    = data.get("alert_t1")
     alert_t2    = data.get("alert_t2")
     t1_thr      = float(data.get("t1_threshold", 0.70))
@@ -2758,14 +2760,35 @@ def scoring_clusters():
     limit       = int(data.get("limit", 100))
     offset      = int(data.get("offset", 0))
 
+    is_chain    = data.get("is_chain")
+    estado      = data.get("estado_revision")
+
     conds  = ["country = ?", "review_type = ?"]
     params = [country, review_type]
-    if city:
-        conds.append("cluster_ciudad ILIKE ?"); params.append(f"%{city}%")
+
+    # Ciudad — array o valor único
+    all_cities = list(cities or ([city] if city else []))
+    if all_cities:
+        ph = ",".join(["?"]*len(all_cities))
+        conds.append(f"cluster_ciudad IN ({ph})")
+        params.extend(all_cities)
+
+    # Estado/región — array
+    all_estados = list(estados or [])
+    if all_estados:
+        ph = ",".join(["?"]*len(all_estados))
+        conds.append(f"cluster_estado IN ({ph})")
+        params.extend(all_estados)
+
+    # Cadena — array o valor único
+    all_chains = list(chains or ([chain] if chain else []))
+    if all_chains:
+        ph = ",".join(["?"]*len(all_chains))
+        conds.append(f"main_chain IN ({ph})")
+        params.extend(all_chains)
+
     if estado:
         conds.append("estado_revision = ?"); params.append(estado)
-    if chain:
-        conds.append("main_chain ILIKE ?"); params.append(f"%{chain}%")
     if is_chain is True:
         conds.append("main_chain IS NOT NULL AND main_chain != ''")
     elif is_chain is False:
@@ -2825,15 +2848,54 @@ def scoring_mark():
 def scoring_filter_options():
     country = request.args.get("country", "cl")
     rt      = request.args.get("review_type", "stores_restaurant")
+
+    # Intentar desde cluster_scores (rápido, ya calculado)
     sc = sqlite3.connect(DB_FILE)
     ciudades = [r[0] for r in sc.execute(
         "SELECT DISTINCT cluster_ciudad FROM cluster_scores WHERE country=? AND review_type=? AND cluster_ciudad IS NOT NULL ORDER BY cluster_ciudad",
+        (country, rt)).fetchall()]
+    estados = [r[0] for r in sc.execute(
+        "SELECT DISTINCT cluster_estado FROM cluster_scores WHERE country=? AND review_type=? AND cluster_estado IS NOT NULL AND cluster_estado!='' ORDER BY cluster_estado",
         (country, rt)).fetchall()]
     cadenas = [r[0] for r in sc.execute(
         "SELECT DISTINCT main_chain FROM cluster_scores WHERE country=? AND review_type=? AND main_chain IS NOT NULL AND main_chain!='' ORDER BY main_chain",
         (country, rt)).fetchall()]
     sc.close()
-    return jsonify({"ciudades": ciudades, "cadenas": cadenas})
+
+    # Fallback a dim_maestra si cluster_scores está vacío
+    if not ciudades:
+        try:
+            import psycopg2, psycopg2.extras
+            cfg = get_pg_config()
+            if cfg:
+                table = ("sales_opportunity.dim_maestra_retail"
+                         if rt == "stores_retail"
+                         else "sales_opportunity.dim_maestra")
+                conn = psycopg2.connect(**cfg, connect_timeout=15)
+                cur  = conn.cursor()
+                cur.execute(f"""
+                    SELECT DISTINCT cluster_ciudad
+                    FROM {table} WHERE country=%s AND cluster_ciudad IS NOT NULL
+                    ORDER BY cluster_ciudad
+                """, (country,))
+                ciudades = [r[0] for r in cur.fetchall()]
+                cur.execute(f"""
+                    SELECT DISTINCT cluster_estado
+                    FROM {table} WHERE country=%s AND cluster_estado IS NOT NULL AND cluster_estado!=''
+                    ORDER BY cluster_estado
+                """, (country,))
+                estados = [r[0] for r in cur.fetchall()]
+                cur.execute(f"""
+                    SELECT DISTINCT main_chain
+                    FROM {table} WHERE country=%s AND main_chain IS NOT NULL AND main_chain!=''
+                    ORDER BY main_chain
+                """, (country,))
+                cadenas = [r[0] for r in cur.fetchall()]
+                conn.close()
+        except Exception as e:
+            print(f"[filter_options] fallback PG error: {e}")
+
+    return jsonify({"ciudades": ciudades, "estados": estados, "cadenas": cadenas})
 
 
 if __name__=="__main__":

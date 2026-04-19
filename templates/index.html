@@ -197,6 +197,19 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
 .sg-add-group:hover{border-color:var(--blue);color:var(--blue);background:var(--bbg)}
 .bd-map-container{border:1px solid var(--border);border-radius:var(--r);overflow:hidden;margin-bottom:8px;position:relative}
 .bd-map-container .leaflet-container{height:320px;width:100%}
+/* BD Explorer multiselect dropdown */
+.bd-multisel{display:flex;align-items:center;padding:6px 8px;border:1px solid var(--border2);border-radius:var(--r);background:var(--bg);color:var(--text);font-size:12px;cursor:pointer;user-select:none;position:relative}
+.bd-multisel:hover{border-color:var(--blue)}
+.bd-multisel.open{border-color:var(--blue);border-bottom-left-radius:0;border-bottom-right-radius:0}
+.bd-multisel-label{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bd-multisel-panel{position:absolute;z-index:200;background:var(--bg);border:1px solid var(--blue);border-top:none;border-bottom-left-radius:var(--r);border-bottom-right-radius:var(--r);width:100%;box-shadow:0 4px 12px rgba(0,0,0,.12)}
+.bd-multisel-panel.hidden{display:none}
+.bd-multisel-search{width:100%;box-sizing:border-box;padding:6px 8px;border:none;border-bottom:1px solid var(--border2);background:var(--surf);color:var(--text);font-size:11px;outline:none}
+.bd-multisel-list{max-height:200px;overflow-y:auto}
+.bd-multisel-item{padding:5px 10px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:6px}
+.bd-multisel-item:hover{background:var(--bbg)}
+.bd-multisel-item.selected{background:var(--bbg);color:var(--blue);font-weight:600}
+.bd-multisel-item input[type=checkbox]{accent-color:var(--blue)}
 </style>
 <link rel="stylesheet" href="/static/leaflet.min.css"/>
 <script src="/static/leaflet.min.js"></script>
@@ -345,24 +358,45 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
       </div>
 
       <!-- Filtros -->
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin-bottom:16px">
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin-bottom:16px">
 
         <div>
           <label style="font-size:10px;font-weight:700;color:var(--muted);display:block;margin-bottom:3px;text-transform:uppercase">Ciudad</label>
-          <input id="bdExplCity" type="text" placeholder="Todas..."
-            list="bdExplCityList"
-            style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid var(--border2);border-radius:var(--r);background:var(--bg);color:var(--text);font-size:12px"
-            oninput="bdExplApplyFilters()">
-          <datalist id="bdExplCityList"></datalist>
+          <div class="bd-multisel" id="bdExplCityDrop" data-field="city" onclick="bdDropToggle('bdExplCityDrop')">
+            <span class="bd-multisel-label" id="bdExplCityLabel">Todas</span>
+            <span style="margin-left:auto;font-size:10px">▾</span>
+          </div>
+          <div class="bd-multisel-panel hidden" id="bdExplCityPanel">
+            <input type="text" placeholder="Buscar ciudad..." class="bd-multisel-search"
+              oninput="bdDropFilter('bdExplCityPanel',this.value)" onclick="event.stopPropagation()">
+            <div class="bd-multisel-list" id="bdExplCityList"></div>
+          </div>
+        </div>
+
+        <div>
+          <label style="font-size:10px;font-weight:700;color:var(--muted);display:block;margin-bottom:3px;text-transform:uppercase">Estado / Región</label>
+          <div class="bd-multisel" id="bdExplEstadoDrop" data-field="estado" onclick="bdDropToggle('bdExplEstadoDrop')">
+            <span class="bd-multisel-label" id="bdExplEstadoLabel">Todos</span>
+            <span style="margin-left:auto;font-size:10px">▾</span>
+          </div>
+          <div class="bd-multisel-panel hidden" id="bdExplEstadoPanel">
+            <input type="text" placeholder="Buscar estado..." class="bd-multisel-search"
+              oninput="bdDropFilter('bdExplEstadoPanel',this.value)" onclick="event.stopPropagation()">
+            <div class="bd-multisel-list" id="bdExplEstadoList"></div>
+          </div>
         </div>
 
         <div>
           <label style="font-size:10px;font-weight:700;color:var(--muted);display:block;margin-bottom:3px;text-transform:uppercase">Cadena</label>
-          <input id="bdExplChain" type="text" placeholder="Todas..."
-            list="bdExplChainList"
-            style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid var(--border2);border-radius:var(--r);background:var(--bg);color:var(--text);font-size:12px"
-            oninput="bdExplApplyFilters()">
-          <datalist id="bdExplChainList"></datalist>
+          <div class="bd-multisel" id="bdExplChainDrop" data-field="chain" onclick="bdDropToggle('bdExplChainDrop')">
+            <span class="bd-multisel-label" id="bdExplChainLabel">Todas</span>
+            <span style="margin-left:auto;font-size:10px">▾</span>
+          </div>
+          <div class="bd-multisel-panel hidden" id="bdExplChainPanel">
+            <input type="text" placeholder="Buscar cadena..." class="bd-multisel-search"
+              oninput="bdDropFilter('bdExplChainPanel',this.value)" onclick="event.stopPropagation()">
+            <div class="bd-multisel-list" id="bdExplChainList"></div>
+          </div>
         </div>
 
         <div>
@@ -375,8 +409,8 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
         </div>
 
         <div>
-          <label style="font-size:10px;font-weight:700;color:var(--muted);display:block;margin-bottom:3px;text-transform:uppercase">Estado</label>
-          <select id="bdExplEstado" style="width:100%;padding:6px 8px;border:1px solid var(--border2);border-radius:var(--r);background:var(--bg);color:var(--text);font-size:12px" onchange="bdExplApplyFilters()">
+          <label style="font-size:10px;font-weight:700;color:var(--muted);display:block;margin-bottom:3px;text-transform:uppercase">Estado revisión</label>
+          <select id="bdExplRevEstado" style="width:100%;padding:6px 8px;border:1px solid var(--border2);border-radius:var(--r);background:var(--bg);color:var(--text);font-size:12px" onchange="bdExplApplyFilters()">
             <option value="pendiente">Pendientes</option>
             <option value="">Todos</option>
             <option value="ok">Sin errores</option>
@@ -397,7 +431,7 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
           </div>
         </div>
 
-        <div style="display:flex;flex-direction:column;gap:4px;justify-content:flex-end">
+        <div style="display:flex;flex-direction:column;gap:6px;justify-content:flex-end">
           <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
             <input type="checkbox" id="bdExplAlertT1" onchange="bdExplApplyFilters()">
             <span>⚠ Alerta T1</span>
@@ -894,7 +928,69 @@ function backToTypeSelect() {
 
 const esc = s => String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
 
-// ── BD Explorer ───────────────────────────────────────────────────────────────
+// ── BD Explorer multiselect ───────────────────────────────────────────────────
+const _bdDropSelections = {city: new Set(), estado: new Set(), chain: new Set()};
+
+function bdDropToggle(dropId) {
+  const drop  = document.getElementById(dropId);
+  const panel = document.getElementById(dropId.replace('Drop','Panel'));
+  const isOpen = !panel.classList.contains('hidden');
+  // Cerrar todos los otros
+  document.querySelectorAll('.bd-multisel-panel').forEach(p => p.classList.add('hidden'));
+  document.querySelectorAll('.bd-multisel').forEach(d => d.classList.remove('open'));
+  if (!isOpen) {
+    panel.classList.remove('hidden');
+    drop.classList.add('open');
+    panel.querySelector('.bd-multisel-search')?.focus();
+  }
+}
+
+function bdDropFilter(panelId, query) {
+  const q = query.toLowerCase();
+  document.querySelectorAll(`#${panelId} .bd-multisel-item`).forEach(item => {
+    item.style.display = item.dataset.val.toLowerCase().includes(q) ? '' : 'none';
+  });
+}
+
+function bdDropSelect(field, value, labelId) {
+  const sel = _bdDropSelections[field];
+  if (sel.has(value)) sel.delete(value); else sel.add(value);
+  // Actualizar checkboxes
+  document.querySelectorAll(`[data-field="${field}"] + .bd-multisel-panel .bd-multisel-item`).forEach(item => {
+    const cb = item.querySelector('input[type=checkbox]');
+    if (cb) cb.checked = sel.has(item.dataset.val);
+    item.classList.toggle('selected', sel.has(item.dataset.val));
+  });
+  // Actualizar label
+  const label = document.getElementById(labelId);
+  if (label) {
+    if (sel.size === 0) label.textContent = 'Todas';
+    else if (sel.size === 1) label.textContent = [...sel][0];
+    else label.textContent = `${sel.size} seleccionadas`;
+  }
+  bdExplApplyFilters();
+}
+
+function bdDropPopulate(listId, values, field, labelId) {
+  const list = document.getElementById(listId);
+  if (!list) return;
+  list.innerHTML = values.map(v => `
+    <div class="bd-multisel-item" data-val="${esc(v)}"
+      onclick="event.stopPropagation();bdDropSelect('${field}','${esc(v)}','${labelId}')">
+      <input type="checkbox" ${_bdDropSelections[field].has(v)?'checked':''}>
+      <span>${esc(v)}</span>
+    </div>`).join('');
+}
+
+// Cerrar dropdowns al hacer click fuera
+document.addEventListener('click', e => {
+  if (!e.target.closest('.bd-multisel') && !e.target.closest('.bd-multisel-panel')) {
+    document.querySelectorAll('.bd-multisel-panel').forEach(p => p.classList.add('hidden'));
+    document.querySelectorAll('.bd-multisel').forEach(d => d.classList.remove('open'));
+  }
+});
+
+
 let _bdExplOffset = 0;
 const BD_EXPL_LIMIT = 50;
 
@@ -933,10 +1029,9 @@ async function bdExplLoadStatus() {
 async function bdExplLoadFilterOptions() {
   const country = document.getElementById("bdExplCountry").value;
   const d = await api(`/scoring/filter_options?country=${country}&review_type=${REVIEW_TYPE||'stores_restaurant'}`);
-  const cityList  = document.getElementById("bdExplCityList");
-  const chainList = document.getElementById("bdExplChainList");
-  if (cityList)  cityList.innerHTML  = (d.ciudades||[]).map(c=>`<option value="${esc(c)}">`).join("");
-  if (chainList) chainList.innerHTML = (d.cadenas||[]).map(c=>`<option value="${esc(c)}">`).join("");
+  bdDropPopulate("bdExplCityList",   d.ciudades||[], "city",   "bdExplCityLabel");
+  bdDropPopulate("bdExplEstadoList", d.estados||[],  "estado", "bdExplEstadoLabel");
+  bdDropPopulate("bdExplChainList",  d.cadenas||[],  "chain",  "bdExplChainLabel");
 }
 
 async function bdExplApplyFilters() {
@@ -951,10 +1046,11 @@ async function bdExplPage(dir) {
 
 async function bdExplFetch() {
   const country   = document.getElementById("bdExplCountry").value;
-  const city      = document.getElementById("bdExplCity").value.trim() || null;
-  const chain     = document.getElementById("bdExplChain").value.trim() || null;
+  const cities    = [..._bdDropSelections.city];
+  const estados   = [..._bdDropSelections.estado];
+  const chains    = [..._bdDropSelections.chain];
   const isChainV  = document.getElementById("bdExplIsChain").value;
-  const estado    = document.getElementById("bdExplEstado").value || null;
+  const estado    = document.getElementById("bdExplRevEstado").value || null;
   const alertT1   = document.getElementById("bdExplAlertT1").checked;
   const alertT2   = document.getElementById("bdExplAlertT2").checked;
   const memMin    = document.getElementById("bdExplMemMin").value || null;
@@ -965,7 +1061,9 @@ async function bdExplFetch() {
 
   const d = await api("/scoring/clusters", {
     country, review_type: REVIEW_TYPE||"stores_restaurant",
-    city, main_chain: chain,
+    cities:  cities.length  ? cities  : null,
+    estados: estados.length ? estados : null,
+    chains:  chains.length  ? chains  : null,
     is_chain: isChainV === "true" ? true : isChainV === "false" ? false : null,
     estado_revision: estado,
     alert_t1: alertT1 || null, alert_t2: alertT2 || null,
