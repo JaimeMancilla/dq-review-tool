@@ -954,11 +954,11 @@ function bdDropFilter(panelId, query) {
   });
 }
 
-function bdDropSelect(field, value, labelId) {
+function bdDropSelect(field, value, labelId, panelId) {
   const sel = _bdDropSelections[field];
   if (sel.has(value)) sel.delete(value); else sel.add(value);
-  // Actualizar checkboxes
-  document.querySelectorAll(`[data-field="${field}"] + .bd-multisel-panel .bd-multisel-item`).forEach(item => {
+  // Actualizar checkboxes en el panel
+  document.querySelectorAll(`#${panelId} .bd-multisel-item`).forEach(item => {
     const cb = item.querySelector('input[type=checkbox]');
     if (cb) cb.checked = sel.has(item.dataset.val);
     item.classList.toggle('selected', sel.has(item.dataset.val));
@@ -966,19 +966,19 @@ function bdDropSelect(field, value, labelId) {
   // Actualizar label
   const label = document.getElementById(labelId);
   if (label) {
-    if (sel.size === 0) label.textContent = 'Todas';
+    if (sel.size === 0) label.textContent = field === 'estado' ? 'Todos' : 'Todas';
     else if (sel.size === 1) label.textContent = [...sel][0];
     else label.textContent = `${sel.size} seleccionadas`;
   }
   bdExplApplyFilters();
 }
 
-function bdDropPopulate(listId, values, field, labelId) {
+function bdDropPopulate(listId, values, field, labelId, panelId) {
   const list = document.getElementById(listId);
   if (!list) return;
   list.innerHTML = values.map(v => `
     <div class="bd-multisel-item" data-val="${esc(v)}"
-      onclick="event.stopPropagation();bdDropSelect('${field}','${esc(v)}','${labelId}')">
+      onclick="event.stopPropagation();bdDropSelect('${field}','${esc(v)}','${labelId}','${panelId}')">
       <input type="checkbox" ${_bdDropSelections[field].has(v)?'checked':''}>
       <span>${esc(v)}</span>
     </div>`).join('');
@@ -1032,9 +1032,9 @@ async function bdExplLoadStatus() {
 async function bdExplLoadFilterOptions() {
   const country = document.getElementById("bdExplCountry").value;
   const d = await api(`/scoring/filter_options?country=${country}&review_type=${REVIEW_TYPE||'stores_restaurant'}`);
-  bdDropPopulate("bdExplCityList",   d.ciudades||[], "city",   "bdExplCityLabel");
-  bdDropPopulate("bdExplEstadoList", d.estados||[],  "estado", "bdExplEstadoLabel");
-  bdDropPopulate("bdExplChainList",  d.cadenas||[],  "chain",  "bdExplChainLabel");
+  bdDropPopulate("bdExplCityList",   d.ciudades||[], "city",   "bdExplCityLabel",   "bdExplCityPanel");
+  bdDropPopulate("bdExplEstadoList", d.estados||[],  "estado", "bdExplEstadoLabel", "bdExplEstadoPanel");
+  bdDropPopulate("bdExplChainList",  d.cadenas||[],  "chain",  "bdExplChainLabel",  "bdExplChainPanel");
 }
 
 async function bdExplApplyFilters() {
