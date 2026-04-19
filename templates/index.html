@@ -2474,11 +2474,13 @@ async function openBdUpdate() {
   // Mostrar botón Confirmar solo si el archivo está marcado como revisado
   const isReviewed = document.getElementById("btnMarkReviewed").dataset.reviewed === "1";
   const confirmBtn = document.getElementById("btnConfirmBdUpdate");
+  confirmBtn.style.display = "";
   if(isReviewed){
-    confirmBtn.style.display = "";
+    confirmBtn.disabled = false;
+    confirmBtn.style.opacity = "1";
     confirmBtn.title = "";
+    confirmBtn.textContent = "✓ Confirmar INSERT";
   } else {
-    confirmBtn.style.display = "";
     confirmBtn.disabled = true;
     confirmBtn.style.opacity = "0.45";
     confirmBtn.title = "Marca el archivo como revisado para poder insertar";
