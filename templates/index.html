@@ -345,7 +345,9 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
             <option value="cr">Costa Rica</option>
             <option value="ec">Ecuador</option>
           </select>
-          <button class="btn sm" id="btnRunScoring" onclick="runScoringJob()" title="Calcular scores de errores para este país">
+          <input id="bdScoringCity" type="text" placeholder="Ciudad (opcional)"
+            style="padding:5px 8px;border:1px solid var(--border2);border-radius:var(--r);background:var(--bg);color:var(--text);font-size:12px;width:160px">
+          <button class="btn sm" id="btnRunScoring" onclick="runScoringJob()" title="Calcular scores para este país/ciudad">
             ⚙ Calcular scores
           </button>
           <span id="scoringJobStatus" style="font-size:11px;color:var(--muted)"></span>
@@ -1000,6 +1002,7 @@ function openBdDetect() {
   const labels = {"stores_restaurant": "🍴 Restaurant", "stores_retail": "🛒 Retail"};
   document.getElementById("bdExplSegLabel").textContent = labels[REVIEW_TYPE] || REVIEW_TYPE;
   bdExplLoadStatus();
+  bdExplLoadFilterOptions(); // cargar opciones desde dim_maestra al abrir
 }
 
 async function bdExplOnCountryChange() {
@@ -1179,7 +1182,8 @@ async function bdExplOpenCluster(clusterId) {
 async function runScoringJob() {
   if (!PG_READY) { toast("⚠ BD no conectada"); return; }
   const country = document.getElementById("bdExplCountry").value;
-  const city    = document.getElementById("bdExplCity").value.trim() || null;
+  const cities  = [..._bdDropSelections.city];
+  const city    = document.getElementById("bdScoringCity").value.trim() || (cities.length === 1 ? cities[0] : null);
   const btn     = document.getElementById("btnRunScoring");
   const status  = document.getElementById("scoringJobStatus");
   btn.disabled = true;
