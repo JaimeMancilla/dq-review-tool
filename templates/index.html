@@ -365,11 +365,11 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
           <div class="bd-multisel" id="bdExplCityDrop" data-field="city" onclick="bdDropToggle('bdExplCityDrop')">
             <span class="bd-multisel-label" id="bdExplCityLabel">Todas</span>
             <span style="margin-left:auto;font-size:10px">▾</span>
-          </div>
-          <div class="bd-multisel-panel hidden" id="bdExplCityPanel">
-            <input type="text" placeholder="Buscar ciudad..." class="bd-multisel-search"
-              oninput="bdDropFilter('bdExplCityPanel',this.value)" onclick="event.stopPropagation()">
-            <div class="bd-multisel-list" id="bdExplCityList"></div>
+            <div class="bd-multisel-panel hidden" id="bdExplCityPanel" onclick="event.stopPropagation()">
+              <input type="text" placeholder="Buscar ciudad..." class="bd-multisel-search"
+                oninput="bdDropFilter('bdExplCityPanel',this.value)">
+              <div class="bd-multisel-list" id="bdExplCityList"></div>
+            </div>
           </div>
         </div>
 
@@ -378,11 +378,11 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
           <div class="bd-multisel" id="bdExplEstadoDrop" data-field="estado" onclick="bdDropToggle('bdExplEstadoDrop')">
             <span class="bd-multisel-label" id="bdExplEstadoLabel">Todos</span>
             <span style="margin-left:auto;font-size:10px">▾</span>
-          </div>
-          <div class="bd-multisel-panel hidden" id="bdExplEstadoPanel">
-            <input type="text" placeholder="Buscar estado..." class="bd-multisel-search"
-              oninput="bdDropFilter('bdExplEstadoPanel',this.value)" onclick="event.stopPropagation()">
-            <div class="bd-multisel-list" id="bdExplEstadoList"></div>
+            <div class="bd-multisel-panel hidden" id="bdExplEstadoPanel" onclick="event.stopPropagation()">
+              <input type="text" placeholder="Buscar estado..." class="bd-multisel-search"
+                oninput="bdDropFilter('bdExplEstadoPanel',this.value)">
+              <div class="bd-multisel-list" id="bdExplEstadoList"></div>
+            </div>
           </div>
         </div>
 
@@ -391,11 +391,11 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
           <div class="bd-multisel" id="bdExplChainDrop" data-field="chain" onclick="bdDropToggle('bdExplChainDrop')">
             <span class="bd-multisel-label" id="bdExplChainLabel">Todas</span>
             <span style="margin-left:auto;font-size:10px">▾</span>
-          </div>
-          <div class="bd-multisel-panel hidden" id="bdExplChainPanel">
-            <input type="text" placeholder="Buscar cadena..." class="bd-multisel-search"
-              oninput="bdDropFilter('bdExplChainPanel',this.value)" onclick="event.stopPropagation()">
-            <div class="bd-multisel-list" id="bdExplChainList"></div>
+            <div class="bd-multisel-panel hidden" id="bdExplChainPanel" onclick="event.stopPropagation()">
+              <input type="text" placeholder="Buscar cadena..." class="bd-multisel-search"
+                oninput="bdDropFilter('bdExplChainPanel',this.value)">
+              <div class="bd-multisel-list" id="bdExplChainList"></div>
+            </div>
           </div>
         </div>
 
