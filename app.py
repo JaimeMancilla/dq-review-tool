@@ -921,7 +921,7 @@ def generate_unified_sql(bad_members, country="mx"):
             seen.add(key)
             # Pasar nombre original para detectar Ñ; si hay una sola bword usar el nombre completo
             if len(sql_bwords) == 1:
-                name_cond = word_ilike("app_name", name)
+                name_cond = word_ilike("app_name", sql_bwords[0])
             else:
                 name_cond = " and ".join(word_ilike("app_name", w) for w in sql_bwords)
 
