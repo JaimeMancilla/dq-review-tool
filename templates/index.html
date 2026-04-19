@@ -1246,14 +1246,19 @@ function renderStats(s){
     <div class="stat"><div class="stat-lbl">Clusters</div><div class="stat-val">${s.total_clusters}</div></div>
     <div class="stat"><div class="stat-lbl">Stores</div><div class="stat-val">${s.total_rows}</div></div>
     <div class="stat"><div class="stat-lbl">Sin cambios</div><div class="stat-val g">${s.total_ok}</div></div>
-    <div class="stat"><div class="stat-lbl">Con cambios</div><div class="stat-val r" title="Archivo: ${s.total_bad} · Externos: ${s.total_ext||0}">${s.total_bad + (s.total_ext||0)} <span style="font-size:10px;opacity:.6">(${s.total_bad}+${s.total_ext||0})</span></div></div>`;
+    <div class="stat"><div class="stat-lbl">Con cambios</div><div class="stat-val r">${s.total_bad}</div></div>
+    <div class="stat" title="Stores corregidos de paso al revisar clusters del segundo modal"><div class="stat-lbl">Externos</div><div class="stat-val" style="color:var(--purple,#7c3aed)">${s.total_ext||0}</div></div>`;
 }
 async function refreshStats(){
   let rows=0,ok=0,bad=0;
-  // Excluir clusters from_search del conteo
   CLUSTERS.filter(cl=>!cl.from_search).forEach(cl=>cl.members.forEach(m=>{rows++;m.revision===1?ok++:bad++}));
   let ext=0;
-  try{const d=await api("/ext_correction/list");ext=(d.records||[]).filter(r=>r.file_name===CURRENT_FILENAME).length;}catch(e){}
+  try{
+    const d=await api("/ext_correction/list");
+    // Comparar sin distinción de mayúsculas ni espacios extra
+    const fn=(CURRENT_FILENAME||'').trim().toLowerCase();
+    ext=(d.records||[]).filter(r=>(r.file_name||'').trim().toLowerCase()===fn).length;
+  }catch(e){}
   renderStats({total_clusters:CLUSTERS.filter(cl=>!cl.from_search).length,total_rows:rows,total_ok:ok,total_bad:bad,total_ext:ext});
 }
 
