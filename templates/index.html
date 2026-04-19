@@ -1128,12 +1128,13 @@ async function bdExplFetch() {
 }
 
 async function bdExplOpenCluster(clusterId) {
-  // Traer el cluster completo desde PG y abrirlo en el modal de subgrupos
   if (!PG_READY) { toast("⚠ BD no conectada"); return; }
   const country = document.getElementById("bdExplCountry").value;
   const table   = REVIEW_TYPE === "stores_retail"
     ? "sales_opportunity.dim_maestra_retail"
     : "sales_opportunity.dim_maestra";
+
+  toast("Cargando cluster...");
   const d = await api("/pg_query", {
     sql: `SELECT cluster_index, cluster_name, cluster_address,
                  cluster_latitude, cluster_longitude, cluster_ciudad,
@@ -1144,9 +1145,10 @@ async function bdExplOpenCluster(clusterId) {
           WHERE cluster_index = '${clusterId.replace(/'/g,"''")}'
           ORDER BY is_anchor DESC`
   });
-  if (d.error || !d.clusters_found) { toast("Error: " + (d.error||"sin datos")); return; }
+  if (d.error || !d.clusters_found?.length) {
+    toast("Error: " + (d.error||"sin datos")); return;
+  }
 
-  // Construir objeto cluster compatible con openSearchedClusterInModal
   const members = (d.clusters_found[0]?.members || []).map(m => ({
     ...m, revision: 0, correccion: "", is_anchor: m.is_anchor||false
   }));
@@ -1155,27 +1157,45 @@ async function bdExplOpenCluster(clusterId) {
     cluster_id:     clusterId,
     anchor_name:    anchor.app_name || clusterId,
     anchor_address: anchor.app_address || "",
-    members
+    members,
+    count: members.length,
+    ok_count: 0, bad_count: members.length, total: members.length,
+    from_search: true
   };
 
-  // Necesitamos estar en la pantalla de subgrupos — abrir modal
-  // Primero asegurarnos que mainScreen esté visible con al menos un cluster dummy
-  if (!CLUSTERS.find(c=>c.cluster_id===clusterId)) {
-    CLUSTERS.push({...cl, count: members.length, from_search: true,
-                   ok_count:0, bad_count: members.length, total: members.length});
+  // Inyectar en CLUSTERS si no existe
+  if (!CLUSTERS.find(c => c.cluster_id === clusterId)) {
+    CLUSTERS.push(cl);
   }
-  // Usar openSearchedClusterInModal si ya hay un modal abierto, sino abrir directamente
-  if (document.getElementById("sgModal")?.style.display !== "none" &&
-      document.getElementById("sgModal")?.style.display !== "") {
-    openSearchedClusterInModal(cl);
-  } else {
-    // Ir a mainScreen y abrir el cluster
-    document.getElementById("uploadScreen").classList.add("hidden");
-    document.getElementById("mainScreen").classList.remove("hidden");
-    COUNTRY = country;
-    CURRENT_FILENAME = `BD:${country}`;
-    REVIEW_TYPE = REVIEW_TYPE || "stores_restaurant";
-    openSgModal(clusterId);
+
+  COUNTRY = country;
+  REVIEW_TYPE = REVIEW_TYPE || "stores_restaurant";
+
+  // Abrir modal de subgrupos directamente — sin salir del explorador
+  const modal = document.getElementById("sgModal");
+  if (modal) {
+    // Inicializar subgrupos si no existen
+    if (!SUBGROUPS[clusterId]?.length) {
+      await generateSubgroups(clusterId);
+      if (!SUBGROUPS[clusterId]?.length) {
+        SUBGROUPS[clusterId] = [{
+          members: members.map(m=>m.item_index),
+          rep_name: cl.anchor_name, rep_addr: cl.anchor_address||'',
+          sql:'', bd_results:[], correction:'', is_new:false
+        }];
+      }
+    }
+    _sgModalCid = clusterId;
+    _sgActiveSgi = 0;
+    document.getElementById("sgModalTitle").textContent = `Subgrupos — ${cl.anchor_name||clusterId}`;
+    document.getElementById("sgModalMeta").textContent = `${SUBGROUPS[clusterId]?.length||0} subgrupos`;
+    // Ocultar botón volver si existe
+    const backBtn = document.getElementById("sgBackBtn");
+    if (backBtn) backBtn.style.display = "none";
+    modal.style.display = "flex";
+    renderSgList(clusterId);
+    renderSgActivePanel(clusterId, 0);
+    updateSgModalProgress(clusterId);
   }
 }
 
