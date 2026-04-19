@@ -186,6 +186,201 @@ def init_db():
 
 init_db()
 
+# Migración: agregar tabla cluster_scores si no existe
+def _migrate_cluster_scores():
+    conn = sqlite3.connect(DB_FILE)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS cluster_scores (
+            cluster_index   TEXT NOT NULL,
+            country         TEXT NOT NULL,
+            review_type     TEXT NOT NULL DEFAULT 'stores_restaurant',
+            cluster_name    TEXT,
+            cluster_address TEXT,
+            cluster_ciudad  TEXT,
+            cluster_estado  TEXT,
+            main_chain      TEXT,
+            member_count    INTEGER DEFAULT 1,
+            score_t1        REAL,
+            has_t2          INTEGER DEFAULT 0,
+            t2_neighbor     TEXT,
+            t2_dist_m       REAL,
+            t2_sim          REAL,
+            estado_revision TEXT DEFAULT 'pendiente',
+            scored_at       REAL,
+            PRIMARY KEY (cluster_index, review_type)
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_cs_country ON cluster_scores(country, review_type)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_cs_ciudad  ON cluster_scores(cluster_ciudad)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_cs_chain   ON cluster_scores(main_chain)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_cs_estado  ON cluster_scores(estado_revision)")
+    conn.commit(); conn.close()
+
+_migrate_cluster_scores()
+
+# ── Job de scoring ────────────────────────────────────────────────────────────
+
+def run_scoring_job(country, city=None, review_type="stores_restaurant",
+                    dist_m=50, batch_size=2000):
+    """
+    Calcula score_t1 (similitud miembro vs ancla, Jaccard) y score_t2
+    (clusters cercanos con nombre similar) para un país/ciudad.
+    Guarda resultados en cluster_scores (SQLite). Diseñado para background thread.
+    """
+    import psycopg2, psycopg2.extras
+    from collections import defaultdict
+    cfg = get_pg_config()
+    if not cfg: return {"error": "Sin config PG"}
+
+    table = ("sales_opportunity.dim_maestra_retail"
+             if review_type == "stores_retail"
+             else "sales_opportunity.dim_maestra")
+
+    city_filter = "AND cluster_ciudad ILIKE %s" if city else ""
+    city_param  = [f"%{city}%"] if city else []
+
+    try:
+        pg  = psycopg2.connect(**cfg, connect_timeout=30)
+        cur = pg.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        # ── 1. Traer anchors ─────────────────────────────────────────────────
+        q_anchors = f"""
+            SELECT DISTINCT ON (cluster_index)
+                cluster_index, cluster_name, cluster_address,
+                cluster_ciudad, cluster_estado, main_chain,
+                cluster_latitude, cluster_longitude,
+                COUNT(*) OVER (PARTITION BY cluster_index) AS member_count
+            FROM {table}
+            WHERE country = %s {city_filter}
+            ORDER BY cluster_index
+        """
+        cur.execute(q_anchors, [country] + city_param)
+        anchors = [dict(r) for r in cur.fetchall()]
+        print(f"[scoring] {len(anchors)} anchors para {country}/{city or 'all'}")
+
+        # ── 2. Score T1: similitud mínima miembro vs ancla (Jaccard) ────────
+        t1_scores = {}
+        for i in range(0, len(anchors), batch_size):
+            batch = anchors[i:i+batch_size]
+            cids  = [a["cluster_index"] for a in batch]
+            ph    = ",".join(["%s"] * len(cids))
+            cur.execute(f"""
+                SELECT cluster_index, app_name,
+                       (item_index = cluster_index) AS is_anchor
+                FROM {table}
+                WHERE cluster_index IN ({ph})
+                  AND app_name IS NOT NULL AND app_name != ''
+            """, cids)
+            rows = [dict(r) for r in cur.fetchall()]
+            by_cluster = defaultdict(list)
+            for r in rows:
+                by_cluster[r["cluster_index"]].append(r)
+            anchor_map = {a["cluster_index"]: a for a in batch}
+            for cid, members in by_cluster.items():
+                anchor_name = anchor_map.get(cid, {}).get("cluster_name") or ""
+                non_anchors = [m for m in members if not m["is_anchor"]]
+                if not non_anchors:
+                    t1_scores[cid] = 1.0
+                    continue
+                sims = [jaccard_sim(anchor_name, m["app_name"] or "") for m in non_anchors]
+                t1_scores[cid] = round(min(sims), 3)
+            print(f"[scoring] T1 lote {i//batch_size+1}: {len(by_cluster)} clusters")
+
+        # ── 3. Score T2: clusters cercanos con nombre similar ────────────────
+        cur.execute(f"""
+            WITH anch AS (
+                SELECT DISTINCT ON (cluster_index)
+                    cluster_index, cluster_name,
+                    cluster_latitude, cluster_longitude
+                FROM {table}
+                WHERE country = %s {city_filter}
+                  AND cluster_latitude IS NOT NULL
+                ORDER BY cluster_index
+            )
+            SELECT
+                a.cluster_index AS ci_a, a.cluster_name AS cn_a,
+                b.cluster_index AS ci_b, b.cluster_name AS cn_b,
+                111320 * sqrt(
+                    power(a.cluster_latitude  - b.cluster_latitude, 2) +
+                    power((a.cluster_longitude - b.cluster_longitude)
+                          * cos(radians(a.cluster_latitude)), 2)
+                ) AS dist_m
+            FROM anch a
+            JOIN anch b ON a.cluster_index < b.cluster_index
+            WHERE 111320 * sqrt(
+                    power(a.cluster_latitude  - b.cluster_latitude, 2) +
+                    power((a.cluster_longitude - b.cluster_longitude)
+                          * cos(radians(a.cluster_latitude)), 2)
+                  ) < %s
+            ORDER BY dist_m
+        """, [country] + city_param + [dist_m])
+        t2_rows = [dict(r) for r in cur.fetchall()]
+        print(f"[scoring] T2 pares cercanos: {len(t2_rows)}")
+        pg.close()
+
+        t2_map = {}
+        for r in t2_rows:
+            sim = jaccard_sim(r["cn_a"] or "", r["cn_b"] or "")
+            for ci, neighbor in [(r["ci_a"], r["ci_b"]), (r["ci_b"], r["ci_a"])]:
+                ex = t2_map.get(ci)
+                if ex is None or sim > ex["t2_sim"]:
+                    t2_map[ci] = {
+                        "t2_neighbor": neighbor,
+                        "t2_dist_m":   round(r["dist_m"], 1),
+                        "t2_sim":      round(sim, 3),
+                        "has_t2":      1 if sim >= 0.5 else 0
+                    }
+
+        # ── 4. Guardar en SQLite ─────────────────────────────────────────────
+        now = time.time()
+        sc  = sqlite3.connect(DB_FILE)
+        for anchor in anchors:
+            cid = anchor["cluster_index"]
+            t1  = t1_scores.get(cid, 1.0)
+            t2  = t2_map.get(cid, {"has_t2": 0, "t2_neighbor": None,
+                                    "t2_dist_m": None, "t2_sim": None})
+            sc.execute("""
+                INSERT INTO cluster_scores
+                    (cluster_index, country, review_type, cluster_name,
+                     cluster_address, cluster_ciudad, cluster_estado,
+                     main_chain, member_count, score_t1, has_t2,
+                     t2_neighbor, t2_dist_m, t2_sim, estado_revision, scored_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,
+                    COALESCE((SELECT estado_revision FROM cluster_scores
+                               WHERE cluster_index=? AND review_type=?),
+                             'pendiente'), ?)
+                ON CONFLICT(cluster_index, review_type) DO UPDATE SET
+                    cluster_name=excluded.cluster_name,
+                    cluster_address=excluded.cluster_address,
+                    cluster_ciudad=excluded.cluster_ciudad,
+                    cluster_estado=excluded.cluster_estado,
+                    main_chain=excluded.main_chain,
+                    member_count=excluded.member_count,
+                    score_t1=excluded.score_t1,
+                    has_t2=excluded.has_t2,
+                    t2_neighbor=excluded.t2_neighbor,
+                    t2_dist_m=excluded.t2_dist_m,
+                    t2_sim=excluded.t2_sim,
+                    scored_at=excluded.scored_at
+            """, (
+                cid, country, review_type,
+                anchor.get("cluster_name"), anchor.get("cluster_address"),
+                anchor.get("cluster_ciudad"), anchor.get("cluster_estado"),
+                anchor.get("main_chain"), anchor.get("member_count", 1),
+                t1, t2["has_t2"], t2.get("t2_neighbor"),
+                t2.get("t2_dist_m"), t2.get("t2_sim"),
+                cid, review_type, now
+            ))
+        sc.commit(); sc.close()
+        saved = len(anchors)
+        print(f"[scoring] ✓ {saved} clusters guardados")
+        return {"ok": True, "clusters": saved, "t2_pairs": len(t2_rows)}
+
+    except Exception as e:
+        import traceback
+        print(f"[scoring] ERROR: {e}\n{traceback.format_exc()}")
+        return {"error": str(e)}
+
 def mem_save(records):
     """Guarda correcciones en la memoria interna."""
     conn = sqlite3.connect(DB_FILE)
@@ -2510,226 +2705,135 @@ def places_verify(place_id):
     conn.commit(); conn.close()
     return jsonify({"ok": True, "id": place_id, "verified": verified})
 
-@app.route("/bd_detect", methods=["POST"])
-def bd_detect():
-    """
-    Detecta candidatos a error tipo 1 (miembro vs ancla) y tipo 2 (clusters cercanos).
-    Retorna clusters en el mismo formato que /upload para reutilizar la UI existente.
-    """
+@app.route("/scoring/run", methods=["POST"])
+def scoring_run():
+    import threading
     data        = request.json or {}
     country     = data.get("country", "cl")
     city        = data.get("city")
-    dist_m      = float(data.get("dist_m", 20))
-    sim_t2      = float(data.get("sim_threshold_t2", 0.65))
-    sim_t1      = float(data.get("sim_threshold_t1", 0.70))
-    limit       = int(data.get("limit", 100))
     review_type = data.get("review_type", "stores_restaurant")
+    dist_m      = float(data.get("dist_m", 50))
+    threading.Thread(target=run_scoring_job,
+                     args=(country, city, review_type, dist_m),
+                     daemon=True).start()
+    return jsonify({"ok": True, "msg": f"Job iniciado para {country}/{city or 'all'}"})
 
-    table = ("sales_opportunity.dim_maestra_retail"
-             if review_type == "stores_retail"
-             else "sales_opportunity.dim_maestra")
 
-    import psycopg2, psycopg2.extras
-    cfg = get_pg_config()
-    if not cfg:
-        return jsonify({"error": "Sin conexión a PostgreSQL"})
-    try:
-        conn = psycopg2.connect(**cfg, connect_timeout=30)
-    except Exception as e:
-        return jsonify({"error": f"Error de conexión: {str(e)}"})
+@app.route("/scoring/status", methods=["GET"])
+def scoring_status():
+    country     = request.args.get("country", "cl")
+    review_type = request.args.get("review_type", "stores_restaurant")
+    sc = sqlite3.connect(DB_FILE)
+    rows = sc.execute("""
+        SELECT cluster_ciudad, main_chain IS NOT NULL AND main_chain != '' AS is_chain,
+               estado_revision, COUNT(*) AS cnt,
+               AVG(score_t1) AS avg_t1, SUM(has_t2) AS sum_t2
+        FROM cluster_scores
+        WHERE country = ? AND review_type = ?
+        GROUP BY cluster_ciudad, is_chain, estado_revision
+        ORDER BY cnt DESC
+    """, (country, review_type)).fetchall()
+    sc.close()
+    return jsonify({"rows": [
+        {"ciudad": r[0], "is_chain": bool(r[1]), "estado": r[2],
+         "count": r[3], "avg_t1": round(r[4] or 1, 3), "t2_count": r[5]}
+        for r in rows
+    ]})
 
-    try:
-        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
-        # ── DETECCIÓN TIPO 1: miembros con similitud baja vs ancla ──────────────
-        # Traer clusters con más de 1 miembro, filtrar por ciudad si se especifica
-        city_filter = "AND cluster_ciudad ILIKE %s" if city else ""
-        city_param  = [f"%{city}%"] if city else []
+@app.route("/scoring/clusters", methods=["POST"])
+def scoring_clusters():
+    data        = request.json or {}
+    country     = data.get("country", "cl")
+    review_type = data.get("review_type", "stores_restaurant")
+    city        = data.get("city")
+    estado      = data.get("estado_revision")
+    chain       = data.get("main_chain")
+    is_chain    = data.get("is_chain")
+    alert_t1    = data.get("alert_t1")
+    alert_t2    = data.get("alert_t2")
+    t1_thr      = float(data.get("t1_threshold", 0.70))
+    member_min  = data.get("member_min")
+    member_max  = data.get("member_max")
+    limit       = int(data.get("limit", 100))
+    offset      = int(data.get("offset", 0))
 
-        q_t1 = f"""
-            SELECT cluster_index, cluster_name, cluster_address,
-                   cluster_latitude, cluster_longitude, cluster_ciudad,
-                   store_id, app_name, app_address, scraper_source,
-                   item_index, is_anchor
-            FROM (
-                SELECT *,
-                       (item_index = cluster_index) AS is_anchor,
-                       COUNT(*) OVER (PARTITION BY cluster_index) AS member_count
-                FROM {table}
-                WHERE country = %s {city_filter}
-                  AND app_name IS NOT NULL
-                  AND app_name != ''
-            ) sub
-            WHERE member_count > 1
-            ORDER BY cluster_index, is_anchor DESC
-            LIMIT 5000
-        """
-        cur.execute(q_t1, [country] + city_param)
-        rows_t1 = cur.fetchall()
+    conds  = ["country = ?", "review_type = ?"]
+    params = [country, review_type]
+    if city:
+        conds.append("cluster_ciudad ILIKE ?"); params.append(f"%{city}%")
+    if estado:
+        conds.append("estado_revision = ?"); params.append(estado)
+    if chain:
+        conds.append("main_chain ILIKE ?"); params.append(f"%{chain}%")
+    if is_chain is True:
+        conds.append("main_chain IS NOT NULL AND main_chain != ''")
+    elif is_chain is False:
+        conds.append("(main_chain IS NULL OR main_chain = '')")
+    if alert_t1:
+        conds.append("score_t1 < ?"); params.append(t1_thr)
+    if alert_t2:
+        conds.append("has_t2 = 1")
+    if member_min is not None:
+        conds.append("member_count >= ?"); params.append(int(member_min))
+    if member_max is not None:
+        conds.append("member_count <= ?"); params.append(int(member_max))
 
-        # Agrupar por cluster
-        import pandas as pd
-        df_t1 = pd.DataFrame([dict(r) for r in rows_t1]) if rows_t1 else pd.DataFrame()
-        print(f"[bd_detect] T1 rows: {len(rows_t1)}, clusters: {df_t1['cluster_index'].nunique() if not df_t1.empty else 0}")
+    where = " AND ".join(conds)
+    sc = sqlite3.connect(DB_FILE)
+    sc.row_factory = sqlite3.Row
+    total = sc.execute(f"SELECT COUNT(*) FROM cluster_scores WHERE {where}",
+                       params).fetchone()[0]
+    rows = sc.execute(f"""
+        SELECT * FROM cluster_scores WHERE {where}
+        ORDER BY has_t2 DESC, score_t1 ASC
+        LIMIT ? OFFSET ?
+    """, params + [limit, offset]).fetchall()
+    stats = sc.execute(f"""
+        SELECT COUNT(*),
+               SUM(CASE WHEN score_t1 < ? THEN 1 ELSE 0 END),
+               SUM(has_t2),
+               SUM(CASE WHEN estado_revision='pendiente' THEN 1 ELSE 0 END),
+               SUM(CASE WHEN estado_revision='ok' THEN 1 ELSE 0 END),
+               SUM(CASE WHEN estado_revision='corregido' THEN 1 ELSE 0 END)
+        FROM cluster_scores WHERE {where}
+    """, [t1_thr] + params).fetchone()
+    sc.close()
+    return jsonify({
+        "total": total,
+        "clusters": [dict(r) for r in rows],
+        "stats": {"total": stats[0], "t1_alerts": stats[1], "t2_alerts": stats[2],
+                  "pendientes": stats[3], "ok": stats[4], "corregidos": stats[5]}
+    })
 
-        t1_candidate_clusters = set()
-        if not df_t1.empty:
-            for cid_t1, grp in df_t1.groupby("cluster_index"):
-                anchor = grp[grp["is_anchor"] == True]
-                if anchor.empty:
-                    anchor = grp.iloc[[0]]
-                anchor_name = str(anchor.iloc[0]["app_name"] or "")
-                members_non_anchor = grp[grp["is_anchor"] != True]
-                for _, mem in members_non_anchor.iterrows():
-                    sim = jaccard_sim(anchor_name, str(mem["app_name"] or ""))
-                    if sim < sim_t1:
-                        t1_candidate_clusters.add(cid_t1)
-                        break  # basta un miembro sospechoso por cluster
-        print(f"[bd_detect] T1 candidates: {len(t1_candidate_clusters)}")
 
-        # ── DETECCIÓN TIPO 2: clusters cercanos con nombre similar ──────────────
-        # Haversine simplificado en SQL — solo anchors (item_index = cluster_index)
-        q_t2 = f"""
-            WITH anchors AS (
-                SELECT DISTINCT ON (cluster_index)
-                    cluster_index, cluster_name, cluster_address,
-                    cluster_latitude, cluster_longitude, cluster_ciudad
-                FROM {table}
-                WHERE country = %s {city_filter}
-                  AND cluster_latitude IS NOT NULL
-                  AND cluster_longitude IS NOT NULL
-                  AND cluster_name IS NOT NULL
-                ORDER BY cluster_index
-            )
-            SELECT
-                a.cluster_index   AS ci_a, a.cluster_name AS cn_a,
-                a.cluster_address AS ca_a,
-                b.cluster_index   AS ci_b, b.cluster_name AS cn_b,
-                b.cluster_address AS ca_b,
-                111320 * sqrt(
-                    power(a.cluster_latitude  - b.cluster_latitude,  2) +
-                    power((a.cluster_longitude - b.cluster_longitude)
-                          * cos(radians(a.cluster_latitude)), 2)
-                ) AS dist_m
-            FROM anchors a
-            JOIN anchors b ON a.cluster_index < b.cluster_index
-            WHERE 111320 * sqrt(
-                    power(a.cluster_latitude  - b.cluster_latitude,  2) +
-                    power((a.cluster_longitude - b.cluster_longitude)
-                          * cos(radians(a.cluster_latitude)), 2)
-                  ) < %s
-            ORDER BY dist_m
-            LIMIT 2000
-        """
-        cur.execute(q_t2, [country] + city_param + [dist_m])
-        rows_t2 = cur.fetchall()
-        df_t2 = pd.DataFrame([dict(r) for r in rows_t2]) if rows_t2 else pd.DataFrame()
-        print(f"[bd_detect] T2 pairs raw: {len(rows_t2)}")
+@app.route("/scoring/mark", methods=["POST"])
+def scoring_mark():
+    data   = request.json or {}
+    cid    = data.get("cluster_index")
+    estado = data.get("estado_revision", "ok")
+    rt     = data.get("review_type", "stores_restaurant")
+    if not cid: return jsonify({"error": "cluster_index requerido"})
+    sc = sqlite3.connect(DB_FILE)
+    sc.execute("UPDATE cluster_scores SET estado_revision=? WHERE cluster_index=? AND review_type=?",
+               (estado, cid, rt))
+    sc.commit(); sc.close()
+    return jsonify({"ok": True})
 
-        t2_candidate_pairs = []
-        if not df_t2.empty:
-            for _, row in df_t2.iterrows():
-                sim = jaccard_sim(str(row["cn_a"] or ""), str(row["cn_b"] or ""))
-                if sim >= sim_t2:
-                    t2_candidate_pairs.append((row["ci_a"], row["ci_b"]))
-        print(f"[bd_detect] T2 candidates after sim filter: {len(t2_candidate_pairs)}")
 
-        # ── Recopilar cluster_indexes candidatos ────────────────────────────────
-        candidate_ids = set(t1_candidate_clusters)
-        for ci_a, ci_b in t2_candidate_pairs:
-            candidate_ids.add(ci_a)
-            candidate_ids.add(ci_b)
-
-        if not candidate_ids:
-            return jsonify({"clusters": [], "stats": {
-                "total_clusters": 0, "total_rows": 0,
-                "total_ok": 0, "total_bad": 0
-            }})
-
-        # Limitar
-        candidate_ids = list(candidate_ids)[:limit]
-
-        # ── Traer todos los miembros de los clusters candidatos ─────────────────
-        placeholders = ",".join(["%s"] * len(candidate_ids))
-        q_members = f"""
-            SELECT cluster_index, cluster_name, cluster_address,
-                   cluster_latitude, cluster_longitude, cluster_ciudad,
-                   store_id, app_name, app_address, scraper_source,
-                   item_index, app_latitude, app_longitude,
-                   (item_index = cluster_index) AS is_anchor
-            FROM {table}
-            WHERE cluster_index IN ({placeholders})
-            ORDER BY cluster_index, is_anchor DESC
-        """
-        cur.execute(q_members, candidate_ids)
-        rows_m = cur.fetchall()
-        df_m = pd.DataFrame([dict(r) for r in rows_m]) if rows_m else pd.DataFrame()
-        print(f"[bd_detect] members rows: {len(rows_m)}, candidate_ids: {len(candidate_ids)}")
-
-        # ── Construir clusters en formato UI ────────────────────────────────────
-        clusters_out = []
-        for cid, grp in df_m.groupby("cluster_index"):
-            anchor_row = grp[grp["is_anchor"] == True]
-            if anchor_row.empty:
-                anchor_row = grp.iloc[[0]]
-            ar = anchor_row.iloc[0]
-
-            members = []
-            for _, r in grp.iterrows():
-                members.append({
-                    "item_index":    str(r["item_index"]),
-                    "store_id":      str(r["store_id"]),
-                    "cluster_index": str(r["cluster_index"]),
-                    "app_name":      str(r["app_name"] or ""),
-                    "app_address":   str(r["app_address"] or ""),
-                    "app_latitude":  float(r["app_latitude"]) if r["app_latitude"] else None,
-                    "app_longitude": float(r["app_longitude"]) if r["app_longitude"] else None,
-                    "scraper_source": str(r["scraper_source"] or ""),
-                    "is_anchor":     bool(r["is_anchor"]),
-                    "revision":      0,
-                    "correccion":    "",
-                    "score":         None,
-                })
-
-            # Marcar tipo de error detectado para referencia visual
-            error_types = []
-            if cid in t1_candidate_clusters:
-                error_types.append("T1")
-            if any(cid in pair for pair in t2_candidate_pairs):
-                error_types.append("T2")
-
-            clusters_out.append({
-                "cluster_id":      str(cid),
-                "anchor_name":     str(ar["cluster_name"] or ""),
-                "anchor_address":  str(ar["cluster_address"] or ""),
-                "cluster_ciudad":  str(ar["cluster_ciudad"] or ""),
-                "members":         members,
-                "count":           len(members),
-                "ok_count":        0,
-                "bad_count":       len(members),
-                "total":           len(members),
-                "error_types":     error_types,
-            })
-
-        stats = {
-            "total_clusters": len(clusters_out),
-            "total_rows":     sum(len(c["members"]) for c in clusters_out),
-            "total_ok":       0,
-            "total_bad":      sum(len(c["members"]) for c in clusters_out),
-        }
-
-        # Guardar review_type en sesión
-        session["review_type"] = review_type
-
-        return jsonify({"clusters": clusters_out, "stats": stats,
-                        "t1_count": len(t1_candidate_clusters),
-                        "t2_count": len(t2_candidate_pairs)})
-
-    except Exception as e:
-        import traceback
-        return jsonify({"error": str(e), "trace": traceback.format_exc()})
-    finally:
-        conn.close()
+@app.route("/scoring/filter_options", methods=["GET"])
+def scoring_filter_options():
+    country = request.args.get("country", "cl")
+    rt      = request.args.get("review_type", "stores_restaurant")
+    sc = sqlite3.connect(DB_FILE)
+    ciudades = [r[0] for r in sc.execute(
+        "SELECT DISTINCT cluster_ciudad FROM cluster_scores WHERE country=? AND review_type=? AND cluster_ciudad IS NOT NULL ORDER BY cluster_ciudad",
+        (country, rt)).fetchall()]
+    cadenas = [r[0] for r in sc.execute(
+        "SELECT DISTINCT main_chain FROM cluster_scores WHERE country=? AND review_type=? AND main_chain IS NOT NULL AND main_chain!='' ORDER BY main_chain",
+        (country, rt)).fetchall()]
+    sc.close()
+    return jsonify({"ciudades": ciudades, "cadenas": cadenas})
 
 
 if __name__=="__main__":

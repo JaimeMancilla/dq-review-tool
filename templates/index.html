@@ -312,108 +312,124 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
       </div>
     </div>
 
-    <!-- Paso 2b: configuración BD directo -->
-    <div id="bdDetectScreen" class="hidden" style="max-width:480px;margin:0 auto;padding:32px 0 24px">
-      <div style="text-align:center;margin-bottom:28px">
-        <div style="font-size:18px;font-weight:700;margin-bottom:6px">🔍 Consultar BD directo</div>
-        <div style="font-size:12px;color:var(--muted)">
-          Segmento: <span id="bdDetectSegLabel" style="font-weight:600;color:var(--blue)"></span>
-        </div>
-      </div>
+    <!-- Paso 2b: explorador BD directo -->
+    <div id="bdDetectScreen" class="hidden" style="width:100%;max-width:900px;margin:0 auto;padding:24px 0">
 
-      <div style="display:flex;flex-direction:column;gap:16px">
-        <!-- País -->
-        <div>
-          <label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">País</label>
-          <select id="bdDetectCountry" style="width:100%;padding:8px 10px;border:1px solid var(--border2);border-radius:var(--r);background:var(--bg);color:var(--text);font-size:13px">
-            <option value="cl">Chile</option>
-            <option value="mx">México</option>
-            <option value="ar">Argentina</option>
-            <option value="co">Colombia</option>
-            <option value="pe">Perú</option>
-            <option value="br">Brasil</option>
+      <!-- Header con país y botón correr scoring -->
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap">
+        <button class="btn sm" onclick="backToSegment()">← Volver</button>
+        <div style="font-size:15px;font-weight:700">🔍 BD directo —
+          <span id="bdExplSegLabel" style="color:var(--blue)"></span>
+        </div>
+        <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
+          <select id="bdExplCountry" style="padding:5px 8px;border:1px solid var(--border2);border-radius:var(--r);background:var(--bg);color:var(--text);font-size:12px" onchange="bdExplOnCountryChange()">
+            <option value="cl">🇨🇱 Chile</option>
+            <option value="mx">🇲🇽 México</option>
+            <option value="ar">🇦🇷 Argentina</option>
+            <option value="co">🇨🇴 Colombia</option>
+            <option value="pe">🇵🇪 Perú</option>
+            <option value="br">🇧🇷 Brasil</option>
             <option value="cr">Costa Rica</option>
             <option value="ec">Ecuador</option>
-            <option value="gt">Guatemala</option>
-            <option value="do">República Dominicana</option>
-            <option value="pa">Panamá</option>
-            <option value="py">Paraguay</option>
-            <option value="sv">El Salvador</option>
           </select>
-        </div>
-
-        <!-- Ciudad -->
-        <div>
-          <label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">Ciudad <span style="font-weight:400;opacity:.7">(opcional — deja vacío para todo el país)</span></label>
-          <input id="bdDetectCity" type="text" placeholder="ej: Santiago, Ciudad de México..."
-            style="width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid var(--border2);border-radius:var(--r);background:var(--bg);color:var(--text);font-size:13px">
-        </div>
-
-        <!-- Thresholds -->
-        <div style="background:var(--surf);border:1px solid var(--border2);border-radius:var(--r);padding:14px 16px">
-          <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:12px;text-transform:uppercase;letter-spacing:.05em">Parámetros de detección</div>
-
-          <div style="margin-bottom:12px">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-              <label style="font-size:12px;color:var(--text)">Distancia máx. entre clusters (error tipo 2)</label>
-              <span id="bdDetectDistVal" style="font-size:12px;font-weight:700;color:var(--blue);min-width:45px;text-align:right">20 m</span>
-            </div>
-            <input type="range" id="bdDetectDist" min="5" max="200" value="20" step="5"
-              style="width:100%"
-              oninput="document.getElementById('bdDetectDistVal').textContent=this.value+' m'">
-          </div>
-
-          <div style="margin-bottom:12px">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-              <label style="font-size:12px;color:var(--text)">Similitud mínima de nombre (error tipo 2)</label>
-              <span id="bdDetectSimVal" style="font-size:12px;font-weight:700;color:var(--blue);min-width:45px;text-align:right">0.65</span>
-            </div>
-            <input type="range" id="bdDetectSim" min="0.3" max="0.95" value="0.65" step="0.05"
-              style="width:100%"
-              oninput="document.getElementById('bdDetectSimVal').textContent=parseFloat(this.value).toFixed(2)">
-          </div>
-
-          <div>
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-              <label style="font-size:12px;color:var(--text)">Umbral de error tipo 1 (miembro vs ancla)</label>
-              <span id="bdDetectT1Val" style="font-size:12px;font-weight:700;color:var(--blue);min-width:45px;text-align:right">0.70</span>
-            </div>
-            <input type="range" id="bdDetectT1" min="0.3" max="0.95" value="0.70" step="0.05"
-              style="width:100%"
-              oninput="document.getElementById('bdDetectT1Val').textContent=parseFloat(this.value).toFixed(2)">
-            <div style="font-size:10px;color:var(--muted);margin-top:3px">Miembros con similitud menor a este valor serán candidatos a salir del cluster</div>
-          </div>
-        </div>
-
-        <!-- Límite de resultados -->
-        <div>
-          <label style="font-size:12px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px">Máx. clusters a revisar</label>
-          <select id="bdDetectLimit" style="width:100%;padding:8px 10px;border:1px solid var(--border2);border-radius:var(--r);background:var(--bg);color:var(--text);font-size:13px">
-            <option value="50">50</option>
-            <option value="100" selected>100</option>
-            <option value="200">200</option>
-            <option value="500">500</option>
-          </select>
-        </div>
-
-        <div style="display:flex;gap:8px;margin-top:4px">
-          <button class="btn sm" onclick="backToSegment()" style="flex:0">← Volver</button>
-          <button class="btn primary" style="flex:1;font-weight:700" onclick="runBdDetect()">
-            ▶ Detectar errores
+          <button class="btn sm" id="btnRunScoring" onclick="runScoringJob()" title="Calcular scores de errores para este país">
+            ⚙ Calcular scores
           </button>
-        </div>
-
-        <div id="bdDetectStatus" style="display:none;text-align:center;padding:16px;font-size:13px;color:var(--muted)">
-          <span class="spinner"></span> Ejecutando detección…
+          <span id="scoringJobStatus" style="font-size:11px;color:var(--muted)"></span>
         </div>
       </div>
+
+      <!-- Stats bar del explorador -->
+      <div id="bdExplStats" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;padding:10px 14px;background:var(--surf);border:1px solid var(--border2);border-radius:var(--r)">
+        <span style="font-size:12px;color:var(--muted)">Sin datos — ejecuta "Calcular scores" primero</span>
+      </div>
+
+      <!-- Filtros -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin-bottom:16px">
+
+        <div>
+          <label style="font-size:10px;font-weight:700;color:var(--muted);display:block;margin-bottom:3px;text-transform:uppercase">Ciudad</label>
+          <input id="bdExplCity" type="text" placeholder="Todas..."
+            list="bdExplCityList"
+            style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid var(--border2);border-radius:var(--r);background:var(--bg);color:var(--text);font-size:12px"
+            oninput="bdExplApplyFilters()">
+          <datalist id="bdExplCityList"></datalist>
+        </div>
+
+        <div>
+          <label style="font-size:10px;font-weight:700;color:var(--muted);display:block;margin-bottom:3px;text-transform:uppercase">Cadena</label>
+          <input id="bdExplChain" type="text" placeholder="Todas..."
+            list="bdExplChainList"
+            style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid var(--border2);border-radius:var(--r);background:var(--bg);color:var(--text);font-size:12px"
+            oninput="bdExplApplyFilters()">
+          <datalist id="bdExplChainList"></datalist>
+        </div>
+
+        <div>
+          <label style="font-size:10px;font-weight:700;color:var(--muted);display:block;margin-bottom:3px;text-transform:uppercase">Tipo</label>
+          <select id="bdExplIsChain" style="width:100%;padding:6px 8px;border:1px solid var(--border2);border-radius:var(--r);background:var(--bg);color:var(--text);font-size:12px" onchange="bdExplApplyFilters()">
+            <option value="">Todos</option>
+            <option value="true">Solo cadenas</option>
+            <option value="false">Solo comercio</option>
+          </select>
+        </div>
+
+        <div>
+          <label style="font-size:10px;font-weight:700;color:var(--muted);display:block;margin-bottom:3px;text-transform:uppercase">Estado</label>
+          <select id="bdExplEstado" style="width:100%;padding:6px 8px;border:1px solid var(--border2);border-radius:var(--r);background:var(--bg);color:var(--text);font-size:12px" onchange="bdExplApplyFilters()">
+            <option value="pendiente">Pendientes</option>
+            <option value="">Todos</option>
+            <option value="ok">Sin errores</option>
+            <option value="corregido">Corregidos</option>
+          </select>
+        </div>
+
+        <div>
+          <label style="font-size:10px;font-weight:700;color:var(--muted);display:block;margin-bottom:3px;text-transform:uppercase">Miembros</label>
+          <div style="display:flex;gap:4px;align-items:center">
+            <input id="bdExplMemMin" type="number" min="1" placeholder="1"
+              style="width:50%;padding:6px 6px;border:1px solid var(--border2);border-radius:var(--r);background:var(--bg);color:var(--text);font-size:12px"
+              oninput="bdExplApplyFilters()">
+            <span style="font-size:10px;color:var(--muted)">–</span>
+            <input id="bdExplMemMax" type="number" min="1" placeholder="∞"
+              style="width:50%;padding:6px 6px;border:1px solid var(--border2);border-radius:var(--r);background:var(--bg);color:var(--text);font-size:12px"
+              oninput="bdExplApplyFilters()">
+          </div>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:4px;justify-content:flex-end">
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
+            <input type="checkbox" id="bdExplAlertT1" onchange="bdExplApplyFilters()">
+            <span>⚠ Alerta T1</span>
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
+            <input type="checkbox" id="bdExplAlertT2" onchange="bdExplApplyFilters()">
+            <span>🔀 Alerta T2</span>
+          </label>
+        </div>
+
+      </div>
+
+      <!-- Resultados -->
+      <div id="bdExplResults" style="min-height:120px">
+        <div style="text-align:center;padding:40px;color:var(--muted);font-size:13px">
+          Configura los filtros y ejecuta "Calcular scores" para empezar
+        </div>
+      </div>
+
+      <!-- Paginación -->
+      <div id="bdExplPager" style="display:none;text-align:center;padding:16px;gap:8px;display:none">
+        <button class="btn sm" id="bdExplPrevBtn" onclick="bdExplPage(-1)">← Anterior</button>
+        <span id="bdExplPageInfo" style="font-size:12px;color:var(--muted)"></span>
+        <button class="btn sm" id="bdExplNextBtn" onclick="bdExplPage(1)">Siguiente →</button>
+      </div>
+
     </div>
   </div>
 </div>
 
 <div id="mainScreen" class="hidden">
   <div class="stats" id="statsBar"></div>
-
   <div class="clusters" id="clusterList"></div>
 </div>
 
@@ -878,62 +894,219 @@ function backToTypeSelect() {
 
 const esc = s => String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
 
-async function runBdDetect() {
+// ── BD Explorer ───────────────────────────────────────────────────────────────
+let _bdExplOffset = 0;
+const BD_EXPL_LIMIT = 50;
+
+function openBdDetect() {
+  document.getElementById("sourceSelect").classList.add("hidden");
+  document.getElementById("bdDetectScreen").classList.remove("hidden");
+  const labels = {"stores_restaurant": "🍴 Restaurant", "stores_retail": "🛒 Retail"};
+  document.getElementById("bdExplSegLabel").textContent = labels[REVIEW_TYPE] || REVIEW_TYPE;
+  bdExplLoadStatus();
+}
+
+async function bdExplOnCountryChange() {
+  await bdExplLoadStatus();
+  await bdExplLoadFilterOptions();
+  bdExplApplyFilters();
+}
+
+async function bdExplLoadStatus() {
+  const country = document.getElementById("bdExplCountry").value;
+  const d = await api(`/scoring/status?country=${country}&review_type=${REVIEW_TYPE||'stores_restaurant'}`);
+  if (!d.rows || !d.rows.length) {
+    document.getElementById("bdExplStats").innerHTML =
+      `<span style="font-size:12px;color:var(--muted)">Sin datos para ${country} — ejecuta "⚙ Calcular scores" primero</span>`;
+    return;
+  }
+  // Agregar totales
+  let total=0, pendientes=0, t1=0, t2=0;
+  d.rows.forEach(r => { total+=r.count; if(r.estado==='pendiente') pendientes+=r.count; if(r.t2_count) t2+=r.t2_count; });
+  document.getElementById("bdExplStats").innerHTML = `
+    <div class="stat"><div class="stat-lbl">Clusters</div><div class="stat-val">${total.toLocaleString()}</div></div>
+    <div class="stat"><div class="stat-lbl">Pendientes</div><div class="stat-val r">${pendientes.toLocaleString()}</div></div>
+    <div class="stat"><div class="stat-lbl">⚠ T2 alertas</div><div class="stat-val" style="color:var(--purple,#7c3aed)">${t2.toLocaleString()}</div></div>
+    <div class="stat"><div class="stat-lbl">Ciudades</div><div class="stat-val">${new Set(d.rows.map(r=>r.ciudad).filter(Boolean)).size}</div></div>`;
+}
+
+async function bdExplLoadFilterOptions() {
+  const country = document.getElementById("bdExplCountry").value;
+  const d = await api(`/scoring/filter_options?country=${country}&review_type=${REVIEW_TYPE||'stores_restaurant'}`);
+  const cityList  = document.getElementById("bdExplCityList");
+  const chainList = document.getElementById("bdExplChainList");
+  if (cityList)  cityList.innerHTML  = (d.ciudades||[]).map(c=>`<option value="${esc(c)}">`).join("");
+  if (chainList) chainList.innerHTML = (d.cadenas||[]).map(c=>`<option value="${esc(c)}">`).join("");
+}
+
+async function bdExplApplyFilters() {
+  _bdExplOffset = 0;
+  await bdExplFetch();
+}
+
+async function bdExplPage(dir) {
+  _bdExplOffset = Math.max(0, _bdExplOffset + dir * BD_EXPL_LIMIT);
+  await bdExplFetch();
+}
+
+async function bdExplFetch() {
+  const country   = document.getElementById("bdExplCountry").value;
+  const city      = document.getElementById("bdExplCity").value.trim() || null;
+  const chain     = document.getElementById("bdExplChain").value.trim() || null;
+  const isChainV  = document.getElementById("bdExplIsChain").value;
+  const estado    = document.getElementById("bdExplEstado").value || null;
+  const alertT1   = document.getElementById("bdExplAlertT1").checked;
+  const alertT2   = document.getElementById("bdExplAlertT2").checked;
+  const memMin    = document.getElementById("bdExplMemMin").value || null;
+  const memMax    = document.getElementById("bdExplMemMax").value || null;
+
+  const resultsEl = document.getElementById("bdExplResults");
+  resultsEl.innerHTML = '<div style="text-align:center;padding:24px"><span class="spinner"></span></div>';
+
+  const d = await api("/scoring/clusters", {
+    country, review_type: REVIEW_TYPE||"stores_restaurant",
+    city, main_chain: chain,
+    is_chain: isChainV === "true" ? true : isChainV === "false" ? false : null,
+    estado_revision: estado,
+    alert_t1: alertT1 || null, alert_t2: alertT2 || null,
+    t1_threshold: 0.70,
+    member_min: memMin ? parseInt(memMin) : null,
+    member_max: memMax ? parseInt(memMax) : null,
+    limit: BD_EXPL_LIMIT, offset: _bdExplOffset
+  });
+
+  if (d.error) { resultsEl.innerHTML = `<div style="color:var(--red);padding:16px">${esc(d.error)}</div>`; return; }
+  if (!d.clusters || !d.clusters.length) {
+    resultsEl.innerHTML = '<div style="text-align:center;padding:40px;color:var(--muted);font-size:13px">Sin clusters con estos filtros</div>';
+    document.getElementById("bdExplPager").style.display = "none";
+    return;
+  }
+
+  // Renderizar tabla de clusters
+  const statsEl = document.getElementById("bdExplStats");
+  const s = d.stats || {};
+  statsEl.innerHTML = `
+    <div class="stat"><div class="stat-lbl">Total filtrado</div><div class="stat-val">${(s.total||0).toLocaleString()}</div></div>
+    <div class="stat"><div class="stat-lbl">Pendientes</div><div class="stat-val r">${(s.pendientes||0).toLocaleString()}</div></div>
+    <div class="stat"><div class="stat-lbl">⚠ T1</div><div class="stat-val" style="color:var(--amber)">${(s.t1_alerts||0).toLocaleString()}</div></div>
+    <div class="stat"><div class="stat-lbl">🔀 T2</div><div class="stat-val" style="color:var(--purple,#7c3aed)">${(s.t2_alerts||0).toLocaleString()}</div></div>
+    <div class="stat"><div class="stat-lbl">✓ Revisados</div><div class="stat-val g">${((s.ok||0)+(s.corregidos||0)).toLocaleString()}</div></div>`;
+
+  resultsEl.innerHTML = d.clusters.map(cl => {
+    const t1Badge = cl.score_t1 != null && cl.score_t1 < 0.70
+      ? `<span class="badge" style="background:#fef3c7;color:#92400e;border:1px solid #fcd34d" title="Score T1: ${cl.score_t1}">⚠ T1 ${cl.score_t1}</span>` : "";
+    const t2Badge = cl.has_t2
+      ? `<span class="badge" style="background:#ede9fe;color:#5b21b6;border:1px solid #c4b5fd" title="Vecino: ${cl.t2_neighbor} a ${cl.t2_dist_m}m, sim: ${cl.t2_sim}">🔀 T2</span>` : "";
+    const estadoBadge = cl.estado_revision === "ok"
+      ? `<span class="badge ok">✓ ok</span>`
+      : cl.estado_revision === "corregido"
+      ? `<span class="badge ok" style="background:var(--bbg);color:var(--blue)">✓ corregido</span>` : "";
+    return `<div class="cluster-wrap" style="margin-bottom:6px">
+      <div class="c-hdr" style="cursor:pointer" onclick="bdExplOpenCluster('${esc(cl.cluster_index)}')">
+        <span class="c-id">${esc(cl.cluster_index)}</span>
+        <span class="c-anchor">${esc(cl.cluster_name||'')}</span>
+        <span class="badge n">${cl.member_count} stores</span>
+        ${t1Badge}${t2Badge}${estadoBadge}
+        ${cl.cluster_ciudad ? `<span style="font-size:10px;color:var(--muted)">${esc(cl.cluster_ciudad)}</span>` : ""}
+        ${cl.main_chain ? `<span style="font-size:10px;color:var(--blue)">${esc(cl.main_chain)}</span>` : ""}
+        <span class="chev">▶</span>
+      </div>
+    </div>`;
+  }).join("");
+
+  // Paginación
+  const pager = document.getElementById("bdExplPager");
+  const pageInfo = document.getElementById("bdExplPageInfo");
+  const from = _bdExplOffset + 1, to = Math.min(_bdExplOffset + BD_EXPL_LIMIT, d.total);
+  pageInfo.textContent = `${from}–${to} de ${d.total}`;
+  pager.style.display = d.total > BD_EXPL_LIMIT ? "flex" : "none";
+  pager.style.justifyContent = "center";
+  pager.style.alignItems = "center";
+  document.getElementById("bdExplPrevBtn").disabled = _bdExplOffset === 0;
+  document.getElementById("bdExplNextBtn").disabled = to >= d.total;
+}
+
+async function bdExplOpenCluster(clusterId) {
+  // Traer el cluster completo desde PG y abrirlo en el modal de subgrupos
   if (!PG_READY) { toast("⚠ BD no conectada"); return; }
-  const country  = document.getElementById("bdDetectCountry").value;
-  const city     = document.getElementById("bdDetectCity").value.trim();
-  const dist     = parseInt(document.getElementById("bdDetectDist").value);
-  const sim_t2   = parseFloat(document.getElementById("bdDetectSim").value);
-  const sim_t1   = parseFloat(document.getElementById("bdDetectT1").value);
-  const limit    = parseInt(document.getElementById("bdDetectLimit").value);
+  const country = document.getElementById("bdExplCountry").value;
+  const table   = REVIEW_TYPE === "stores_retail"
+    ? "sales_opportunity.dim_maestra_retail"
+    : "sales_opportunity.dim_maestra";
+  const d = await api("/pg_query", {
+    sql: `SELECT cluster_index, cluster_name, cluster_address,
+                 cluster_latitude, cluster_longitude, cluster_ciudad,
+                 store_id, app_name, app_address, scraper_source,
+                 item_index, app_latitude, app_longitude,
+                 (item_index = cluster_index) AS is_anchor
+          FROM ${table}
+          WHERE cluster_index = '${clusterId.replace(/'/g,"''")}'
+          ORDER BY is_anchor DESC`
+  });
+  if (d.error || !d.clusters_found) { toast("Error: " + (d.error||"sin datos")); return; }
 
-  const status = document.getElementById("bdDetectStatus");
-  status.style.display = "block";
-  document.querySelector("#bdDetectScreen .btn.primary").disabled = true;
+  // Construir objeto cluster compatible con openSearchedClusterInModal
+  const members = (d.clusters_found[0]?.members || []).map(m => ({
+    ...m, revision: 0, correccion: "", is_anchor: m.is_anchor||false
+  }));
+  const anchor = members.find(m=>m.is_anchor) || members[0] || {};
+  const cl = {
+    cluster_id:     clusterId,
+    anchor_name:    anchor.app_name || clusterId,
+    anchor_address: anchor.app_address || "",
+    members
+  };
 
-  try {
-    const d = await api("/bd_detect", {
-      country, city: city||null, dist_m: dist,
-      sim_threshold_t2: sim_t2, sim_threshold_t1: sim_t1,
-      limit, review_type: REVIEW_TYPE
-    });
-    console.log("[bd_detect] response:", d);
-    if (d.error) { toast("Error: " + d.error); return; }
-    if (!d.clusters || !d.clusters.length) {
-      console.log("[bd_detect] sin clusters");
-      toast("Sin candidatos con esos parámetros — prueba ampliar distancia o bajar similitud");
-      return;
-    }
-    console.log("[bd_detect] clusters:", d.clusters.length, "primer cluster:", d.clusters[0]);
-    // Cargar en la UI igual que un archivo
-    CLUSTERS = d.clusters;
-    COUNTRY  = country;
-    SUBGROUPS = {};
-    FILTER = "all";
-    CURRENT_FILENAME = `BD:${country}${city?':'+city:''}`;
-    console.log("[bd_detect] CLUSTERS set, calling renderStats...");
-    renderStats(d.stats || {total_clusters: d.clusters.length, total_rows: 0, total_ok: 0, total_bad: d.clusters.length});
-    renderFilterBar();
-    console.log("[bd_detect] calling renderAll...");
-    renderAll();
-    console.log("[bd_detect] hiding uploadScreen...");
+  // Necesitamos estar en la pantalla de subgrupos — abrir modal
+  // Primero asegurarnos que mainScreen esté visible con al menos un cluster dummy
+  if (!CLUSTERS.find(c=>c.cluster_id===clusterId)) {
+    CLUSTERS.push({...cl, count: members.length, from_search: true,
+                   ok_count:0, bad_count: members.length, total: members.length});
+  }
+  // Usar openSearchedClusterInModal si ya hay un modal abierto, sino abrir directamente
+  if (document.getElementById("sgModal")?.style.display !== "none" &&
+      document.getElementById("sgModal")?.style.display !== "") {
+    openSearchedClusterInModal(cl);
+  } else {
+    // Ir a mainScreen y abrir el cluster
     document.getElementById("uploadScreen").classList.add("hidden");
     document.getElementById("mainScreen").classList.remove("hidden");
-    const hdrFile = document.getElementById("hdrFile");
-    hdrFile.textContent = `BD ${country.toUpperCase()}${city?' · '+city:''}`;
-    hdrFile.style.display = "";
-    // En modo BD directo: solo Actualizar BD habilitado, sin Export ni MarkReviewed
-    const btnBd = document.getElementById("btnBdUpdate");
-    btnBd.style.display = ""; btnBd.disabled = false; btnBd.style.opacity = "1";
-    document.getElementById("btnExport").style.display = "none";
-    document.getElementById("btnMarkReviewed").style.display = "none";
-    document.getElementById("btnResetFile").style.display = "none";
-    toast(`✓ ${d.clusters.length} clusters — T1:${d.t1_count} T2:${d.t2_count}`);
-  } catch(e) {
-    toast("Error: " + e.message);
-  } finally {
-    status.style.display = "none";
-    document.querySelector("#bdDetectScreen .btn.primary").disabled = false;
+    COUNTRY = country;
+    CURRENT_FILENAME = `BD:${country}`;
+    REVIEW_TYPE = REVIEW_TYPE || "stores_restaurant";
+    openSgModal(clusterId);
+  }
+}
+
+async function runScoringJob() {
+  if (!PG_READY) { toast("⚠ BD no conectada"); return; }
+  const country = document.getElementById("bdExplCountry").value;
+  const city    = document.getElementById("bdExplCity").value.trim() || null;
+  const btn     = document.getElementById("btnRunScoring");
+  const status  = document.getElementById("scoringJobStatus");
+  btn.disabled = true;
+  status.textContent = "⏳ Calculando…";
+  const d = await api("/scoring/run", {
+    country, city, review_type: REVIEW_TYPE||"stores_restaurant", dist_m: 50
+  });
+  if (d.ok) {
+    status.textContent = "✓ Job iniciado — puede tardar varios minutos";
+    toast("Job de scoring iniciado en background");
+    // Polling cada 10s para actualizar stats
+    const poll = setInterval(async () => {
+      await bdExplLoadStatus();
+      const sc = await api(`/scoring/status?country=${country}&review_type=${REVIEW_TYPE||'stores_restaurant'}`);
+      if (sc.rows && sc.rows.length) {
+        clearInterval(poll);
+        status.textContent = "✓ Completado";
+        btn.disabled = false;
+        await bdExplLoadFilterOptions();
+        bdExplApplyFilters();
+      }
+    }, 10000);
+  } else {
+    status.textContent = "⚠ Error: " + (d.error||"desconocido");
+    btn.disabled = false;
   }
 }
 
