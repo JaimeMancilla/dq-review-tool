@@ -1486,7 +1486,7 @@ function getCl(id){return CLUSTERS.find(c=>c.cluster_id===id)}
 
 function buildCard(cl){
   const wrap=document.createElement("div");
-  wrap.className="cluster-wrap";wrap.id="card_"+CSS.escape(cl.cluster_id);
+  wrap.className="cluster-wrap collapsed";wrap.id="card_"+CSS.escape(cl.cluster_id);
   const bad=cl.members.filter(m=>m.revision===0).length;
   const badModel=cl.members.filter(m=>!m.is_anchor && m.score!=null && m.score < (cl.threshold_used||0.80)).length;
   const prog = clusterProgress(cl);
@@ -3279,10 +3279,11 @@ function onSgListDrop(e, cid, toSgi) {
   const sgs = SUBGROUPS[cid];
   if (!sgs) return;
 
-  // Guardar snapshot para undo ANTES de modificar
+  // Guardar snapshot para undo ANTES de modificar — máximo 10 niveles
   if (!_sgMoveUndoStack[cid]) _sgMoveUndoStack[cid] = [];
   _sgMoveUndoStack[cid].push(JSON.parse(JSON.stringify(sgs)));
-  _sgUndoBtn(cid); // mostrar botón undo
+  if (_sgMoveUndoStack[cid].length > 10) _sgMoveUndoStack[cid].shift();
+  _sgUndoBtn(cid);
 
   const cl = getCl(cid);
 
@@ -4194,19 +4195,24 @@ async function onBdDrop(e, targetCluster, cid, sgi) {
 
     let newCluster = targetCluster, isNew = false;
     if (targetCluster === "NEW") {
-      const appId = scraperToAppId(dragged?.scraper_source) || dragged?.scraper_source?.trim() || "";
-      const storeId = ii.includes("_") ? ii.slice(ii.indexOf("_")+1) : ii;
-      newCluster = appId ? `${appId}_${storeId}` : `NUEVO:${storeId}`;
-      isNew = true;
+      // Verificar si ya hay un bloque nuevo creado en el panel activo — reutilizarlo
+      const existingNewBlock = document.querySelector(`#sgActivePanel .sg-bd-cluster[data-cluster^="${sgi}_new"], #sgActivePanel .sg-bd-cluster[id^="bdz_"]:not([id^="bdz_NEW_"])`);
+      if (existingNewBlock && existingNewBlock.dataset.cluster) {
+        // Reutilizar el primer bloque nuevo existente
+        newCluster = existingNewBlock.dataset.cluster;
+        isNew = false; // ya existe, no es nuevo
+      } else {
+        // Crear con store_id del primer store del subgrupo como ancla del nuevo cluster
+        const appId = scraperToAppId(dragged?.scraper_source) || dragged?.scraper_source?.trim() || "";
+        const storeId = ii.includes("_") ? ii.slice(ii.indexOf("_")+1) : ii;
+        newCluster = appId ? `${appId}_${storeId}` : `NUEVO:${storeId}`;
+        isNew = true;
+      }
     }
     const appName = dragged?.app_name || ii;
     const appAddr = dragged?.app_address || "";
 
-    // Guardar HTML para undo
-    const tgtEl = document.getElementById("bdt_" + CSS.escape(targetCluster));
-    const tgtHtmlBefore = tgtEl ? tgtEl.innerHTML : null;
-
-    // Agregar chip en destino
+    // Agregar chip en destino — SIN re-renderizar el panel después (destruiría el bloque)
     _bdDropAddChip(targetCluster, cid, sgi, appName, appAddr, newCluster, dragged?.store_id||"");
     // Actualizar _sessionClusterState
     if (targetCluster !== "NEW") {
@@ -4260,9 +4266,29 @@ async function onBdDrop(e, targetCluster, cid, sgi) {
         return {...bdc, members};
       });
     });
-    // Re-renderizar para mostrar tachado y chip movido
-    renderSgActivePanel(cid, fromSgi);
-    // Mostrar botón confirmar DESPUÉS del re-render (el render lo resetea a display:none)
+    // Tachar el chip del sg directamente en el DOM sin re-renderizar el panel
+    // (el re-render destruiría el bloque nuevo creado)
+    const sgPanel = document.getElementById("sgActivePanel");
+    if (sgPanel) {
+      sgPanel.querySelectorAll(`.sg-chip`).forEach(chip => {
+        if (chip.dataset.ii === ii) {
+          chip.style.opacity = "0.45";
+          chip.querySelectorAll('.sg-chip-name, .sg-chip-addr').forEach(el => {
+            el.style.textDecoration = "line-through";
+          });
+          chip.setAttribute("draggable", "false");
+        }
+      });
+    }
+    // Tachar en bd_results también (DOM directo)
+    document.querySelectorAll(`[data-store-id="${CSS.escape(storeIdStr)}"]`).forEach(chip => {
+      if (!chip.dataset.tachado) {
+        chip.style.opacity = "0.35";
+        chip.style.textDecoration = "line-through";
+        chip.setAttribute("draggable", "false");
+        chip.dataset.tachado = "1";
+      }
+    });
     _bdShowConfirmBtn(cid, fromSgi);
   }
 }
