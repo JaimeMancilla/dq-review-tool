@@ -709,6 +709,7 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
       </div>
       <div class="sg-modal-progress" id="sgModalProgress"></div>
       <button class="btn sm" onclick="sgModalAddGroup()">+ Grupo</button>
+      <button class="btn sm" id="sgMoveUndoBtn" style="display:none" title="Deshacer último movimiento entre subgrupos" onclick="sgMoveUndo(_sgModalCid)">↩</button>
       <button class="btn sm" onclick="toggleSgClusterSearch()" title="Buscar otro cluster">🔍</button>
       <button class="btn sm" onclick="closeSgModal()">✕ Cerrar</button>
     </div>
@@ -3032,6 +3033,27 @@ function closeFusionModal(){
 // ── Modal de Subgrupos ────────────────────────────────────────────────────────
 let _sgModalCid = null;
 let _sgSearchQuery = ''; // query de la lupa para propagar al segundo modal
+const _sgMoveUndoStack = {}; // cid → array de snapshots de SUBGROUPS[cid]
+
+function _sgUndoBtn(cid) {
+  // Mostrar/ocultar botón ↩ en el header del modal según haya stack
+  let btn = document.getElementById("sgMoveUndoBtn");
+  if (!btn) return;
+  const hasStack = (_sgMoveUndoStack[cid]||[]).length > 0;
+  btn.style.display = hasStack ? "" : "none";
+}
+
+function sgMoveUndo(cid) {
+  const stack = _sgMoveUndoStack[cid]||[];
+  if (!stack.length) { toast("Nada que deshacer"); return; }
+  SUBGROUPS[cid] = stack.pop();
+  _sgUndoBtn(cid);
+  api("/save_subgroups", {subgroups: SUBGROUPS});
+  renderSgList(cid);
+  renderSgActivePanel(cid, _sgActiveSgi);
+  updateSgModalProgress(cid);
+  toast("↩ Movimiento deshecho");
+}
 
 async function openSgModal(cid) {
   _sgModalCid = cid;
@@ -3079,7 +3101,11 @@ function closeSgModal() {
     rebuildBdPanel(getCl(_sgModalCid)||{cluster_id:_sgModalCid});
     refreshClusterBadge(_sgModalCid);
     renderFilterBar();
+    // Limpiar undo stack al cerrar
+    delete _sgMoveUndoStack[_sgModalCid];
   }
+  const undoBtn = document.getElementById("sgMoveUndoBtn");
+  if (undoBtn) undoBtn.style.display = "none";
   _sgModalCid = null;
 }
 
@@ -3246,6 +3272,11 @@ function onSgListDrop(e, cid, toSgi) {
 
   const sgs = SUBGROUPS[cid];
   if (!sgs) return;
+
+  // Guardar snapshot para undo ANTES de modificar
+  if (!_sgMoveUndoStack[cid]) _sgMoveUndoStack[cid] = [];
+  _sgMoveUndoStack[cid].push(JSON.parse(JSON.stringify(sgs)));
+  _sgUndoBtn(cid); // mostrar botón undo
 
   const cl = getCl(cid);
 
