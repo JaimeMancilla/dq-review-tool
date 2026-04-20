@@ -912,9 +912,12 @@ function openBdDetect() {
 }
 
 function backToSegment() {
+  document.getElementById("uploadScreen").classList.remove("hidden");
+  document.getElementById("mainScreen").classList.add("hidden");
   document.getElementById("sourceSelect").classList.remove("hidden");
   document.getElementById("bdDetectScreen").classList.add("hidden");
   document.getElementById("fileSelect").classList.add("hidden");
+  document.getElementById("storesSubtype").classList.add("hidden");
 }
 
 function backToTypeSelect() {
