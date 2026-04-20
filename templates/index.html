@@ -4156,9 +4156,10 @@ async function onBdDrop(e, targetCluster, cid, sgi) {
       fromId: "bdt_" + CSS.escape(m.from_cluster),
       toId:   targetCluster !== "NEW" ? "bdt_" + CSS.escape(targetCluster) : null
     });
-    _bdShowConfirmBtn(cid, sgi);
     // Sincronizar visual: re-dibujar panel para reflejar tachados en bd_results y chips
     renderSgActivePanel(cid, sgi);
+    // Mostrar botón confirmar DESPUÉS del re-render
+    _bdShowConfirmBtn(cid, sgi);
     return;
   }
 
@@ -4261,6 +4262,8 @@ async function onBdDrop(e, targetCluster, cid, sgi) {
     });
     // Re-renderizar para mostrar tachado y chip movido
     renderSgActivePanel(cid, fromSgi);
+    // Mostrar botón confirmar DESPUÉS del re-render (el render lo resetea a display:none)
+    _bdShowConfirmBtn(cid, fromSgi);
   }
 }
 
