@@ -4171,7 +4171,7 @@ async function onBdDrop(e, targetCluster, cid, sgi) {
     if (!ii || dragCid !== cid) return;
 
     // Guard: no mover el mismo store dos veces (por store_id)
-    const sgKey = `${cid}_${fromSgi}`;
+    const sgKey = `${cid}_${_sgActiveSgi}`;
     const draggedStoreId = String(getCl(cid)?.members.find(m=>m.item_index===ii)?.store_id || ii);
     const alreadyMoved = (_bdPendingMoves[sgKey]||[]).some(mv =>
       mv.is_subgroup && (mv.item_index === ii || String(mv.store_id) === draggedStoreId)
@@ -4239,7 +4239,7 @@ async function onBdDrop(e, targetCluster, cid, sgi) {
       toId: targetCluster !== "NEW" ? "bdt_" + CSS.escape(targetCluster) : null
     });
 
-    _bdShowConfirmBtn(cid, fromSgi);
+    _bdShowConfirmBtn(cid, _sgActiveSgi);
     // Sincronizar visual: tachar en bd_results el store movido desde el chip del sg
     // y agregar como moved_in en el cluster destino para que aparezca en el panel
     const sgsSync = SUBGROUPS[cid]||[];
@@ -4289,7 +4289,7 @@ async function onBdDrop(e, targetCluster, cid, sgi) {
         chip.dataset.tachado = "1";
       }
     });
-    _bdShowConfirmBtn(cid, fromSgi);
+    _bdShowConfirmBtn(cid, _sgActiveSgi);
   }
 }
 
