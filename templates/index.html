@@ -4121,9 +4121,12 @@ async function onBdDrop(e, targetCluster, cid, sgi) {
     _sgModalDrag = null;
     if (!ii || dragCid !== cid) return;
 
-    // Guard: cada store del subgrupo solo puede moverse una vez
+    // Guard: no mover el mismo store dos veces (por store_id)
     const sgKey = `${cid}_${fromSgi}`;
-    const alreadyMoved = (_bdPendingMoves[sgKey]||[]).some(mv => mv.is_subgroup && mv.item_index === ii);
+    const draggedStoreId = String(getCl(cid)?.members.find(m=>m.item_index===ii)?.store_id || ii);
+    const alreadyMoved = (_bdPendingMoves[sgKey]||[]).some(mv =>
+      mv.is_subgroup && (mv.item_index === ii || String(mv.store_id) === draggedStoreId)
+    );
     if (alreadyMoved) { toast("⚠ Este store ya fue asignado"); return; }
 
     const cl = getCl(cid);
