@@ -1416,13 +1416,14 @@ function sortIcon(cid,col){
 let FILTER = "all"; // "all" | "pending" | "done"
 
 function clusterProgress(cl) {
-  // Un cluster está "done" si no tiene incorrectos, O si todos sus incorrectos tienen corrección
   const sgs = SUBGROUPS[cl.cluster_id] || [];
   const bad  = cl.members.filter(m => m.revision === 0).length;
-  if (bad === 0) return { done: true, bad: 0, corrected: 0, total: 0 };
-  if (!sgs.length) return { done: false, bad, corrected: 0, total: 0 };
+  if (bad === 0) return { done: true, bad: 0, corrected: 0, total: 0, corrected_stores: 0, total_stores: bad };
+  if (!sgs.length) return { done: false, bad, corrected: 0, total: 0, corrected_stores: 0, total_stores: bad };
   const corrected = sgs.filter(sg => sg.correction).length;
-  return { done: corrected === sgs.length, bad, corrected, total: sgs.length };
+  const corrected_stores = sgs.filter(sg => sg.correction).reduce((acc, sg) => acc + sg.members.length, 0);
+  return { done: corrected === sgs.length, bad, corrected, total: sgs.length,
+           corrected_stores, total_stores: bad };
 }
 
 function renderFilterBar() {
@@ -1498,9 +1499,9 @@ function buildCard(cl){
   if (bad === 0) {
     statusBadge = `<span class="badge ok">✓ Sin incorrectos</span>`;
   } else if (prog.done) {
-    statusBadge = `<span class="badge ok">✓ ${prog.corrected}/${prog.total} corregidos</span>`;
+    statusBadge = `<span class="badge ok">✓ ${prog.corrected}/${prog.total} corregidos (${prog.corrected_stores} stores)</span>`;
   } else if (prog.total > 0) {
-    statusBadge = `<span class="badge bad">${prog.corrected}/${prog.total} corregidos</span>`;
+    statusBadge = `<span class="badge bad">${prog.corrected}/${prog.total} corregidos (${prog.corrected_stores} stores)</span>`;
   } else {
     statusBadge = `<span class="badge bad">${bad} incorrecto${bad>1?"s":""}</span>`;
   }
@@ -2103,8 +2104,8 @@ function refreshClusterBadge(cid) {
   const bad  = cl.members.filter(m=>m.revision===0).length;
   let html;
   if (bad === 0)       html = `<span class="badge ok">✓ Sin incorrectos</span>`;
-  else if (prog.done)  html = `<span class="badge ok">✓ ${prog.corrected}/${prog.total} corregidos</span>`;
-  else if (prog.total) html = `<span class="badge bad">${prog.corrected}/${prog.total} corregidos</span>`;
+  else if (prog.done)  html = `<span class="badge ok">✓ ${prog.corrected}/${prog.total} corregidos (${prog.corrected_stores} stores)</span>`;
+  else if (prog.total) html = `<span class="badge bad">${prog.corrected}/${prog.total} corregidos (${prog.corrected_stores} stores)</span>`;
   else                 html = `<span class="badge bad">${bad} incorrecto${bad>1?"s":""}</span>`;
   // Reemplazar solo el badge de estado (último antes del chev)
   const hdr = card.querySelector(".c-hdr");
