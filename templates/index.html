@@ -3582,7 +3582,7 @@ function buildSgGroupCard(cid, sg, sgi) {
         data-cluster="${esc(pendNew.cluster_index)}"
         style="border:1px solid var(--gborder);border-radius:var(--r);overflow:hidden;margin-top:4px"
         ondragover="onBdDropZoneOver(event)" ondragleave="onBdDropZoneLeave(event)"
-        ondrop="onBdDrop(event,'${esc(pendNew.cluster_index)}','${esc(cid)}',${sgi})">
+        ondrop="onBdDrop(event,'NEW','${esc(cid)}',${sgi})">
         <div style="display:flex;align-items:center;gap:6px;padding:5px 8px;background:var(--gbg);border-bottom:1px solid var(--gborder)">
           <span style="font-family:monospace;font-size:10px;font-weight:700;color:var(--green)">${esc(pendNew.cluster_index)}</span>
           <span style="font-size:9px;color:var(--green)">✦ Nuevo cluster (pendiente)</span>
