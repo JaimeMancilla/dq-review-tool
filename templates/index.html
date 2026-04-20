@@ -309,7 +309,7 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
           <div style="font-size:12px;color:var(--muted)">Detectar errores automáticamente</div>
         </div>
       </div>
-      <button class="btn sm" onclick="backToSegment()">← Cambiar segmento</button>
+      <button class="btn sm" onclick="backToStoresSubtype()">← Cambiar segmento</button>
     </div>
     <!-- Paso 2: carga de archivo -->
     <div id="fileSelect" class="hidden">
@@ -909,6 +909,13 @@ function selectType(type) {
 function openBdDetect() {
   document.getElementById("sourceSelect").classList.add("hidden");
   document.getElementById("bdDetectScreen").classList.remove("hidden");
+}
+
+function backToStoresSubtype() {
+  document.getElementById("sourceSelect").classList.add("hidden");
+  document.getElementById("storesSubtype").classList.remove("hidden");
+  document.getElementById("fileSelect").classList.add("hidden");
+  document.getElementById("bdDetectScreen").classList.add("hidden");
 }
 
 function backToSegment() {
