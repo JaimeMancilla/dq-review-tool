@@ -3099,11 +3099,16 @@ async function openSgModal(cid) {
 function closeSgModal() {
   document.getElementById("sgModal").classList.remove("open");
   if (_sgModalCid) {
-    rebuildBdPanel(getCl(_sgModalCid)||{cluster_id:_sgModalCid});
-    refreshClusterBadge(_sgModalCid);
+    const cid = _sgModalCid;
+    // Solo reconstruir panel si hay subgrupos en memoria (evita mostrar "Generar subgrupos")
+    const sgs = SUBGROUPS[cid] || [];
+    if (sgs.length > 0) {
+      rebuildBdPanel(getCl(cid)||{cluster_id: cid, members: [], anchor_name: ''});
+    }
+    refreshClusterBadge(cid);
     renderFilterBar();
-    // Limpiar undo stack al cerrar
-    delete _sgMoveUndoStack[_sgModalCid];
+    refreshStats(); // actualizar contadores de página principal
+    delete _sgMoveUndoStack[cid];
   }
   const undoBtn = document.getElementById("sgMoveUndoBtn");
   if (undoBtn) undoBtn.style.display = "none";
@@ -4390,6 +4395,7 @@ async function confirmBdMoves(cid, sgi) {
     btn.disabled = true;
   }
   toast(`✅ ${moves.length} corrección${moves.length!==1?"es":""} guardadas`);
+  refreshStats(); // actualizar contadores página principal
 }
 
 function undoLastBdMove(cid, sgi) {
