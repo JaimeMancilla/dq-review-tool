@@ -4050,6 +4050,10 @@ async function onBdDrop(e, targetCluster, cid, sgi) {
     if (_bdPendingMoves[key].some(mv => String(mv.store_id) === String(m.store_id))) {
       toast("⚠ Este store ya fue movido en este subgrupo"); _bdDragData = null; return;
     }
+    // Evitar mover el ancla de su propio cluster
+    if (m.is_anchor === true || m.is_anchor === "true") {
+      toast("⚠ No se puede mover el ancla de su cluster"); _bdDragData = null; return;
+    }
     // Agregar chip en destino
     _bdDropAddChip(targetCluster, cid, sgi, m.app_name, m.app_address, newCluster, m.store_id);
     // Actualizar _sessionClusterState inmediatamente
@@ -4326,6 +4330,7 @@ async function confirmBdMoves(cid, sgi) {
 function undoLastBdMove(cid, sgi) {
   const key = `${cid}_${sgi}`;
   const stack = _bdUndoStack[key]||[];
+  console.log("[undo] key="+key+" stack.length="+stack.length+" pendingMoves="+((_bdPendingMoves[key]||[]).length));
   if (!stack.length) { toast("Nada que deshacer"); return; }
 
   const last = stack.pop();
