@@ -4149,6 +4149,8 @@ async function onBdDrop(e, targetCluster, cid, sgi) {
       toId:   targetCluster !== "NEW" ? "bdt_" + CSS.escape(targetCluster) : null
     });
     _bdShowConfirmBtn(cid, sgi);
+    // Sincronizar visual: re-dibujar panel para reflejar tachados en bd_results y chips
+    renderSgActivePanel(cid, sgi);
     return;
   }
 
@@ -4223,6 +4225,21 @@ async function onBdDrop(e, targetCluster, cid, sgi) {
     });
 
     _bdShowConfirmBtn(cid, fromSgi);
+    // Sincronizar visual: tachar en bd_results el store movido desde el chip del sg
+    const sgsSync = SUBGROUPS[cid]||[];
+    sgsSync.forEach(otherSg => {
+      if (!otherSg.bd_results) return;
+      otherSg.bd_results = otherSg.bd_results.map(bdc => ({
+        ...bdc,
+        members: bdc.members.map(mb => ({
+          ...mb,
+          _moved_out: mb._moved_out ||
+            (String(mb.store_id) === String(moveEntry2.store_id) &&
+             bdc.cluster_index === (moveEntry2.from_cluster || bdc.cluster_index))
+        }))
+      }));
+    });
+    renderSgActivePanel(cid, fromSgi);
   }
 }
 
