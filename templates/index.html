@@ -3109,6 +3109,12 @@ function closeSgModal() {
     renderFilterBar();
     refreshStats(); // actualizar contadores de página principal
     delete _sgMoveUndoStack[cid];
+    // Descartar estado in-flight por subgrupo de este cluster (no confirmado)
+    // para evitar residuos al reabrir el modal con otro cluster
+    Object.keys(_pendingNewCluster).forEach(k => { if (k.startsWith(cid + "_")) delete _pendingNewCluster[k]; });
+    Object.keys(_bdFilterBySgKey).forEach(k => { if (k.startsWith(cid + "_")) delete _bdFilterBySgKey[k]; });
+    Object.keys(_bdPendingMoves).forEach(k => { if (k.startsWith(cid + "_")) delete _bdPendingMoves[k]; });
+    Object.keys(_bdUndoStack).forEach(k => { if (k.startsWith(cid + "_")) delete _bdUndoStack[k]; });
   }
   const undoBtn = document.getElementById("sgMoveUndoBtn");
   if (undoBtn) undoBtn.style.display = "none";
@@ -3402,6 +3408,15 @@ function renderSgActivePanel(cid, sgi) {
   }
 
   el.innerHTML = buildSgGroupCard(cid, sg, sgi);
+
+  // Post-render: re-aplicar filtro BD si había valor persistido + mostrar botón confirmar si hay pending moves
+  const sgKey = `${cid}_${sgi}`;
+  const filterVal = _bdFilterBySgKey[sgKey];
+  if (filterVal) {
+    // El input ya se rehidrata con value="..." al construir el HTML; solo falta ejecutar el filtrado
+    filterBdResults(filterVal, cid, sgi, true);
+  }
+  _bdShowConfirmBtn(cid, sgi);
 }
 
 function buildSgGroupCard(cid, sg, sgi) {
@@ -3541,6 +3556,43 @@ function buildSgGroupCard(cid, sg, sgi) {
     }).join("");
 
     const cleanCount = sg.bd_results.filter(b=>b.is_clean).length;
+
+    // Bloque "nuevo cluster en construcción" (persistido en _pendingNewCluster)
+    // Se renderiza antes de la drop zone "＋ Nuevo cluster" para que acumule stores y sobreviva re-renders.
+    const pendNew = _pendingNewCluster[sgKey];
+    if (pendNew && pendNew.members && pendNew.members.length) {
+      const pendChips = pendNew.members.map(mi => `
+        <div style="display:flex;flex-direction:column;border:1px solid var(--pborder,#c4b5fd);border-radius:5px;padding:5px 8px;font-size:10px;background:var(--pbg,#f5f3ff);margin-bottom:3px"
+             data-store-id="${esc(String(mi.store_id||''))}">
+          <div style="display:flex;align-items:center;gap:4px">
+            <span style="font-size:9px;color:var(--purple,#7c3aed)">↳</span>
+            <span style="font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">
+              ${esc(mi.app_name||'')}
+              <span style="font-size:9px;color:var(--purple,#7c3aed)">${mi.is_subgroup?'subgrupo':'movido'}</span>
+            </span>
+            <button class="btn sm" style="padding:0 5px;font-size:10px;line-height:1.4"
+              title="Quitar del nuevo cluster"
+              onclick="removePendingNewMember('${esc(cid)}',${sgi},'${esc(String(mi.store_id||''))}')">✕</button>
+          </div>
+          <div style="font-size:9px;color:var(--muted);margin-top:2px">${esc((mi.app_address||'').slice(0,55))}</div>
+          ${mi.store_id?`<div style="font-family:monospace;font-size:8px;color:var(--muted);margin-top:2px;opacity:.7">${esc(String(mi.store_id))}</div>`:''}
+        </div>`).join('');
+      bdHtml += `
+      <div class="sg-bd-cluster bd-drop-zone" id="bdz_${CSS.escape(pendNew.cluster_index)}"
+        data-cluster="${esc(pendNew.cluster_index)}"
+        style="border:1px solid var(--gborder);border-radius:var(--r);overflow:hidden;margin-top:4px"
+        ondragover="onBdDropZoneOver(event)" ondragleave="onBdDropZoneLeave(event)"
+        ondrop="onBdDrop(event,'${esc(pendNew.cluster_index)}','${esc(cid)}',${sgi})">
+        <div style="display:flex;align-items:center;gap:6px;padding:5px 8px;background:var(--gbg);border-bottom:1px solid var(--gborder)">
+          <span style="font-family:monospace;font-size:10px;font-weight:700;color:var(--green)">${esc(pendNew.cluster_index)}</span>
+          <span style="font-size:9px;color:var(--green)">✦ Nuevo cluster (pendiente)</span>
+          <span style="font-size:10px;color:var(--muted);margin-left:auto">${pendNew.members.length} store${pendNew.members.length!==1?'s':''}</span>
+        </div>
+        <div style="padding:5px 8px" id="bdt_${CSS.escape(pendNew.cluster_index)}">${pendChips}</div>
+        <div style="font-size:10px;color:var(--blue);padding:3px 8px 5px;opacity:.6;font-style:italic">← Arrastra más stores aquí para sumarlos</div>
+      </div>`;
+    }
+
     bdHtml += `
     <div class="sg-bd-cluster bd-drop-zone" id="bdz_NEW_${CSS.escape(cid)}_${sgi}"
       style="border:2px dashed var(--border2);background:var(--surf);min-height:52px;padding:6px 8px;margin-top:4px"
@@ -3609,9 +3661,11 @@ function buildSgGroupCard(cid, sg, sgi) {
         <!-- BD results -->
         ${bdHtml ? `
         <div>
-          <input type="text" placeholder="Filtrar clusters por nombre, dirección o ID…"
+          <input type="text" id="bdFilter_${CSS.escape(cid)}_${sgi}"
+            placeholder="Filtrar clusters por nombre, dirección o ID…"
+            value="${esc(_bdFilterBySgKey[sgKey]||'')}"
             style="width:100%;box-sizing:border-box;padding:5px 8px;font-size:11px;border:1px solid var(--border2);border-radius:var(--r);background:var(--bg);color:var(--text);margin-bottom:6px"
-            oninput="filterBdResults(this.value,'${esc(cid)}',${sgi},true)">
+            oninput="_bdFilterBySgKey['${sgKey}']=this.value;filterBdResults(this.value,'${esc(cid)}',${sgi},true)">
           <div class="sg-bd-results" id="bdResults_${CSS.escape(cid)}_${sgi}">${bdHtml}</div>
         </div>` : ''}
 
@@ -3713,6 +3767,59 @@ function removeSgChip(cid, sgi, ii) {
   renderSgList(cid); renderSgActivePanel(cid, _sgActiveSgi);
   renderSgGroupsPanel(cid);
   updateSgModalProgress(cid);
+}
+
+// Quitar un store del "nuevo cluster en construcción" (botón ✕ en el chip pendiente).
+// Revierte el move: saca el store de _pendingNewCluster, _bdPendingMoves, _bdUndoStack,
+// _sessionClusterState, y destacha el chip origen en bd_results. Si el NEW queda vacío, lo elimina.
+function removePendingNewMember(cid, sgi, storeId) {
+  const key = `${cid}_${sgi}`;
+  const sid = String(storeId);
+  const pend = _pendingNewCluster[key];
+  if (!pend) return;
+
+  // 1. Quitar del modelo del NEW
+  const removedMember = pend.members.find(x => String(x.store_id) === sid);
+  pend.members = pend.members.filter(x => String(x.store_id) !== sid);
+
+  // 2. Quitar del pending moves
+  const moves = _bdPendingMoves[key] || [];
+  const removedMove = moves.find(mv => String(mv.store_id) === sid && mv.new_cluster === pend.cluster_index);
+  _bdPendingMoves[key] = moves.filter(mv => !(String(mv.store_id) === sid && mv.new_cluster === pend.cluster_index));
+
+  // 3. Quitar del undo stack (entradas de ese mismo move)
+  _bdUndoStack[key] = (_bdUndoStack[key]||[]).filter(u => !(u.move && String(u.move.store_id) === sid && u.move.new_cluster === pend.cluster_index));
+
+  // 4. Destachar en bd_results de todos los subgrupos (el store vuelve a estar disponible)
+  // Solo si este store vino de un cluster BD (move externo). Si era del subgrupo, no estaba en bd_results.
+  if (removedMove && !removedMove.is_subgroup && removedMove.from_cluster) {
+    const sgsRef = SUBGROUPS[cid]||[];
+    sgsRef.forEach(otherSg => {
+      if (!otherSg.bd_results) return;
+      otherSg.bd_results = otherSg.bd_results.map(bdc => ({
+        ...bdc,
+        members: bdc.members.map(mb => {
+          if (String(mb.store_id) === sid) return {...mb, _moved_out: false};
+          return mb;
+        })
+      }));
+    });
+    // Actualizar _sessionClusterState: quitar el store del set moved_out del cluster origen
+    const state = _sessionClusterState[removedMove.from_cluster];
+    if (state) {
+      if (state.moved_out instanceof Set) state.moved_out.delete(sid);
+      else state.moved_out = new Set((state.moved_out||[]).map(String).filter(s => s !== sid));
+    }
+  }
+
+  // 5. Si el NEW quedó vacío, eliminar el modelo
+  if (pend.members.length === 0) {
+    delete _pendingNewCluster[key];
+  }
+
+  // 6. Re-render y actualizar botón confirmar
+  renderSgActivePanel(cid, sgi);
+  _bdShowConfirmBtn(cid, sgi);
 }
 
 function sgModalAddGroup() {
@@ -4048,6 +4155,11 @@ const _bdUndoStack = {};
 // Estado local de clusters modificados en esta sesión
 // clave = cluster_index, valor = {moved_out: Set(store_ids), moved_in: [{store_id, app_name, app_address}]}
 const _sessionClusterState = {};
+// "Nuevo cluster en construcción" por subgrupo: clave = "cid_sgi", valor = {cluster_index, members:[{store_id, app_name, app_address, scraper_source}]}
+// Se persiste aquí para que renderSgActivePanel lo reconstruya y para acumular múltiples stores en un mismo NEW.
+const _pendingNewCluster = {};
+// Filtro BD persistente por subgrupo: clave = "cid_sgi", valor = string
+const _bdFilterBySgKey = {};
 
 function onBdRowDragStart(e, dragJson) {
   try { _bdDragData = JSON.parse(decodeURIComponent(dragJson)); }
@@ -4078,9 +4190,16 @@ async function onBdDrop(e, targetCluster, cid, sgi) {
     if (m.from_cluster === targetCluster) return;
     let newCluster = targetCluster, isNew = false;
     if (targetCluster === "NEW") {
-      const appId = scraperToAppId(m.scraper_source) || (m.scraper_source||"").trim();
-      newCluster = appId ? `${appId}_${m.store_id}` : `NUEVO:${m.store_id}`;
-      isNew = true;
+      // Reutilizar el "nuevo cluster en construcción" de este subgrupo si existe
+      if (_pendingNewCluster[key]?.cluster_index) {
+        newCluster = _pendingNewCluster[key].cluster_index;
+        isNew = true;
+      } else {
+        const appId = scraperToAppId(m.scraper_source) || (m.scraper_source||"").trim();
+        newCluster = appId ? `${appId}_${m.store_id}` : `NUEVO:${m.store_id}`;
+        isNew = true;
+        _pendingNewCluster[key] = {cluster_index: newCluster, members: []};
+      }
     }
     // Tachar en origen — usar data-store-id para evitar tachar stores con mismo nombre
     const fromC = document.getElementById("bdt_" + CSS.escape(m.from_cluster));
@@ -4102,6 +4221,15 @@ async function onBdDrop(e, targetCluster, cid, sgi) {
     }
     // Agregar chip en destino
     _bdDropAddChip(targetCluster, cid, sgi, m.app_name, m.app_address, newCluster, m.store_id);
+    // Registrar en el modelo del "nuevo cluster en construcción" (para que renderSgActivePanel lo reconstruya)
+    if (targetCluster === "NEW" && _pendingNewCluster[key]) {
+      if (!_pendingNewCluster[key].members.some(x => String(x.store_id) === String(m.store_id))) {
+        _pendingNewCluster[key].members.push({
+          store_id: m.store_id, app_name: m.app_name, app_address: m.app_address,
+          scraper_source: m.scraper_source||"", is_subgroup: false
+        });
+      }
+    }
     // Actualizar _sessionClusterState inmediatamente
     if (m.from_cluster && m.from_cluster !== "NEW") {
       if (!_sessionClusterState[m.from_cluster]) _sessionClusterState[m.from_cluster] = {moved_out: new Set(), moved_in: []};
@@ -4195,25 +4323,41 @@ async function onBdDrop(e, targetCluster, cid, sgi) {
 
     let newCluster = targetCluster, isNew = false;
     if (targetCluster === "NEW") {
-      // Verificar si ya hay un bloque nuevo creado en el panel activo — reutilizarlo
-      const existingNewBlock = document.querySelector(`#sgActivePanel .sg-bd-cluster[data-cluster^="${sgi}_new"], #sgActivePanel .sg-bd-cluster[id^="bdz_"]:not([id^="bdz_NEW_"])`);
-      if (existingNewBlock && existingNewBlock.dataset.cluster) {
-        // Reutilizar el primer bloque nuevo existente
-        newCluster = existingNewBlock.dataset.cluster;
-        isNew = false; // ya existe, no es nuevo
+      // Si ya hay un "nuevo cluster en construcción" para este subgrupo, reutilizar su ID
+      if (_pendingNewCluster[sgKey]?.cluster_index) {
+        newCluster = _pendingNewCluster[sgKey].cluster_index;
+        isNew = true; // sigue siendo un cluster nuevo aunque ya tenga stores adentro
       } else {
-        // Crear con store_id del primer store del subgrupo como ancla del nuevo cluster
+        // Crear con store_id del primer store arrastrado como ancla del nuevo cluster
         const appId = scraperToAppId(dragged?.scraper_source) || dragged?.scraper_source?.trim() || "";
         const storeId = ii.includes("_") ? ii.slice(ii.indexOf("_")+1) : ii;
         newCluster = appId ? `${appId}_${storeId}` : `NUEVO:${storeId}`;
         isNew = true;
+        // Inicializar estado
+        _pendingNewCluster[sgKey] = {cluster_index: newCluster, members: []};
       }
     }
     const appName = dragged?.app_name || ii;
     const appAddr = dragged?.app_address || "";
 
-    // Agregar chip en destino — SIN re-renderizar el panel después (destruiría el bloque)
+    // Capturar HTML del destino ANTES de modificarlo (para undo)
+    const tgtElBefore = targetCluster !== "NEW"
+      ? document.getElementById("bdt_" + CSS.escape(targetCluster))
+      : null;
+    const tgtHtmlBefore = tgtElBefore ? tgtElBefore.innerHTML : null;
+
+    // Agregar chip en destino — el bloque pendiente persiste en _pendingNewCluster
     _bdDropAddChip(targetCluster, cid, sgi, appName, appAddr, newCluster, dragged?.store_id||"");
+    // Registrar en el modelo del "nuevo cluster en construcción" (sobrevive a re-renders)
+    if (targetCluster === "NEW" && _pendingNewCluster[sgKey]) {
+      const sid = String(dragged?.store_id||ii);
+      if (!_pendingNewCluster[sgKey].members.some(x => String(x.store_id) === sid)) {
+        _pendingNewCluster[sgKey].members.push({
+          store_id: dragged?.store_id||ii, app_name: appName, app_address: appAddr,
+          scraper_source: dragged?.scraper_source||"", is_subgroup: true, item_index: ii
+        });
+      }
+    }
     // Actualizar _sessionClusterState
     if (targetCluster !== "NEW") {
       if (!_sessionClusterState[targetCluster]) _sessionClusterState[targetCluster] = {moved_out: new Set(), moved_in: []};
@@ -4266,29 +4410,9 @@ async function onBdDrop(e, targetCluster, cid, sgi) {
         return {...bdc, members};
       });
     });
-    // Tachar el chip del sg directamente en el DOM sin re-renderizar el panel
-    // (el re-render destruiría el bloque nuevo creado)
-    const sgPanel = document.getElementById("sgActivePanel");
-    if (sgPanel) {
-      sgPanel.querySelectorAll(`.sg-chip`).forEach(chip => {
-        if (chip.dataset.ii === ii) {
-          chip.style.opacity = "0.45";
-          chip.querySelectorAll('.sg-chip-name, .sg-chip-addr').forEach(el => {
-            el.style.textDecoration = "line-through";
-          });
-          chip.setAttribute("draggable", "false");
-        }
-      });
-    }
-    // Tachar en bd_results también (DOM directo)
-    document.querySelectorAll(`[data-store-id="${CSS.escape(storeIdStr)}"]`).forEach(chip => {
-      if (!chip.dataset.tachado) {
-        chip.style.opacity = "0.35";
-        chip.style.textDecoration = "line-through";
-        chip.setAttribute("draggable", "false");
-        chip.dataset.tachado = "1";
-      }
-    });
+    // Re-render completo del panel: ahora es seguro porque _pendingNewCluster persiste
+    // el bloque "nuevo cluster en construcción", así no se destruye al re-renderizar.
+    renderSgActivePanel(cid, _sgActiveSgi);
     _bdShowConfirmBtn(cid, _sgActiveSgi);
   }
 }
@@ -4424,6 +4548,8 @@ async function confirmBdMoves(cid, sgi) {
   updateSgModalProgress(cid);
   delete _bdPendingMoves[key];
   delete _bdUndoStack[key];
+  delete _pendingNewCluster[key];    // limpiar bloque "nuevo cluster (pendiente)"
+  delete _bdFilterBySgKey[key];      // limpiar filtro BD al cerrar el subgrupo
 
   // Persistir _moved_out en bd_results de TODOS los subgrupos
   const sgsRef = SUBGROUPS[cid]||[];
@@ -4468,80 +4594,72 @@ async function confirmBdMoves(cid, sgi) {
 function undoLastBdMove(cid, sgi) {
   const key = `${cid}_${sgi}`;
   const stack = _bdUndoStack[key]||[];
-  console.log("[undo] key="+key+" stack.length="+stack.length+" pendingMoves="+((_bdPendingMoves[key]||[]).length));
   if (!stack.length) { toast("Nada que deshacer"); return; }
 
   const last = stack.pop();
-  // Restaurar HTML del origen y destino
-  if (last.fromId && last.fromHtml !== null) {
-    const el = document.getElementById(last.fromId);
-    if (el) el.innerHTML = last.fromHtml;
-  }
-  if (last.toId && last.toHtml !== null) {
-    const el = document.getElementById(last.toId);
-    if (el) el.innerHTML = last.toHtml;
-  }
-  // Quitar último move de pending
+  const m = last.move;
+  const sid = String(m.store_id||"");
+
+  // 1. Quitar último move de pending
   const moves = _bdPendingMoves[key]||[];
-  moves.pop();
+  // Remover por store_id + new_cluster para ser exactos (no solo pop, por si hubo reordenes)
+  const idx = moves.findIndex(mv => String(mv.store_id) === sid && mv.new_cluster === m.new_cluster);
+  if (idx >= 0) moves.splice(idx, 1);
+  else moves.pop(); // fallback
   if (!moves.length) {
     delete _bdPendingMoves[key];
-    // Ocultar botones si no hay más moves
-    const actionsWrap = document.getElementById(`bdActions_${CSS.escape(cid)}_${sgi}`);
-    if (actionsWrap) actionsWrap.style.display = "none";
-  } else {
-    // Actualizar contador en botón confirmar
-    const btn = document.getElementById(`bdConfirm_${CSS.escape(cid)}_${sgi}`);
-    if (btn) btn.innerHTML = `✅ Aplicar ${moves.length} corrección${moves.length!==1?"es":""}`;
   }
-  // Revertir sessionClusterState
-  const m = last.move;
+
+  // 2. Si el move apuntaba al "nuevo cluster en construcción", sacar del modelo
+  const pend = _pendingNewCluster[key];
+  if (pend && m.new_cluster === pend.cluster_index) {
+    pend.members = pend.members.filter(x => String(x.store_id) !== sid);
+    if (pend.members.length === 0) delete _pendingNewCluster[key];
+  }
+
+  // 3. Revertir _sessionClusterState
   if (m.from_cluster && _sessionClusterState[m.from_cluster]) {
-    _sessionClusterState[m.from_cluster].moved_out.delete(String(m.store_id));
+    const st = _sessionClusterState[m.from_cluster];
+    if (st.moved_out instanceof Set) st.moved_out.delete(sid);
+    else st.moved_out = new Set((st.moved_out||[]).map(String).filter(s => s !== sid));
   }
   if (m.new_cluster && m.new_cluster !== "NEW" && _sessionClusterState[m.new_cluster]) {
     _sessionClusterState[m.new_cluster].moved_in =
-      _sessionClusterState[m.new_cluster].moved_in.filter(x => x.store_id !== m.store_id);
+      (_sessionClusterState[m.new_cluster].moved_in||[]).filter(x => String(x.store_id) !== sid);
   }
+
+  // 4. Destachar en bd_results si era move externo (el store vuelve a estar disponible)
+  if (!m.is_subgroup && m.from_cluster) {
+    const sgsRef = SUBGROUPS[cid]||[];
+    sgsRef.forEach(otherSg => {
+      if (!otherSg.bd_results) return;
+      otherSg.bd_results = otherSg.bd_results.map(bdc => ({
+        ...bdc,
+        members: bdc.members
+          // Quitar _moved_in que se había agregado como fantasma en cluster destino
+          .filter(mb => !(mb._moved_in && String(mb.store_id) === sid && bdc.cluster_index === m.new_cluster))
+          .map(mb => {
+            if (String(mb.store_id) === sid && bdc.cluster_index === m.from_cluster) {
+              return {...mb, _moved_out: false};
+            }
+            return mb;
+          })
+      }));
+    });
+  }
+
+  // 5. Re-render panel para reflejar estado consistente
+  renderSgActivePanel(cid, sgi);
+  _bdShowConfirmBtn(cid, sgi);
   toast("↩ Movimiento deshecho");
 }
 
 function _bdDropAddChip(targetCluster, cid, sgi, appName, appAddr, newCluster, storeId) {
   if (targetCluster === "NEW") {
-    // Crear un nuevo bloque de cluster visible en vez de acumular en bdz_NEW
-    // Así cada store nuevo tiene su propio cluster destino independiente
-    const newZone = document.getElementById(`bdz_NEW_${CSS.escape(cid)}_${sgi}`);
-    if (newZone) {
-      const blockId = `bdz_${CSS.escape(newCluster)}`;
-      // Si ya existe un bloque para este newCluster, agregar el chip ahí
-      let block = document.getElementById(blockId);
-      if (!block) {
-        block = document.createElement("div");
-        block.id = blockId;
-        block.className = "sg-bd-cluster bd-drop-zone";
-        block.dataset.cluster = newCluster;
-        block.style.cssText = "border:1px solid var(--gborder);border-radius:var(--r);overflow:hidden;margin-bottom:4px";
-        block.setAttribute("ondragover", "onBdDropZoneOver(event)");
-        block.setAttribute("ondragleave", "onBdDropZoneLeave(event)");
-        block.setAttribute("ondrop", `onBdDrop(event,'${newCluster}','${cid}',${sgi})`);
-        block.innerHTML = `
-          <div style="display:flex;align-items:center;gap:6px;padding:5px 8px;background:var(--gbg);border-bottom:1px solid var(--gborder)">
-            <span style="font-family:monospace;font-size:10px;font-weight:700;color:var(--green)">${esc(newCluster)}</span>
-            <span style="font-size:9px;color:var(--green)">✦ Nuevo cluster</span>
-          </div>
-          <div style="padding:5px 8px" id="bdt_${CSS.escape(newCluster)}"></div>
-          <div style="font-size:10px;color:var(--blue);padding:3px 8px 5px;opacity:.6;font-style:italic">← Arrastra stores aquí</div>`;
-        newZone.parentNode.insertBefore(block, newZone);
-      }
-      // Agregar chip en el bloque
-      const t = document.getElementById("bdt_" + CSS.escape(newCluster));
-      if (t) {
-        const d2 = document.createElement("div");
-        d2.style.cssText="display:flex;flex-direction:column;border:1px solid var(--pborder,#c4b5fd);border-radius:5px;padding:5px 8px;font-size:10px;background:var(--pbg,#f5f3ff);margin-bottom:3px";
-        d2.innerHTML=`<div style="display:flex;align-items:center;gap:4px"><span style="font-size:9px;color:var(--purple,#7c3aed)">↳</span><span style="font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${esc(appName)} <span style="font-size:9px;color:var(--purple,#7c3aed)">movido</span></span></div><div style="font-size:9px;color:var(--muted);margin-top:2px">${esc((appAddr||"").slice(0,55))}</div>${storeId?`<div style="font-family:monospace;font-size:8px;color:var(--muted);margin-top:2px;opacity:.7">${esc(String(storeId))}</div>`:""}`;
-        t.appendChild(d2);
-      }
-    }
+    // Rama NEW: no tocar el DOM aquí. El modelo _pendingNewCluster ya se actualizó
+    // en onBdDrop y el re-render vía renderSgActivePanel/buildSgGroupCard pinta el bloque
+    // "nuevo cluster (pendiente)". Pintar aquí generaría duplicados.
+    return;
   } else {
     const t = document.getElementById("bdt_" + CSS.escape(targetCluster));
     if (t) {
