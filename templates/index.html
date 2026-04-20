@@ -3409,23 +3409,31 @@ function buildSgGroupCard(cid, sg, sgi) {
   const clMembers = cl ? cl.members : [];
 
   // Chips de stores con nombre + dirección
+  const sgKey = `${cid}_${sgi}`;
+  const movedStoreIds = new Set(
+    (_bdPendingMoves[sgKey]||[])
+      .filter(mv => mv.is_subgroup && mv.store_id)
+      .map(mv => String(mv.store_id))
+  );
+
   const chipsHtml = sg.members.map(ii => {
     const m = clMembers.find(m => m.item_index === ii);
     const name = m ? m.app_name : ii.slice(-12);
     const addr = m ? (m.app_address||'') : '';
     const storeId = m ? (m.store_id||'') : '';
     const isAnchor = m ? m.is_anchor : (ii === cid);
-    return `<div class="sg-chip" draggable="true"
+    const isMoved = movedStoreIds.has(String(storeId));
+    return `<div class="sg-chip${isMoved?' sg-chip-moved':''}" draggable="${!isMoved}"
       data-ii="${esc(ii)}" data-from-sgi="${sgi}" data-cid="${esc(cid)}"
       ondragstart="onSgChipDragStart(event)"
       ondragend="onSgChipDragEnd(event)"
-      title="${esc(ii)}${isAnchor?' — ⚓ ANCLA del cluster':''}">
-      <div class="sg-chip-name">
+      title="${esc(ii)}${isAnchor?' — ⚓ ANCLA del cluster':''}${isMoved?' — movido':''}">
+      <div class="sg-chip-name" style="${isMoved?'text-decoration:line-through;opacity:.45;':''}">
         ${isAnchor?`<span style="font-size:9px;color:var(--amber);margin-right:3px" title="Ancla del cluster">⚓</span>`:''}${esc(name)}
       </div>
-      ${addr ? `<div class="sg-chip-addr">${esc(addr)}</div>` : ''}
+      ${addr ? `<div class="sg-chip-addr" style="${isMoved?'text-decoration:line-through;opacity:.45;':''}">${esc(addr)}</div>` : ''}
       ${storeId ? `<div style="font-family:monospace;font-size:8px;color:var(--muted);margin-top:2px;opacity:.7">${esc(storeId)}</div>` : ''}
-      <span class="sg-chip-x" onclick="removeSgChip('${esc(cid)}',${sgi},'${esc(ii)}')">✕</span>
+      ${!isMoved ? `<span class="sg-chip-x" onclick="removeSgChip('${esc(cid)}',${sgi},'${esc(ii)}')">✕</span>` : `<span style="font-size:9px;color:var(--muted)">→</span>`}
     </div>`;
   }).join("");
 
