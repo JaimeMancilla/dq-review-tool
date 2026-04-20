@@ -888,7 +888,7 @@ function selectSegment(type) {
   document.getElementById("storesSubtype").classList.add("hidden");
   document.getElementById("sourceSelect").classList.remove("hidden");
   document.getElementById("segmentLabel").textContent = labels[type] || type;
-  document.getElementById("bdDetectSegLabel").textContent = labels[type] || type;
+  document.getElementById("bdExplSegLabel").textContent = labels[type] || type;
 }
 
 function selectType(type) {
@@ -4128,6 +4128,19 @@ async function onBdDrop(e, targetCluster, cid, sgi) {
 
     const cl = getCl(cid);
     const dragged = cl?.members.find(m=>m.item_index===ii);
+
+    // Guard: no mover el ancla del cluster BD destino
+    if (targetCluster !== "NEW") {
+      const bdResults = (SUBGROUPS[cid]?.[fromSgi]?.bd_results)||[];
+      const bdCluster = bdResults.find(b => b.cluster_index === targetCluster);
+      if (bdCluster) {
+        const anchorMember = bdCluster.members?.find(m => m.is_anchor === true || m.is_anchor === "true");
+        if (anchorMember && String(anchorMember.store_id) === String(dragged?.store_id)) {
+          toast("⚠ No se puede mover el ancla de su cluster"); return;
+        }
+      }
+    }
+
     let newCluster = targetCluster, isNew = false;
     if (targetCluster === "NEW") {
       const appId = scraperToAppId(dragged?.scraper_source) || dragged?.scraper_source?.trim() || "";
@@ -4137,6 +4150,11 @@ async function onBdDrop(e, targetCluster, cid, sgi) {
     }
     const appName = dragged?.app_name || ii;
     const appAddr = dragged?.app_address || "";
+
+    // Guardar HTML para undo
+    const tgtEl = document.getElementById("bdt_" + CSS.escape(targetCluster));
+    const tgtHtmlBefore = tgtEl ? tgtEl.innerHTML : null;
+
     // Agregar chip en destino
     _bdDropAddChip(targetCluster, cid, sgi, appName, appAddr, newCluster, dragged?.store_id||"");
     // Actualizar _sessionClusterState
@@ -4146,12 +4164,24 @@ async function onBdDrop(e, targetCluster, cid, sgi) {
     }
     // Trackear
     if (!_bdPendingMoves[sgKey]) _bdPendingMoves[sgKey] = [];
-    _bdPendingMoves[sgKey].push({
+    const moveEntry2 = {
       store_id: dragged?.store_id||ii, app_name: appName, app_address: appAddr,
       scraper_source: dragged?.scraper_source||"", from_cluster: null,
       new_cluster: newCluster, is_new: isNew, is_subgroup: true,
       item_index: ii
+    };
+    _bdPendingMoves[sgKey].push(moveEntry2);
+
+    // Guardar en undo stack
+    if (!_bdUndoStack[sgKey]) _bdUndoStack[sgKey] = [];
+    _bdUndoStack[sgKey].push({
+      move: moveEntry2,
+      fromHtml: null,
+      toHtml: tgtHtmlBefore,
+      fromId: null,
+      toId: targetCluster !== "NEW" ? "bdt_" + CSS.escape(targetCluster) : null
     });
+
     _bdShowConfirmBtn(cid, fromSgi);
   }
 }
