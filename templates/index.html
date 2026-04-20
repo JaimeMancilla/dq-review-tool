@@ -4226,19 +4226,32 @@ async function onBdDrop(e, targetCluster, cid, sgi) {
 
     _bdShowConfirmBtn(cid, fromSgi);
     // Sincronizar visual: tachar en bd_results el store movido desde el chip del sg
+    // y agregar como moved_in en el cluster destino para que aparezca en el panel
     const sgsSync = SUBGROUPS[cid]||[];
+    const storeIdStr = String(moveEntry2.store_id);
     sgsSync.forEach(otherSg => {
       if (!otherSg.bd_results) return;
-      otherSg.bd_results = otherSg.bd_results.map(bdc => ({
-        ...bdc,
-        members: bdc.members.map(mb => ({
+      otherSg.bd_results = otherSg.bd_results.map(bdc => {
+        // Tachar en el cluster origen
+        const members = bdc.members.map(mb => ({
           ...mb,
-          _moved_out: mb._moved_out ||
-            (String(mb.store_id) === String(moveEntry2.store_id) &&
-             bdc.cluster_index === (moveEntry2.from_cluster || bdc.cluster_index))
-        }))
-      }));
+          _moved_out: mb._moved_out || String(mb.store_id) === storeIdStr
+        }));
+        // Agregar como moved_in en cluster destino si no está ya
+        if (targetCluster !== "NEW" && bdc.cluster_index === targetCluster) {
+          const alreadyIn = members.some(mb => String(mb.store_id) === storeIdStr);
+          if (!alreadyIn) {
+            members.push({
+              store_id: moveEntry2.store_id, app_name: appName,
+              app_address: appAddr, is_anchor: false,
+              _moved_in: true, scraper_source: dragged?.scraper_source||""
+            });
+          }
+        }
+        return {...bdc, members};
+      });
     });
+    // Re-renderizar para mostrar tachado y chip movido
     renderSgActivePanel(cid, fromSgi);
   }
 }
