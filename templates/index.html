@@ -3188,6 +3188,9 @@ function renderSgList(cid) {
   const el = document.getElementById("sgListPanel");
   if (!el) return;
 
+  // Preservar scroll de la lista izquierda para no perder posición tras un move
+  const savedScrollTop = el.scrollTop;
+
   // Aplicar filtro
   const q = _sgListFilter;
   const filtered = sgs.map((sg, sgi) => ({sg, sgi})).filter(({sg}) => {
@@ -3232,6 +3235,9 @@ function renderSgList(cid) {
     <span style="font-size:14px;color:var(--muted)">＋</span>
     <span class="sg-list-name" style="font-weight:400">Nuevo grupo${q?' (crear)':''}</span>
   </div>`;
+
+  // Restaurar scroll después de reemplazar el HTML
+  el.scrollTop = savedScrollTop;
 }
 
 // Resalta el término buscado en texto
@@ -3322,7 +3328,13 @@ function onSgListDrop(e, cid, toSgi) {
       rep_addr: m?.app_address || '',
       sql: '', bd_results: [], correction: '', is_new: false
     });
-    _sgActiveSgi = sgs.length - 1;
+    // Mantener al usuario en el subgrupo origen si sigue existiendo (para mover más stores).
+    // Si el origen se vació y fue eliminado (_sgActiveSgi ya se ajustó arriba), dejarlo como está.
+    // Si el origen sigue existiendo y era el activo, no saltar al nuevo grupo.
+    // (Solo saltamos al nuevo si el usuario arrastró desde un origen que no es el activo.)
+    if (sgs[fromSgi] && _sgActiveSgi !== fromSgi) {
+      _sgActiveSgi = sgs.length - 1;
+    }
     regenerateSgSql(cid);
     // Feedback: este store es DISTINTO a los que quedaron en el origen
     if (m && originWasMulti) {
@@ -3345,7 +3357,11 @@ function onSgListDrop(e, cid, toSgi) {
       const firstM = cl?.members.find(m => m.item_index === sgs[toSgi].members[0]);
       if (firstM) sgs[toSgi].rep_name = firstM.app_name;
     }
-    _sgActiveSgi = toSgi;
+    // Mantener al usuario en el subgrupo origen si sigue existiendo (para mover más stores).
+    // Solo saltar al destino si el usuario arrastró desde un subgrupo que no era el activo.
+    if (sgs[fromSgi] && _sgActiveSgi !== fromSgi) {
+      _sgActiveSgi = toSgi;
+    }
     // Feedback: este store es IGUAL a los del destino (label=1)
     if (draggedMember) {
       const file = CURRENT_FILENAME || '';
@@ -3386,6 +3402,12 @@ function renderSgActivePanel(cid, sgi) {
   const el = document.getElementById("sgActivePanel");
   if (!el || !sg) return;
 
+  // Preservar scroll del panel activo y de cualquier contenedor con scroll interno
+  // para evitar el "salto al inicio" al re-renderizar tras un move.
+  const savedScrollTop = el.scrollTop;
+  // También preservar scroll del contenedor padre (la columna derecha del modal)
+  const parentScroll = el.parentElement ? el.parentElement.scrollTop : 0;
+
   // Aplicar _sessionClusterState + _confirmed_store_ids sobre bd_results
   if (sg.bd_results) {
     const confirmedSids = new Set((sg._confirmed_store_ids||[]).map(String));
@@ -3408,6 +3430,10 @@ function renderSgActivePanel(cid, sgi) {
   }
 
   el.innerHTML = buildSgGroupCard(cid, sg, sgi);
+
+  // Restaurar scroll después de reemplazar el HTML
+  el.scrollTop = savedScrollTop;
+  if (el.parentElement) el.parentElement.scrollTop = parentScroll;
 
   // Post-render: re-aplicar filtro BD si había valor persistido + mostrar botón confirmar si hay pending moves
   const sgKey = `${cid}_${sgi}`;
@@ -4240,24 +4266,34 @@ async function onBdDrop(e, targetCluster, cid, sgi) {
       _sessionClusterState[targetCluster].moved_in.push({store_id: m.store_id, app_name: m.app_name, app_address: m.app_address});
     }
     // Persistir _moved_out en bd_results de todos los subgrupos inmediatamente
-    // para que re-renders futuros muestren el tachado sin esperar confirmación
+    // para que re-renders futuros muestren el tachado sin esperar confirmación.
+    // También agregar _moved_in en cluster destino si es BD existente (mismo patrón que case 2).
     const sgsImm = SUBGROUPS[cid]||[];
+    const storeIdStrCase1 = String(m.store_id||"");
     sgsImm.forEach(otherSg => {
       if (!otherSg.bd_results) return;
       otherSg.bd_results = otherSg.bd_results.map(bdc => {
         const state = _sessionClusterState[bdc.cluster_index];
-        if (!state) return bdc;
-        const movedOutSet = state.moved_out instanceof Set
+        const movedOutSet = state?.moved_out instanceof Set
           ? state.moved_out
-          : new Set((state.moved_out||[]).map(String));
-        state.moved_out = movedOutSet;
-        return {
-          ...bdc,
-          members: bdc.members.map(mb => ({
-            ...mb,
-            _moved_out: movedOutSet.has(String(mb.store_id)) || mb._moved_out || false,
-          }))
-        };
+          : new Set((state?.moved_out||[]).map(String));
+        if (state) state.moved_out = movedOutSet;
+        let members = bdc.members.map(mb => ({
+          ...mb,
+          _moved_out: movedOutSet.has(String(mb.store_id)) || mb._moved_out || false,
+        }));
+        // Agregar como moved_in en cluster destino si es BD existente (no NEW) y aún no está
+        if (targetCluster !== "NEW" && bdc.cluster_index === targetCluster) {
+          const alreadyIn = members.some(mb => String(mb.store_id) === storeIdStrCase1 && !mb._moved_out);
+          if (!alreadyIn) {
+            members.push({
+              store_id: m.store_id, app_name: m.app_name, app_address: m.app_address,
+              is_anchor: false, _moved_in: true, scraper_source: m.scraper_source||"",
+              _from_cluster: m.from_cluster || ""
+            });
+          }
+        }
+        return {...bdc, members};
       });
     });
     // Trackear movimiento pendiente
