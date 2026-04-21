@@ -1370,9 +1370,9 @@ function renderStats(s){
   document.getElementById("statsBar").innerHTML=`
     <div class="stat"><div class="stat-lbl">Clusters</div><div class="stat-val">${s.total_clusters}</div></div>
     <div class="stat"><div class="stat-lbl">Stores</div><div class="stat-val">${s.total_rows}</div></div>
-    <div class="stat"><div class="stat-lbl">Sin cambios</div><div class="stat-val g">${s.total_ok}</div></div>
-    <div class="stat"><div class="stat-lbl">Con cambios</div><div class="stat-val r">${s.total_bad}</div></div>
-    <div class="stat" title="Stores corregidos de paso al revisar clusters del segundo modal"><div class="stat-lbl">Externos</div><div class="stat-val" style="color:var(--purple,#7c3aed)">${s.total_ext||0}</div></div>`;
+    <div class="stat" title="Tiendas marcadas como correctas (revision=1) — pertenecen a este cluster"><div class="stat-lbl">Correctas</div><div class="stat-val g">${s.total_ok}</div></div>
+    <div class="stat" title="Tiendas marcadas como incorrectas (revision=0) — no pertenecen a este cluster y deben corregirse"><div class="stat-lbl">Incorrectas</div><div class="stat-val r">${s.total_bad}</div></div>
+    <div class="stat" title="Tiendas corregidas de paso al revisar clusters del segundo modal (externas al archivo)"><div class="stat-lbl">Externas</div><div class="stat-val" style="color:var(--purple,#7c3aed)">${s.total_ext||0}</div></div>`;
 }
 async function refreshStats(){
   let rows=0,ok=0,bad=0;
@@ -2347,14 +2347,31 @@ async function loadDashTab(tab) {
           <div class="stat"><div class="stat-lbl">Total clusters</div><div class="stat-val">${(d.total_clusters||0).toLocaleString()}</div></div>
           <div class="stat"><div class="stat-lbl">Total tiendas</div><div class="stat-val">${(d.total_stores||0).toLocaleString()}</div></div>
         </div>
-        <!-- Stats revisión -->
-        <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Revisión</div>
-        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">
-          <div class="stat"><div class="stat-lbl">Clusters revisados</div><div class="stat-val g">${(d.reviewed||0).toLocaleString()}</div></div>
-          <div class="stat"><div class="stat-lbl">Clusters con errores</div><div class="stat-val r">${(d.corrected||0).toLocaleString()}</div></div>
-          <div class="stat"><div class="stat-lbl">Tiendas reasignadas</div><div class="stat-val" style="color:var(--blue)" title="Tiendas movidas a otro cluster existente">${(d.migrated_stores||0).toLocaleString()}</div></div>
-          <div class="stat"><div class="stat-lbl">Clusters nuevos</div><div class="stat-val" style="color:var(--purple)" title="Tiendas que generaron un cluster nuevo">${(d.new_cluster_stores||0).toLocaleString()}</div></div>
+
+        <!-- Clusters revisados -->
+        <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Clusters revisados</div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:20px">
+          <div class="stat"><div class="stat-lbl">Revisados</div><div class="stat-val g">${(d.reviewed||0).toLocaleString()}</div></div>
+          <div class="stat"><div class="stat-lbl">Con correcciones</div><div class="stat-val r">${(d.corrected||0).toLocaleString()}</div></div>
+          <div class="stat"><div class="stat-lbl">Sin correcciones</div><div class="stat-val" style="color:var(--muted)">${Math.max(0,(d.reviewed||0)-(d.corrected||0)).toLocaleString()}</div></div>
         </div>
+
+        <!-- Correcciones de tiendas propias (del archivo) -->
+        <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px" title="Tiendas que estaban en los archivos Excel revisados y fueron corregidas">Tiendas propias del archivo corregidas</div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:20px">
+          <div class="stat"><div class="stat-lbl">Total</div><div class="stat-val">${(d.own_total||0).toLocaleString()}</div></div>
+          <div class="stat" title="Tiendas reasignadas a un cluster ya existente"><div class="stat-lbl">→ cluster existente</div><div class="stat-val" style="color:var(--blue)">${(d.own_migrated||0).toLocaleString()}</div></div>
+          <div class="stat" title="Tiendas que generaron un cluster nuevo"><div class="stat-lbl">→ cluster nuevo</div><div class="stat-val" style="color:var(--purple)">${(d.own_new||0).toLocaleString()}</div></div>
+        </div>
+
+        <!-- Correcciones de tiendas externas (arrastradas desde resultados BD) -->
+        <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px" title="Tiendas que NO estaban en el archivo pero fueron corregidas al consolidar clusters">Tiendas externas corregidas</div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:20px">
+          <div class="stat"><div class="stat-lbl">Total</div><div class="stat-val">${(d.ext_total||0).toLocaleString()}</div></div>
+          <div class="stat" title="Tiendas reasignadas a un cluster ya existente"><div class="stat-lbl">→ cluster existente</div><div class="stat-val" style="color:var(--blue)">${(d.ext_migrated||0).toLocaleString()}</div></div>
+          <div class="stat" title="Tiendas que generaron un cluster nuevo"><div class="stat-lbl">→ cluster nuevo</div><div class="stat-val" style="color:var(--purple)">${(d.ext_new||0).toLocaleString()}</div></div>
+        </div>
+
         <div style="margin-bottom:24px">
           <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px">
             <span>Progreso vs BD <span style="color:var(--muted)">(clusters revisados / total)</span></span>

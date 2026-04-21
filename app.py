@@ -122,6 +122,10 @@ def init_db():
     try:
         conn.execute("ALTER TABLE external_corrections ADD COLUMN scraper_source TEXT")
     except: pass
+    # Migración: agregar is_new si no existe (0 = migrada a cluster existente, 1 = generó nuevo cluster)
+    try:
+        conn.execute("ALTER TABLE external_corrections ADD COLUMN is_new INTEGER DEFAULT 0")
+    except: pass
     # Tabla de progreso: clusters revisados
     conn.execute("""
         CREATE TABLE IF NOT EXISTS reviewed_clusters (
@@ -1046,15 +1050,16 @@ def ext_corr_add(record):
     conn.execute("""
         INSERT INTO external_corrections
           (store_id, item_index, cluster_index, cluster_name, cluster_address,
-           app_name, app_address, scraper_source, correction, added_at, file_name)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?)
+           app_name, app_address, scraper_source, correction, added_at, file_name, is_new)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
     """, (
         record.get("store_id",""),   record.get("item_index",""),
         record.get("cluster_index",""), record.get("cluster_name",""),
         record.get("cluster_address",""), record.get("app_name",""),
         record.get("app_address",""), record.get("scraper_source",""),
         record.get("correction",""),
-        time.time(), record.get("file_name","")
+        time.time(), record.get("file_name",""),
+        1 if record.get("is_new") else 0
     ))
     conn.commit(); conn.close()
 
@@ -1138,13 +1143,13 @@ def save_reviewed_clusters(clusters, filename, review_type=None):
     conn.commit(); conn.close()
 
 def progress_stats(table="sales_opportunity.dim_maestra", country="mx", review_type="stores_restaurant"):
-    """Cruza la memoria con la BD para calcular progreso."""
+    """Cruza la memoria con la BD para calcular progreso.
+    Filtra por review_type (stores_restaurant vs stores_retail) vía join con reviewed_files."""
     if not pg_is_configured():
         return None, "BD no configurada"
 
     # Filtro de country
     country_filter = f"WHERE country = '{country}'" if country != "all" else ""
-    where_and = f"AND country = '{country}'" if country != "all" else ""
 
     # Clusters y tiendas totales en BD
     sql_total = f"""
@@ -1162,41 +1167,84 @@ def progress_stats(table="sales_opportunity.dim_maestra", country="mx", review_t
     total_clusters = rows[0]["total_clusters"] if rows else 0
     total_stores   = rows[0]["total_stores"]   if rows else 0
 
-    # Desde memoria interna — filtrar por review_type
     conn = sqlite3.connect(DB_FILE)
-    rt_filter = f"AND review_type = '{review_type}'"
-    reviewed_clusters = conn.execute(f"""
+    # Clusters revisados y corregidos filtrados por review_type
+    reviewed_clusters = conn.execute("""
         SELECT COUNT(DISTINCT cluster_index) FROM reviewed_clusters
-        WHERE 1=1 {rt_filter}
-    """).fetchone()[0]
-    corrected_clusters = conn.execute(f"""
+        WHERE review_type = ?
+    """, (review_type,)).fetchone()[0]
+    corrected_clusters = conn.execute("""
         SELECT COUNT(DISTINCT cluster_index) FROM reviewed_clusters
-        WHERE corrections_count > 0 {rt_filter}
-    """).fetchone()[0]
-    # Tiendas corregidas desde corrections (filtradas por review_type via file_name)
-    migrated = conn.execute("""
-        SELECT COUNT(*) FROM corrections WHERE is_new = 0
-    """).fetchone()[0]
-    new_cluster = conn.execute("""
-        SELECT COUNT(*) FROM corrections WHERE is_new = 1
-    """).fetchone()[0]
-    recent = conn.execute(f"""
+        WHERE corrections_count > 0 AND review_type = ?
+    """, (review_type,)).fetchone()[0]
+
+    # Correcciones propias del archivo (del subgrupo) — join con reviewed_files para filtrar por review_type
+    # Nota: corrections.file_name debe existir en reviewed_files con el review_type correcto
+    own_migrated = conn.execute("""
+        SELECT COUNT(*) FROM corrections c
+        WHERE c.is_new = 0
+        AND EXISTS (
+            SELECT 1 FROM reviewed_files rf
+            WHERE rf.file_name = c.file_name AND rf.review_type = ?
+        )
+    """, (review_type,)).fetchone()[0]
+    own_new = conn.execute("""
+        SELECT COUNT(*) FROM corrections c
+        WHERE c.is_new = 1
+        AND EXISTS (
+            SELECT 1 FROM reviewed_files rf
+            WHERE rf.file_name = c.file_name AND rf.review_type = ?
+        )
+    """, (review_type,)).fetchone()[0]
+
+    # Correcciones externas (stores que no estaban en el archivo, arrastradas desde BD)
+    ext_migrated = conn.execute("""
+        SELECT COUNT(*) FROM external_corrections ec
+        WHERE COALESCE(ec.is_new, 0) = 0
+        AND EXISTS (
+            SELECT 1 FROM reviewed_files rf
+            WHERE rf.file_name = ec.file_name AND rf.review_type = ?
+        )
+    """, (review_type,)).fetchone()[0]
+    ext_new = conn.execute("""
+        SELECT COUNT(*) FROM external_corrections ec
+        WHERE COALESCE(ec.is_new, 0) = 1
+        AND EXISTS (
+            SELECT 1 FROM reviewed_files rf
+            WHERE rf.file_name = ec.file_name AND rf.review_type = ?
+        )
+    """, (review_type,)).fetchone()[0]
+
+    recent = conn.execute("""
         SELECT cluster_index, cluster_name, had_errors, corrections_count, reviewed_at, file_name
-        FROM reviewed_clusters WHERE 1=1 {rt_filter}
+        FROM reviewed_clusters WHERE review_type = ?
         ORDER BY reviewed_at DESC LIMIT 20
-    """).fetchall()
+    """, (review_type,)).fetchall()
     conn.close()
+
+    # Totales compuestos (para compatibilidad con UI anterior)
+    migrated = own_migrated + ext_migrated
+    new_cluster = own_new + ext_new
 
     pct = round(reviewed_clusters / int(total_clusters) * 100, 1) if total_clusters else 0
     return {
         "table":              table,
         "country":            country,
+        "review_type":        review_type,
         "total_clusters":     int(total_clusters),
         "total_stores":       int(total_stores),
         "reviewed":           reviewed_clusters,
         "corrected":          corrected_clusters,
+        # Compatibilidad con UI anterior
         "migrated_stores":    migrated,
         "new_cluster_stores": new_cluster,
+        # Desglose nuevo (propias vs externas, migradas vs nuevas)
+        "own_migrated":       own_migrated,
+        "own_new":            own_new,
+        "ext_migrated":       ext_migrated,
+        "ext_new":            ext_new,
+        "own_total":          own_migrated + own_new,
+        "ext_total":          ext_migrated + ext_new,
         "pending":            max(0, int(total_clusters) - reviewed_clusters),
         "pct":                pct,
         "recent": [
