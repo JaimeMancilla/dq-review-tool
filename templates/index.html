@@ -4262,10 +4262,9 @@ async function onBdDrop(e, targetCluster, cid, sgi) {
     if (_bdPendingMoves[key].some(mv => String(mv.store_id) === String(m.store_id))) {
       toast("⚠ Este store ya fue movido en este subgrupo"); _bdDragData = null; return;
     }
-    // Evitar mover el ancla de su propio cluster
-    if (m.is_anchor === true || m.is_anchor === "true") {
-      toast("⚠ No se puede mover el ancla de su cluster"); _bdDragData = null; return;
-    }
+    // Nota: se permite mover el ancla de su propio cluster. En escenarios de consolidación
+    // (dos clusters BD con el mismo store como ancla semántica), mover el ancla es legítimo.
+    // El backend resuelve el new_cluster a partir de la corrección elegida.
     // Agregar chip en destino
     _bdDropAddChip(targetCluster, cid, sgi, m.app_name, m.app_address, newCluster, m.store_id);
     // Registrar en el modelo del "nuevo cluster en construcción" (para que renderSgActivePanel lo reconstruya)
