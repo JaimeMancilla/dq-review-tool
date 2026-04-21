@@ -697,6 +697,16 @@ def brand_words(name):
     chain_word = next((w for w in words_raw if any(c in w for c in FAST_FOOD_CHAINS)), None)
     sub_word   = next((w for w in words_raw if w in FAST_FOOD_SUBS), None)
 
+    # Si el chain_word coincide con alguna variante más corta en FAST_FOOD_CHAINS,
+    # usar la más corta para capturar variantes con apóstrofes o espacios.
+    # Ej: "mcdonalds" → "mcdonald" (matchea McDonald's, McDonald, Mc Donalds, Mcdonalds)
+    # Esto evita que ilike '%mcdonalds%' falle con "McDonald's" (donde el apóstrofe separa 'd' y 's')
+    if chain_word:
+        # Buscar la variante más corta del set que esté contenida en chain_word
+        shorter_variants = [c for c in FAST_FOOD_CHAINS if c in chain_word and len(c) < len(chain_word)]
+        if shorter_variants:
+            chain_word = min(shorter_variants, key=len)
+
     if chain_word and sub_word:
         return [chain_word, sub_word]
 
