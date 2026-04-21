@@ -3476,11 +3476,30 @@ function buildSgGroupCard(cid, sg, sgi) {
 
   // Chips de stores con nombre + dirección
   const sgKey = `${cid}_${sgi}`;
-  const movedStoreIds = new Set(
-    (_bdPendingMoves[sgKey]||[])
-      .filter(mv => mv.is_subgroup && mv.store_id)
-      .map(mv => String(mv.store_id))
-  );
+  // Un chip SG debe tacharse si cualquier store con su mismo store_id fue movido en esta sesión.
+  // Casos que cuentan:
+  //   1. Move del propio chip SG (is_subgroup=true) en _bdPendingMoves
+  //   2. Move del mismo store_id desde un cluster BD (is_subgroup=false) en _bdPendingMoves
+  //   3. Move confirmado persistido en sg._confirmed_store_ids
+  //   4. Store marcado como moved_out en _sessionClusterState (ya confirmado externamente)
+  const movedStoreIds = new Set();
+  (_bdPendingMoves[sgKey]||[]).forEach(mv => {
+    if (mv.store_id) movedStoreIds.add(String(mv.store_id));
+  });
+  (sg._confirmed_store_ids||[]).forEach(sid => movedStoreIds.add(String(sid)));
+  // Revisar _sessionClusterState: si un store que pertenece al SG aparece como moved_out en algún cluster,
+  // significa que ya fue movido en esta sesión (via ext_correction o confirm previo)
+  Object.values(_sessionClusterState).forEach(state => {
+    if (!state?.moved_out) return;
+    const set = state.moved_out instanceof Set ? state.moved_out : new Set((state.moved_out||[]).map(String));
+    set.forEach(sid => movedStoreIds.add(String(sid)));
+  });
+
+  // Mapa store_id -> destino del move (para mostrar a dónde se fue)
+  const moveDestByStoreId = {};
+  (_bdPendingMoves[sgKey]||[]).forEach(mv => {
+    if (mv.store_id && mv.new_cluster) moveDestByStoreId[String(mv.store_id)] = mv.new_cluster;
+  });
 
   const chipsHtml = sg.members.map(ii => {
     const m = clMembers.find(m => m.item_index === ii);
@@ -3489,16 +3508,18 @@ function buildSgGroupCard(cid, sg, sgi) {
     const storeId = m ? (m.store_id||'') : '';
     const isAnchor = m ? m.is_anchor : (ii === cid);
     const isMoved = movedStoreIds.has(String(storeId));
+    const moveDest = isMoved ? moveDestByStoreId[String(storeId)] : null;
     return `<div class="sg-chip${isMoved?' sg-chip-moved':''}" draggable="${!isMoved}"
       data-ii="${esc(ii)}" data-from-sgi="${sgi}" data-cid="${esc(cid)}"
       ondragstart="onSgChipDragStart(event)"
       ondragend="onSgChipDragEnd(event)"
-      title="${esc(ii)}${isAnchor?' — ⚓ ANCLA del cluster':''}${isMoved?' — movido':''}">
+      title="${esc(ii)}${isAnchor?' — ⚓ ANCLA del cluster':''}${isMoved?' — movido'+(moveDest?' a '+moveDest:''):''}">
       <div class="sg-chip-name" style="${isMoved?'text-decoration:line-through;opacity:.45;':''}">
         ${isAnchor?`<span style="font-size:9px;color:var(--amber);margin-right:3px" title="Ancla del cluster">⚓</span>`:''}${esc(name)}
       </div>
       ${addr ? `<div class="sg-chip-addr" style="${isMoved?'text-decoration:line-through;opacity:.45;':''}">${esc(addr)}</div>` : ''}
       ${storeId ? `<div style="font-family:monospace;font-size:8px;color:var(--muted);margin-top:2px;opacity:.7">${esc(storeId)}</div>` : ''}
+      ${isMoved && moveDest ? `<div style="font-size:8px;color:var(--purple,#7c3aed);margin-top:2px;font-family:monospace">↳ ${esc(moveDest)}</div>` : ''}
       ${!isMoved ? `<span class="sg-chip-x" onclick="removeSgChip('${esc(cid)}',${sgi},'${esc(ii)}')">✕</span>` : `<span style="font-size:9px;color:var(--muted)">→</span>`}
     </div>`;
   }).join("");
@@ -4260,6 +4281,13 @@ async function onBdDrop(e, targetCluster, cid, sgi) {
   if (_bdDragData) {
     const m = _bdDragData; _bdDragData = null;
     if (m.from_cluster === targetCluster) return;
+
+    // Guards ANTES de cualquier mutación (DOM o estado). Evita estados inconsistentes si el guard dispara.
+    if (!_bdPendingMoves[key]) _bdPendingMoves[key] = [];
+    if (_bdPendingMoves[key].some(mv => String(mv.store_id) === String(m.store_id))) {
+      toast("⚠ Este store ya fue movido en este subgrupo"); return;
+    }
+
     let newCluster = targetCluster, isNew = false;
     if (targetCluster === "NEW") {
       // Reutilizar el "nuevo cluster en construcción" de este subgrupo si existe
@@ -4282,11 +4310,6 @@ async function onBdDrop(e, targetCluster, cid, sgi) {
         chip.setAttribute("draggable","false"); chip.dataset.tachado="1";
       }
     });
-    // Evitar mover el mismo store_id dos veces
-    if (!_bdPendingMoves[key]) _bdPendingMoves[key] = [];
-    if (_bdPendingMoves[key].some(mv => String(mv.store_id) === String(m.store_id))) {
-      toast("⚠ Este store ya fue movido en este subgrupo"); _bdDragData = null; return;
-    }
     // Nota: se permite mover el ancla de su propio cluster. En escenarios de consolidación
     // (dos clusters BD con el mismo store como ancla semántica), mover el ancla es legítimo.
     // El backend resuelve el new_cluster a partir de la corrección elegida.
@@ -4379,11 +4402,11 @@ async function onBdDrop(e, targetCluster, cid, sgi) {
     _sgModalDrag = null;
     if (!ii || dragCid !== cid) return;
 
-    // Guard: no mover el mismo store dos veces (por store_id)
+    // Guard: no mover el mismo store dos veces, ya sea como chip SG o como chip BD
     const sgKey = `${cid}_${_sgActiveSgi}`;
     const draggedStoreId = String(getCl(cid)?.members.find(m=>m.item_index===ii)?.store_id || ii);
     const alreadyMoved = (_bdPendingMoves[sgKey]||[]).some(mv =>
-      mv.is_subgroup && (mv.item_index === ii || String(mv.store_id) === draggedStoreId)
+      mv.item_index === ii || String(mv.store_id) === draggedStoreId
     );
     if (alreadyMoved) { toast("⚠ Este store ya fue asignado"); return; }
 
