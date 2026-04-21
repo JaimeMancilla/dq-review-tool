@@ -3402,11 +3402,17 @@ function renderSgActivePanel(cid, sgi) {
   const el = document.getElementById("sgActivePanel");
   if (!el || !sg) return;
 
-  // Preservar scroll del panel activo y de cualquier contenedor con scroll interno
-  // para evitar el "salto al inicio" al re-renderizar tras un move.
+  // Preservar scroll del panel activo. Buscar todos los ancestros con scroll para restaurar el del padre también.
   const savedScrollTop = el.scrollTop;
-  // También preservar scroll del contenedor padre (la columna derecha del modal)
-  const parentScroll = el.parentElement ? el.parentElement.scrollTop : 0;
+  const ancestorScrolls = [];
+  let p = el.parentElement;
+  while (p) {
+    const st = window.getComputedStyle(p);
+    if (st.overflowY === 'auto' || st.overflowY === 'scroll') {
+      ancestorScrolls.push({node: p, top: p.scrollTop});
+    }
+    p = p.parentElement;
+  }
 
   // Aplicar _sessionClusterState + _confirmed_store_ids sobre bd_results
   if (sg.bd_results) {
@@ -3431,9 +3437,9 @@ function renderSgActivePanel(cid, sgi) {
 
   el.innerHTML = buildSgGroupCard(cid, sg, sgi);
 
-  // Restaurar scroll después de reemplazar el HTML
+  // Restaurar scroll inmediatamente (antes de que filtros/confirmar alteren el layout)
   el.scrollTop = savedScrollTop;
-  if (el.parentElement) el.parentElement.scrollTop = parentScroll;
+  ancestorScrolls.forEach(({node, top}) => { node.scrollTop = top; });
 
   // Post-render: re-aplicar filtro BD si había valor persistido + mostrar botón confirmar si hay pending moves
   const sgKey = `${cid}_${sgi}`;
@@ -3443,6 +3449,16 @@ function renderSgActivePanel(cid, sgi) {
     filterBdResults(filterVal, cid, sgi, true);
   }
   _bdShowConfirmBtn(cid, sgi);
+
+  // Re-restaurar scroll DESPUÉS del paint (doble RAF).
+  // El browser puede ajustar scrollTop cuando el contenido cambia de altura (filtros, botón confirmar).
+  // Con requestAnimationFrame nos aseguramos de restaurar en el próximo frame ya renderizado.
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      el.scrollTop = savedScrollTop;
+      ancestorScrolls.forEach(({node, top}) => { node.scrollTop = top; });
+    });
+  });
 }
 
 function buildSgGroupCard(cid, sg, sgi) {
