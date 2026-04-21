@@ -3501,27 +3501,32 @@ function buildSgGroupCard(cid, sg, sgi) {
         const draggable = !isMovedOut && !isMovedIn;
 
         let chipBg, extraStyle = "";
-        if (isAnchor)     chipBg = "background:var(--abg);border-color:var(--aborder);cursor:grab";
-        else if (isMovedOut) { chipBg = "cursor:default"; extraStyle = "opacity:0.35;text-decoration:line-through"; }
-        else if (isMovedIn)  chipBg = "background:var(--pbg,#f5f3ff);border-color:var(--pborder,#c4b5fd);cursor:default";
-        else if (isMatch)    chipBg = "background:var(--gbg);border-color:var(--gborder);cursor:grab";
-        else                 chipBg = "cursor:grab";
+        // Prioridad: moved_out (tachado) > moved_in (recibido) > anchor > match > default.
+        // El ancla sí puede moverse (escenario de consolidación de clusters), y si lo hace,
+        // debe verse tachada igual que cualquier otro store movido.
+        if (isMovedOut)       { chipBg = "cursor:default"; extraStyle = "opacity:0.35;text-decoration:line-through"; }
+        else if (isMovedIn)     chipBg = "background:var(--pbg,#f5f3ff);border-color:var(--pborder,#c4b5fd);cursor:default";
+        else if (isAnchor)      chipBg = "background:var(--abg);border-color:var(--aborder);cursor:grab";
+        else if (isMatch)       chipBg = "background:var(--gbg);border-color:var(--gborder);cursor:grab";
+        else                    chipBg = "cursor:grab";
 
         const dragJson = draggable ? encodeURIComponent(JSON.stringify({
           store_id: m.store_id||"", app_name: m.app_name||"",
           app_address: m.app_address||"", scraper_source: m.scraper_source||"",
           from_cluster: bdc.cluster_index, cluster_name: bdc.cluster_name||"",
-          cluster_address: bdc.cluster_address||"", item_index: m.item_index||""
+          cluster_address: bdc.cluster_address||"", item_index: m.item_index||"",
+          is_anchor: !!isAnchor
         })) : "";
 
-        const icon = isAnchor ? `<span style="font-size:9px;color:var(--amber);font-weight:700" title="Ancla — arrastrable">⚓</span>`
-          : isMovedOut ? `<span style="font-size:9px;color:var(--red)">✕</span>`
-          : isMovedIn  ? `<span style="font-size:9px;color:var(--purple,#7c3aed)">↳</span>`
+        // Icono: tachado > recibido > ancla > default. El ancla movida conserva el ⚓ pequeño gris para contexto.
+        const icon = isMovedOut ? `<span style="font-size:9px;color:var(--red)">${isAnchor?'⚓':'✕'}</span>`
+          : isMovedIn ? `<span style="font-size:9px;color:var(--purple,#7c3aed)">↳</span>`
+          : isAnchor  ? `<span style="font-size:9px;color:var(--amber);font-weight:700" title="Ancla — arrastrable">⚓</span>`
           : `<span style="font-size:9px;color:var(--muted)">⠿</span>`;
 
-        const badge = isMatch    ? `<span style="font-size:9px;color:var(--green);font-weight:700;flex-shrink:0">✓</span>`
-          : isMovedOut ? `<span style="font-size:9px;color:var(--red);flex-shrink:0">movido</span>`
-          : isMovedIn  ? `<span style="font-size:9px;color:var(--purple,#7c3aed);flex-shrink:0">↳ recibido</span>`
+        const badge = isMovedOut ? `<span style="font-size:9px;color:var(--red);flex-shrink:0">${isAnchor?'⚓ movido':'movido'}</span>`
+          : isMovedIn ? `<span style="font-size:9px;color:var(--purple,#7c3aed);flex-shrink:0">↳ recibido</span>`
+          : isMatch   ? `<span style="font-size:9px;color:var(--green);font-weight:700;flex-shrink:0">✓</span>`
           : "";
 
         return `<div style="display:flex;flex-direction:column;border:1px solid var(--border2);border-radius:5px;padding:5px 8px;font-size:10px;${chipBg};${extraStyle};margin-bottom:3px"
@@ -3538,7 +3543,16 @@ function buildSgGroupCard(cid, sg, sgi) {
         </div>`;
       }).join("");
 
-      const hdrBg = hasAnchorOfSg
+      // Detectar si el cluster quedó "vaciado": todos sus miembros originales (no _moved_in) están moved_out
+      const originalMembers = bdc.members.filter(m => !m._moved_in);
+      const movedOutCount = originalMembers.filter(m => m._moved_out).length;
+      const isClusterEmptied = originalMembers.length > 0 && movedOutCount === originalMembers.length;
+      const remainingCount = originalMembers.length - movedOutCount;
+      const incomingCount = bdc.members.filter(m => m._moved_in).length;
+
+      const hdrBg = isClusterEmptied
+        ? "background:var(--surf2);border-bottom:1px dashed var(--border);opacity:.55"
+        : hasAnchorOfSg
         ? "background:rgba(237,137,54,.12);border-bottom:1px solid var(--aborder)"
         : "background:var(--surf2);border-bottom:1px solid var(--border)";
 
@@ -3563,17 +3577,24 @@ function buildSgGroupCard(cid, sg, sgi) {
           <div style="font-family:monospace;font-size:8px;color:var(--muted);margin-top:2px;opacity:.7">${esc(mi.store_id)}</div>
         </div>`).join("");
 
-      return `<div class="sg-bd-cluster bd-drop-zone" id="bdz_${CSS.escape(bdc.cluster_index)}"
+      // Contador en header: X stores (Y movidos) o X stores (+N recibidos) etc.
+      const countLabel = isClusterEmptied
+        ? `<span style="font-size:10px;color:var(--red);font-style:italic">✕ ${originalMembers.length} movidos · cluster vacío</span>`
+        : movedOutCount > 0 || incomingCount > 0
+        ? `<span style="font-size:10px;color:var(--muted)">${remainingCount}/${originalMembers.length} stores${movedOutCount?` · <span style="color:var(--red)">✕${movedOutCount}</span>`:''}${incomingCount?` · <span style="color:var(--purple,#7c3aed)">↳${incomingCount}</span>`:''}</span>`
+        : `<span style="font-size:10px;color:var(--muted)">${bdc.members.length} stores</span>`;
+
+      return `<div class="sg-bd-cluster bd-drop-zone${isClusterEmptied?' cluster-emptied':''}" id="bdz_${CSS.escape(bdc.cluster_index)}"
         data-cluster="${esc(bdc.cluster_index)}"
         ondragover="onBdDropZoneOver(event)" ondragleave="onBdDropZoneLeave(event)"
         ondrop="onBdDrop(event,'${esc(bdc.cluster_index)}','${esc(cid)}',${sgi})">
         <div style="display:flex;align-items:center;gap:6px;padding:5px 8px;${hdrBg}">
-          <span class="sg-bd-cluster-id">${esc(bdc.cluster_index)}</span>
-          <span style="font-size:10px;color:var(--muted)">${bdc.members.length} stores</span>
+          <span class="sg-bd-cluster-id"${isClusterEmptied?' style="text-decoration:line-through;opacity:.6"':''}>${esc(bdc.cluster_index)}</span>
+          ${countLabel}
           ${hasAnchorOfSg?`<span style="font-size:9px;color:var(--amber);font-weight:700">⚓ ancla aquí</span>`
             :hasAnchor?`<span style="font-size:9px;color:var(--muted)">⚓</span>`:""}
           ${alreadyAssignedBadge}
-          ${hasMatchInSg && !isCorr ? `<button class="btn sm" style="margin-left:auto;font-size:10px;padding:1px 8px;background:var(--gbg);color:var(--green);border-color:var(--gborder)"
+          ${hasMatchInSg && !isCorr && !isClusterEmptied ? `<button class="btn sm" style="margin-left:auto;font-size:10px;padding:1px 8px;background:var(--gbg);color:var(--green);border-color:var(--gborder)"
             onclick="assignThisCluster('${esc(bdc.cluster_index)}','${esc(cid)}',${sgi})">✓ Este es</button>` : ""}
         </div>
         <div style="padding:5px 8px" id="bdt_${CSS.escape(bdc.cluster_index)}">${chipsHtml2}${confirmedInHtml}</div>
