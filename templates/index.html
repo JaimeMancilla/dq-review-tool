@@ -3418,9 +3418,15 @@ function renderSgActivePanel(cid, sgi) {
     groupStores: el.querySelector('.sg-group-stores')?.scrollTop || 0,
   };
 
-  // Aplicar _sessionClusterState + _confirmed_store_ids sobre bd_results
+  // Aplicar _sessionClusterState + _confirmed_store_ids sobre bd_results.
+  // Importante: acumular _confirmed_store_ids de TODOS los subgrupos del cluster actual,
+  // no solo del subgrupo activo. Sino al cambiar de subgrupo se pierde el tachado
+  // de stores confirmadas en subgrupos anteriores.
   if (sg.bd_results) {
-    const confirmedSids = new Set((sg._confirmed_store_ids||[]).map(String));
+    const confirmedSids = new Set();
+    sgs.forEach(otherSg => {
+      (otherSg._confirmed_store_ids||[]).forEach(sid => confirmedSids.add(String(sid)));
+    });
     sg.bd_results = sg.bd_results.map(bdc => {
       const state = _sessionClusterState[bdc.cluster_index];
       const movedOutSet = state?.moved_out instanceof Set
@@ -3476,19 +3482,19 @@ function buildSgGroupCard(cid, sg, sgi) {
 
   // Chips de stores con nombre + dirección
   const sgKey = `${cid}_${sgi}`;
+  const allSgs = SUBGROUPS[cid] || [];
   // Un chip SG debe tacharse si cualquier store con su mismo store_id fue movido en esta sesión.
   // Casos que cuentan:
-  //   1. Move del propio chip SG (is_subgroup=true) en _bdPendingMoves
-  //   2. Move del mismo store_id desde un cluster BD (is_subgroup=false) en _bdPendingMoves
-  //   3. Move confirmado persistido en sg._confirmed_store_ids
-  //   4. Store marcado como moved_out en _sessionClusterState (ya confirmado externamente)
+  //   1. Move pendiente en _bdPendingMoves del sg actual (sea chip SG o chip BD)
+  //   2. Move confirmado en _confirmed_store_ids de CUALQUIER subgrupo del cid (no solo el actual)
+  //   3. Store en moved_out de cualquier cluster en _sessionClusterState
   const movedStoreIds = new Set();
   (_bdPendingMoves[sgKey]||[]).forEach(mv => {
     if (mv.store_id) movedStoreIds.add(String(mv.store_id));
   });
-  (sg._confirmed_store_ids||[]).forEach(sid => movedStoreIds.add(String(sid)));
-  // Revisar _sessionClusterState: si un store que pertenece al SG aparece como moved_out en algún cluster,
-  // significa que ya fue movido en esta sesión (via ext_correction o confirm previo)
+  allSgs.forEach(otherSg => {
+    (otherSg._confirmed_store_ids||[]).forEach(sid => movedStoreIds.add(String(sid)));
+  });
   Object.values(_sessionClusterState).forEach(state => {
     if (!state?.moved_out) return;
     const set = state.moved_out instanceof Set ? state.moved_out : new Set((state.moved_out||[]).map(String));
@@ -3499,6 +3505,21 @@ function buildSgGroupCard(cid, sg, sgi) {
   const moveDestByStoreId = {};
   (_bdPendingMoves[sgKey]||[]).forEach(mv => {
     if (mv.store_id && mv.new_cluster) moveDestByStoreId[String(mv.store_id)] = mv.new_cluster;
+  });
+  // Destinos de moves confirmados de TODOS los subgrupos del cid
+  allSgs.forEach(otherSg => {
+    const cmi = otherSg._confirmed_moves_in || {};
+    Object.entries(cmi).forEach(([destCluster, stores]) => {
+      (stores||[]).forEach(s => {
+        if (s.store_id) moveDestByStoreId[String(s.store_id)] = destCluster;
+      });
+    });
+    // También los store_ids que son parte del subgrupo confirmado apuntan a su correction
+    if (otherSg.correction && otherSg._confirmed_store_ids) {
+      otherSg._confirmed_store_ids.forEach(sid => {
+        if (!moveDestByStoreId[String(sid)]) moveDestByStoreId[String(sid)] = otherSg.correction;
+      });
+    }
   });
 
   const chipsHtml = sg.members.map(ii => {
