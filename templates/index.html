@@ -1338,6 +1338,7 @@ async function doUpload(file){
       document.getElementById("uploadScreen").classList.add("hidden");
       document.getElementById("mainScreen").classList.remove("hidden");
       document.getElementById("hdrFile").textContent=file.name;
+      document.getElementById("hdrFile").style.display="";
       // Export deshabilitado hasta "Marcar revisado"; BdUpdate (preview) siempre disponible
       const btnExp=document.getElementById("btnExport");
       const btnBd=document.getElementById("btnBdUpdate");
@@ -2309,7 +2310,14 @@ async function loadDashTab(tab) {
     if(tab === "dishes") {
       d = await api("/progress?mode=dishes");
       if(d.error){ content.innerHTML=`<div style="color:var(--red)">${esc(d.error)}</div>`; return; }
+      const activeFileBanner = CURRENT_FILENAME ? `
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;margin-bottom:16px;background:var(--bbg);border:1px solid var(--blue);border-radius:var(--r);font-size:12px">
+          <span style="font-size:14px">📂</span>
+          <span style="color:var(--muted);font-weight:600">Archivo activo:</span>
+          <span style="font-family:monospace;color:var(--blue);font-weight:700">${esc(CURRENT_FILENAME)}</span>
+        </div>` : '';
       content.innerHTML = `
+        ${activeFileBanner}
         <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px">
           <div class="stat"><div class="stat-lbl">Archivos</div><div class="stat-val">${d.total_files}</div></div>
           <div class="stat"><div class="stat-lbl">Grupos ok</div><div class="stat-val g">${d.total_ok}</div></div>
@@ -2327,7 +2335,15 @@ async function loadDashTab(tab) {
       if(d.error){ content.innerHTML=`<div style="color:var(--red);padding:12px">${esc(d.error)}</div>`; return; }
       const pct = d.pct || 0;
       const barColor = pct<30?"var(--red)":pct<70?"var(--amber)":"var(--green)";
+      // Banner de archivo activo — solo se muestra si hay un archivo en sesión
+      const activeFileBanner = CURRENT_FILENAME ? `
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;margin-bottom:16px;background:var(--bbg);border:1px solid var(--blue);border-radius:var(--r);font-size:12px">
+          <span style="font-size:14px">📂</span>
+          <span style="color:var(--muted);font-weight:600">Archivo activo:</span>
+          <span style="font-family:monospace;color:var(--blue);font-weight:700">${esc(CURRENT_FILENAME)}</span>
+        </div>` : '';
       content.innerHTML = `
+        ${activeFileBanner}
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
           <label style="font-size:12px;color:var(--muted)">País:</label>
           <select id="dashCountry" onchange="loadDashTab('${tab}')"
