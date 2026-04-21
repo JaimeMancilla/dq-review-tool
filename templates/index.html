@@ -3402,13 +3402,16 @@ function renderSgActivePanel(cid, sgi) {
   const el = document.getElementById("sgActivePanel");
   if (!el || !sg) return;
 
-  // Preservar scroll del panel activo. Buscar todos los ancestros con scroll para restaurar el del padre también.
+  // El scroll real está en <html> (document.documentElement), no en el panel ni sus ancestros directos
+  // porque el modal es más alto que la ventana y la página scrollea por detrás.
+  // Capturar TODOS los scrolls relevantes antes de reemplazar el HTML.
+  const htmlScrollTop = document.documentElement.scrollTop;
+  const bodyScrollTop = document.body.scrollTop;
   const savedScrollTop = el.scrollTop;
   const ancestorScrolls = [];
   let p = el.parentElement;
   while (p) {
-    const st = window.getComputedStyle(p);
-    if (st.overflowY === 'auto' || st.overflowY === 'scroll') {
+    if (p.scrollHeight > p.clientHeight && p.scrollTop > 0) {
       ancestorScrolls.push({node: p, top: p.scrollTop});
     }
     p = p.parentElement;
@@ -3437,7 +3440,9 @@ function renderSgActivePanel(cid, sgi) {
 
   el.innerHTML = buildSgGroupCard(cid, sg, sgi);
 
-  // Restaurar scroll inmediatamente (antes de que filtros/confirmar alteren el layout)
+  // Restaurar scroll inmediatamente
+  document.documentElement.scrollTop = htmlScrollTop;
+  document.body.scrollTop = bodyScrollTop;
   el.scrollTop = savedScrollTop;
   ancestorScrolls.forEach(({node, top}) => { node.scrollTop = top; });
 
@@ -3445,16 +3450,15 @@ function renderSgActivePanel(cid, sgi) {
   const sgKey = `${cid}_${sgi}`;
   const filterVal = _bdFilterBySgKey[sgKey];
   if (filterVal) {
-    // El input ya se rehidrata con value="..." al construir el HTML; solo falta ejecutar el filtrado
     filterBdResults(filterVal, cid, sgi, true);
   }
   _bdShowConfirmBtn(cid, sgi);
 
-  // Re-restaurar scroll DESPUÉS del paint (doble RAF).
-  // El browser puede ajustar scrollTop cuando el contenido cambia de altura (filtros, botón confirmar).
-  // Con requestAnimationFrame nos aseguramos de restaurar en el próximo frame ya renderizado.
+  // Re-restaurar scroll DESPUÉS del paint (doble RAF) por si el layout cambió por filtros/botón
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
+      document.documentElement.scrollTop = htmlScrollTop;
+      document.body.scrollTop = bodyScrollTop;
       el.scrollTop = savedScrollTop;
       ancestorScrolls.forEach(({node, top}) => { node.scrollTop = top; });
     });
