@@ -222,7 +222,675 @@ def _migrate_cluster_scores():
 
 _migrate_cluster_scores()
 
-# ── Job de scoring ────────────────────────────────────────────────────────────
+# ── Migración: tablas para módulo Homologación PJ (Papa John's) ──────────────
+def _migrate_pj_tables():
+    """Crea las 4 tablas del módulo de Homologación PJ.
+    - pj_sabana: filas crudas del Excel del cliente (una por product_id de sabana)
+    - pj_master: Maestra de productos (catálogo canónico con search_codes)
+    - pj_cross:  Maestra competencia (matriz de equivalencias entre cadenas)
+    - pj_homol:  asignaciones (main_chain, product_name) -> search_code [global]
+    """
+    conn = sqlite3.connect(DB_FILE)
+    # Sabana: datos crudos del archivo, se recarga en cada upload del mismo file_name
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS pj_sabana (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            file_name           TEXT NOT NULL,
+            client              TEXT,
+            country             TEXT,
+            scraper_source      TEXT,
+            main_chain          TEXT,
+            store_id            TEXT,
+            product_id          TEXT,
+            product_name        TEXT,
+            product_description TEXT,
+            product_category    TEXT,
+            price               TEXT,
+            url_example         TEXT,
+            search_code_original TEXT
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_pjs_file  ON pj_sabana(file_name)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_pjs_chain ON pj_sabana(file_name, main_chain)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_pjs_pname ON pj_sabana(file_name, main_chain, product_name)")
+
+    # Maestra de productos: catálogo del archivo, se recarga en cada upload
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS pj_master (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            file_name           TEXT NOT NULL,
+            client              TEXT,
+            main_chain          TEXT,
+            search_code         TEXT,
+            search_name         TEXT,
+            search_description  TEXT,
+            informacion_faltante TEXT DEFAULT ''
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_pjm_file  ON pj_master(file_name)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_pjm_chain ON pj_master(file_name, main_chain)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_pjm_code  ON pj_master(file_name, search_code)")
+
+    # Maestra competencia: matriz de equivalencias entre cadenas, se recarga en cada upload
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS pj_cross (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            file_name       TEXT NOT NULL,
+            tipo            TEXT,
+            chain_name      TEXT,
+            product_name    TEXT,
+            row_idx         INTEGER
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_pjc_file ON pj_cross(file_name)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_pjc_row  ON pj_cross(file_name, row_idx)")
+
+    # Homologaciones: persistentes y globales (cross-file) por (main_chain, product_name)
+    # Si llega un archivo nuevo, precargamos auto las homologaciones que ya existan.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS pj_homol (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            main_chain      TEXT NOT NULL,
+            product_name    TEXT NOT NULL,
+            search_code     TEXT,
+            is_dubious      INTEGER DEFAULT 0,
+            note            TEXT DEFAULT '',
+            file_name       TEXT,
+            updated_at      REAL,
+            UNIQUE(main_chain, product_name)
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_pjh_chain ON pj_homol(main_chain)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_pjh_code  ON pj_homol(search_code)")
+    conn.commit(); conn.close()
+
+_migrate_pj_tables()
+
+# ── Módulo Homologación PJ: parseo + endpoints ───────────────────────────────
+PJ_CURRENT_FILE_KEY = "pj_filename"  # clave de sesión para archivo activo
+
+def _pj_clear_file(conn, file_name):
+    """Borra datos de un archivo en pj_sabana, pj_master, pj_cross (no toca pj_homol global)."""
+    conn.execute("DELETE FROM pj_sabana WHERE file_name = ?", (file_name,))
+    conn.execute("DELETE FROM pj_master WHERE file_name = ?", (file_name,))
+    conn.execute("DELETE FROM pj_cross  WHERE file_name = ?", (file_name,))
+
+def _pj_parse_xlsx(path, file_name):
+    """Parsea un Excel de homologación PJ. Espera 3 hojas:
+    - 'sabana de datos' con 12 columnas conocidas
+    - 'Maestra de productos' con 5 columnas
+    - 'Maestra competencia' (matriz)
+    Retorna (stats_dict, error_str). Si error, no guarda nada."""
+    try:
+        xl = pd.ExcelFile(path)
+    except Exception as e:
+        return None, f"No se pudo abrir el Excel: {e}"
+
+    sheets = xl.sheet_names
+    # Tolerante: buscar hojas por keywords (por si el cliente cambia mayus/min)
+    def _find_sheet(keywords):
+        for s in sheets:
+            sn = s.lower().strip()
+            if all(k in sn for k in keywords):
+                return s
+        return None
+
+    sh_sabana = _find_sheet(["sabana"]) or _find_sheet(["sábana"])
+    sh_master = _find_sheet(["maestra", "producto"])
+    sh_cross  = _find_sheet(["maestra", "competencia"])
+
+    if not sh_sabana:
+        return None, "No se encontró la hoja 'sabana de datos'"
+    if not sh_master:
+        return None, "No se encontró la hoja 'Maestra de productos'"
+
+    # Parseo de sabana — mantener columnas esperadas, ignorar extras
+    sabana = pd.read_excel(path, sheet_name=sh_sabana, dtype=str).fillna("")
+    expected_cols = ['client','country','scraper_source','main_chain','store_id',
+                     'product_id','product_name','product_description','product_category',
+                     'price','url_example','search_code']
+    missing = [c for c in expected_cols if c not in sabana.columns]
+    if missing:
+        return None, f"Faltan columnas en 'sabana de datos': {missing}"
+
+    # Parseo maestra
+    master = pd.read_excel(path, sheet_name=sh_master, dtype=str).fillna("")
+    expected_m = ['client','main_chain','search_code','search_name','search_description']
+    missing_m = [c for c in expected_m if c not in master.columns]
+    if missing_m:
+        return None, f"Faltan columnas en 'Maestra de productos': {missing_m}"
+    # Columna informacion_faltante es opcional en input
+    if 'informacion_faltante' not in master.columns:
+        master['informacion_faltante'] = ''
+
+    # Parseo cross (opcional). Formato matriz: 1 columna "Tipo" + N columnas de cadenas
+    cross_rows = []
+    if sh_cross:
+        cross = pd.read_excel(path, sheet_name=sh_cross, dtype=str).fillna("")
+        if 'Tipo' in cross.columns or 'tipo' in cross.columns:
+            tipo_col = 'Tipo' if 'Tipo' in cross.columns else 'tipo'
+            chain_cols = [c for c in cross.columns if c != tipo_col]
+            for ridx, row in cross.iterrows():
+                tipo_v = row.get(tipo_col,"")
+                for ch in chain_cols:
+                    pname = row.get(ch,"").strip()
+                    if pname:
+                        cross_rows.append({
+                            "tipo": tipo_v, "chain_name": ch.strip(),
+                            "product_name": pname, "row_idx": int(ridx)
+                        })
+
+    # Todo OK, persistir
+    conn = sqlite3.connect(DB_FILE)
+    _pj_clear_file(conn, file_name)
+
+    # Sabana
+    sabana_rows = sabana[expected_cols].to_dict('records')
+    conn.executemany("""
+        INSERT INTO pj_sabana (file_name, client, country, scraper_source, main_chain,
+                               store_id, product_id, product_name, product_description,
+                               product_category, price, url_example, search_code_original)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+    """, [(file_name, r['client'], r['country'], r['scraper_source'], r['main_chain'],
+           r['store_id'], r['product_id'], r['product_name'], r['product_description'],
+           r['product_category'], r['price'], r['url_example'], r['search_code'])
+          for r in sabana_rows])
+
+    # Master
+    master_rows = master[expected_m + ['informacion_faltante']].to_dict('records')
+    conn.executemany("""
+        INSERT INTO pj_master (file_name, client, main_chain, search_code, search_name,
+                               search_description, informacion_faltante)
+        VALUES (?,?,?,?,?,?,?)
+    """, [(file_name, r['client'], r['main_chain'], r['search_code'], r['search_name'],
+           r['search_description'], r.get('informacion_faltante',''))
+          for r in master_rows])
+
+    # Cross
+    if cross_rows:
+        conn.executemany("""
+            INSERT INTO pj_cross (file_name, tipo, chain_name, product_name, row_idx)
+            VALUES (?,?,?,?,?)
+        """, [(file_name, r['tipo'], r['chain_name'], r['product_name'], r['row_idx'])
+              for r in cross_rows])
+
+    conn.commit(); conn.close()
+
+    return {
+        "file_name": file_name,
+        "sabana_rows": len(sabana_rows),
+        "master_rows": len(master_rows),
+        "cross_rows": len(cross_rows),
+        "chains_sabana": sorted(sabana['main_chain'].unique().tolist()),
+        "chains_master": sorted(master['main_chain'].unique().tolist()),
+    }, None
+
+@app.route("/pj/upload", methods=["POST"])
+def pj_upload():
+    """Recibe un xlsx del cliente PJ, parsea las 3 hojas, guarda en SQLite.
+    Mantiene el archivo en disco para permitir export idéntico."""
+    f = request.files.get("file")
+    if not f:
+        return jsonify({"error": "No se recibió archivo"}), 400
+
+    filename = f.filename or "homolog_pj.xlsx"
+    # Guardar archivo físico (para poder leer hoja READ_ME y mantener estilos en export)
+    pj_dir = os.path.join(os.path.dirname(DB_FILE) or ".", "pj_uploads")
+    os.makedirs(pj_dir, exist_ok=True)
+    save_path = os.path.join(pj_dir, filename)
+    f.save(save_path)
+
+    stats, err = _pj_parse_xlsx(save_path, filename)
+    if err:
+        return jsonify({"error": err}), 400
+
+    session[PJ_CURRENT_FILE_KEY] = filename
+    session["pj_path"] = save_path
+    session.modified = True
+
+    # Auto-aplicar homologaciones globales previas a productos de este archivo
+    conn = sqlite3.connect(DB_FILE)
+    preloaded = conn.execute("""
+        SELECT COUNT(DISTINCT s.main_chain || '|' || s.product_name)
+        FROM pj_sabana s
+        JOIN pj_homol h
+          ON h.main_chain = s.main_chain AND h.product_name = s.product_name
+        WHERE s.file_name = ? AND h.search_code IS NOT NULL AND h.search_code != ''
+    """, (filename,)).fetchone()[0]
+    conn.close()
+    stats["preloaded_homologations"] = preloaded
+
+    return jsonify({"ok": True, "stats": stats})
+
+@app.route("/pj/session")
+def pj_session():
+    """Devuelve el archivo PJ activo, si existe."""
+    fn = session.get(PJ_CURRENT_FILE_KEY)
+    if not fn:
+        return jsonify({"active": False})
+    conn = sqlite3.connect(DB_FILE)
+    n = conn.execute("SELECT COUNT(*) FROM pj_sabana WHERE file_name = ?", (fn,)).fetchone()[0]
+    conn.close()
+    if n == 0:
+        # Archivo borrado del storage, limpiar sesión
+        session.pop(PJ_CURRENT_FILE_KEY, None)
+        session.pop("pj_path", None)
+        session.modified = True
+        return jsonify({"active": False})
+    return jsonify({"active": True, "file_name": fn, "sabana_rows": n})
+
+@app.route("/pj/list")
+def pj_list():
+    """Lista agrupada por (main_chain, product_name). Filtros: main_chain, scraper_source,
+    status=all|pending|done|dubious, q=búsqueda texto, limit, offset."""
+    fn = session.get(PJ_CURRENT_FILE_KEY)
+    if not fn:
+        return jsonify({"error": "Sin archivo activo"}), 400
+
+    main_chain = (request.args.get("main_chain") or "").strip()
+    scraper    = (request.args.get("scraper_source") or "").strip()
+    status     = (request.args.get("status") or "all").strip()
+    q          = (request.args.get("q") or "").strip().lower()
+    limit      = max(1, min(500, int(request.args.get("limit", 100))))
+    offset     = max(0, int(request.args.get("offset", 0)))
+
+    where = ["s.file_name = ?"]
+    params = [fn]
+    if main_chain:
+        where.append("s.main_chain = ?")
+        params.append(main_chain)
+    if scraper:
+        where.append("s.scraper_source = ?")
+        params.append(scraper)
+    if q:
+        where.append("LOWER(s.product_name) LIKE ?")
+        params.append(f"%{q}%")
+
+    where_sql = " AND ".join(where)
+
+    conn = sqlite3.connect(DB_FILE)
+    # Agrupar por (main_chain, product_name). Agregar métricas y left-join con pj_homol
+    rows = conn.execute(f"""
+        SELECT
+          s.main_chain, s.product_name,
+          COUNT(*)                    as n_rows,
+          MIN(CAST(NULLIF(s.price,'') AS REAL)) as price_min,
+          MAX(CAST(NULLIF(s.price,'') AS REAL)) as price_max,
+          GROUP_CONCAT(DISTINCT s.scraper_source) as sources,
+          h.search_code, h.is_dubious, h.note
+        FROM pj_sabana s
+        LEFT JOIN pj_homol h
+          ON h.main_chain = s.main_chain AND h.product_name = s.product_name
+        WHERE {where_sql}
+        GROUP BY s.main_chain, s.product_name
+    """, params).fetchall()
+
+    # Filtrar por status después del GROUP BY
+    if status == "pending":
+        rows = [r for r in rows if not r[6] and not r[7]]
+    elif status == "done":
+        rows = [r for r in rows if r[6]]
+    elif status == "dubious":
+        rows = [r for r in rows if r[7]]
+
+    total = len(rows)
+    # Ordenar por n_rows desc (más impactantes primero)
+    rows.sort(key=lambda r: -r[2])
+    page = rows[offset:offset+limit]
+
+    # Total global (sin filtros) para el header
+    global_stats = conn.execute("""
+        SELECT
+          COUNT(DISTINCT s.main_chain || '||' || s.product_name) as total_unique,
+          COUNT(*) as total_rows,
+          (SELECT COUNT(DISTINCT h2.main_chain || '||' || h2.product_name)
+             FROM pj_sabana s2
+             JOIN pj_homol h2
+               ON h2.main_chain = s2.main_chain AND h2.product_name = s2.product_name
+            WHERE s2.file_name = ?
+              AND h2.search_code IS NOT NULL AND h2.search_code != ''
+          ) as total_done,
+          (SELECT COUNT(DISTINCT h3.main_chain || '||' || h3.product_name)
+             FROM pj_sabana s3
+             JOIN pj_homol h3
+               ON h3.main_chain = s3.main_chain AND h3.product_name = s3.product_name
+            WHERE s3.file_name = ?
+              AND h3.is_dubious = 1
+          ) as total_dubious
+        FROM pj_sabana s
+        WHERE s.file_name = ?
+    """, (fn, fn, fn)).fetchone()
+
+    # Opciones para filtros
+    chains = [r[0] for r in conn.execute("""
+        SELECT DISTINCT main_chain FROM pj_sabana WHERE file_name = ? ORDER BY main_chain
+    """, (fn,)).fetchall()]
+    scrapers = [r[0] for r in conn.execute("""
+        SELECT DISTINCT scraper_source FROM pj_sabana WHERE file_name = ? ORDER BY scraper_source
+    """, (fn,)).fetchall()]
+    chains_with_master = [r[0] for r in conn.execute("""
+        SELECT DISTINCT main_chain FROM pj_master WHERE file_name = ? ORDER BY main_chain
+    """, (fn,)).fetchall()]
+    conn.close()
+
+    return jsonify({
+        "items": [{
+            "main_chain": r[0], "product_name": r[1],
+            "n_rows": r[2], "price_min": r[3], "price_max": r[4],
+            "sources": (r[5] or "").split(","),
+            "search_code": r[6] or "",
+            "is_dubious": bool(r[7]),
+            "note": r[8] or "",
+            "has_master": r[0] in chains_with_master,
+        } for r in page],
+        "total_filtered": total,
+        "offset": offset,
+        "limit": limit,
+        "stats": {
+            "total_unique": global_stats[0] or 0,
+            "total_rows":   global_stats[1] or 0,
+            "total_done":   global_stats[2] or 0,
+            "total_dubious":global_stats[3] or 0,
+        },
+        "filters": {
+            "chains": chains,
+            "scrapers": scrapers,
+            "chains_with_master": chains_with_master,
+        }
+    })
+
+@app.route("/pj/product_detail")
+def pj_product_detail():
+    """Detalle de un (main_chain, product_name): descripciones únicas, precios, URLs."""
+    fn = session.get(PJ_CURRENT_FILE_KEY)
+    if not fn:
+        return jsonify({"error": "Sin archivo activo"}), 400
+    mc = (request.args.get("main_chain") or "").strip()
+    pn = (request.args.get("product_name") or "").strip()
+    if not mc or not pn:
+        return jsonify({"error": "Faltan parámetros"}), 400
+
+    conn = sqlite3.connect(DB_FILE)
+    # Todas las filas del producto en sabana
+    rows = conn.execute("""
+        SELECT scraper_source, store_id, product_id, product_description, product_category,
+               price, url_example
+        FROM pj_sabana
+        WHERE file_name = ? AND main_chain = ? AND product_name = ?
+    """, (fn, mc, pn)).fetchall()
+
+    # Descripciones únicas (no vacías)
+    descs = {}
+    for r in rows:
+        d = (r[3] or "").strip()
+        if d:
+            descs[d] = descs.get(d, 0) + 1
+    descs_sorted = sorted(descs.items(), key=lambda x: -x[1])[:10]
+
+    # Categorías únicas
+    cats = sorted({(r[4] or "").strip() for r in rows if (r[4] or "").strip()})
+    # Sources
+    sources = sorted({(r[0] or "").strip() for r in rows if (r[0] or "").strip()})
+    # URLs de ejemplo (una por scraper_source, hasta 3)
+    url_examples = {}
+    for r in rows:
+        src = r[0]; u = r[6]
+        if src and u and src not in url_examples:
+            url_examples[src] = u
+        if len(url_examples) >= 3:
+            break
+
+    # Precios
+    prices = [float(r[5]) for r in rows if r[5] not in (None,"") and str(r[5]).replace('.','').isdigit()]
+    price_min = min(prices) if prices else None
+    price_max = max(prices) if prices else None
+    price_avg = (sum(prices)/len(prices)) if prices else None
+
+    # Homologación existente
+    h = conn.execute("""
+        SELECT search_code, is_dubious, note FROM pj_homol
+        WHERE main_chain = ? AND product_name = ?
+    """, (mc, pn)).fetchone()
+
+    # Maestra del main_chain (para sugerir y para mostrar en panel derecho)
+    master = conn.execute("""
+        SELECT search_code, search_name, search_description, informacion_faltante
+        FROM pj_master
+        WHERE file_name = ? AND main_chain = ?
+        ORDER BY search_code
+    """, (fn, mc)).fetchall()
+
+    # Sugerencia básica: match substring case-insensitive de search_name con product_name
+    pn_lower = pn.lower()
+    suggestions = []
+    for m in master:
+        sc, sn, sd, _info = m
+        if not sn: continue
+        sn_lower = sn.lower()
+        if sn_lower == pn_lower:
+            suggestions.append({"search_code": sc, "search_name": sn, "match_type": "exacto", "score": 1.0})
+        elif sn_lower in pn_lower or pn_lower in sn_lower:
+            suggestions.append({"search_code": sc, "search_name": sn, "match_type": "substring", "score": 0.7})
+    suggestions = sorted(suggestions, key=lambda x: -x["score"])[:5]
+
+    conn.close()
+
+    return jsonify({
+        "main_chain": mc,
+        "product_name": pn,
+        "n_rows": len(rows),
+        "descriptions": [{"text": d, "count": c} for d, c in descs_sorted],
+        "categories": cats,
+        "sources": sources,
+        "url_examples": url_examples,
+        "price": {"min": price_min, "max": price_max, "avg": price_avg},
+        "homologation": {
+            "search_code": h[0] if h else "",
+            "is_dubious": bool(h[1]) if h else False,
+            "note": h[2] if h else "",
+        },
+        "master": [{
+            "search_code": m[0], "search_name": m[1],
+            "search_description": m[2], "informacion_faltante": m[3] or ""
+        } for m in master],
+        "suggestions": suggestions,
+    })
+
+@app.route("/pj/homologate", methods=["POST"])
+def pj_homologate():
+    """Asigna search_code a un (main_chain, product_name). Persiste global."""
+    data = request.json or {}
+    mc = (data.get("main_chain") or "").strip()
+    pn = (data.get("product_name") or "").strip()
+    sc = (data.get("search_code") or "").strip()
+    if not mc or not pn:
+        return jsonify({"error": "Faltan main_chain / product_name"}), 400
+    fn = session.get(PJ_CURRENT_FILE_KEY) or ""
+
+    conn = sqlite3.connect(DB_FILE)
+    conn.execute("""
+        INSERT INTO pj_homol (main_chain, product_name, search_code, file_name, updated_at)
+        VALUES (?,?,?,?,?)
+        ON CONFLICT(main_chain, product_name) DO UPDATE SET
+            search_code = excluded.search_code,
+            file_name = excluded.file_name,
+            updated_at = excluded.updated_at
+    """, (mc, pn, sc, fn, time.time()))
+    conn.commit(); conn.close()
+    return jsonify({"ok": True})
+
+@app.route("/pj/mark_dubious", methods=["POST"])
+def pj_mark_dubious():
+    """Toggle de is_dubious (marca amarilla). Si no existe el registro, lo crea."""
+    data = request.json or {}
+    mc = (data.get("main_chain") or "").strip()
+    pn = (data.get("product_name") or "").strip()
+    val = 1 if data.get("is_dubious") else 0
+    if not mc or not pn:
+        return jsonify({"error": "Faltan main_chain / product_name"}), 400
+    fn = session.get(PJ_CURRENT_FILE_KEY) or ""
+
+    conn = sqlite3.connect(DB_FILE)
+    conn.execute("""
+        INSERT INTO pj_homol (main_chain, product_name, is_dubious, file_name, updated_at)
+        VALUES (?,?,?,?,?)
+        ON CONFLICT(main_chain, product_name) DO UPDATE SET
+            is_dubious = excluded.is_dubious,
+            updated_at = excluded.updated_at
+    """, (mc, pn, val, fn, time.time()))
+    conn.commit(); conn.close()
+    return jsonify({"ok": True})
+
+@app.route("/pj/note", methods=["POST"])
+def pj_set_note():
+    """Nota libre del revisor sobre el product_name. Distinto de informacion_faltante
+    de la maestra (que es por search_code)."""
+    data = request.json or {}
+    mc = (data.get("main_chain") or "").strip()
+    pn = (data.get("product_name") or "").strip()
+    note = (data.get("note") or "").strip()
+    if not mc or not pn:
+        return jsonify({"error": "Faltan main_chain / product_name"}), 400
+    fn = session.get(PJ_CURRENT_FILE_KEY) or ""
+
+    conn = sqlite3.connect(DB_FILE)
+    conn.execute("""
+        INSERT INTO pj_homol (main_chain, product_name, note, file_name, updated_at)
+        VALUES (?,?,?,?,?)
+        ON CONFLICT(main_chain, product_name) DO UPDATE SET
+            note = excluded.note,
+            updated_at = excluded.updated_at
+    """, (mc, pn, note, fn, time.time()))
+    conn.commit(); conn.close()
+    return jsonify({"ok": True})
+
+@app.route("/pj/master_info", methods=["POST"])
+def pj_master_info():
+    """Actualiza informacion_faltante de un search_code de la maestra del archivo actual."""
+    data = request.json or {}
+    sc = (data.get("search_code") or "").strip()
+    info = (data.get("informacion_faltante") or "").strip()
+    fn = session.get(PJ_CURRENT_FILE_KEY) or ""
+    if not sc or not fn:
+        return jsonify({"error": "Falta search_code o archivo activo"}), 400
+    conn = sqlite3.connect(DB_FILE)
+    conn.execute("""
+        UPDATE pj_master SET informacion_faltante = ?
+        WHERE file_name = ? AND search_code = ?
+    """, (info, fn, sc))
+    conn.commit(); conn.close()
+    return jsonify({"ok": True})
+
+@app.route("/pj/export")
+def pj_export():
+    """Exporta un xlsx manteniendo estructura del original. Rellena search_code en sabana
+    y agrega columna informacion_faltante en la maestra."""
+    fn = session.get(PJ_CURRENT_FILE_KEY)
+    path = session.get("pj_path")
+    if not fn or not path or not os.path.exists(path):
+        return jsonify({"error": "Sin archivo activo"}), 400
+
+    from openpyxl import load_workbook
+    from openpyxl.styles import PatternFill
+    import io
+
+    wb = load_workbook(path)
+
+    # Construir lookup de homologaciones para este archivo
+    conn = sqlite3.connect(DB_FILE)
+    homol_rows = conn.execute("""
+        SELECT DISTINCT s.main_chain, s.product_name, h.search_code, h.is_dubious
+        FROM pj_sabana s
+        JOIN pj_homol h
+          ON h.main_chain = s.main_chain AND h.product_name = s.product_name
+        WHERE s.file_name = ?
+    """, (fn,)).fetchall()
+    homol_map = {(r[0], r[1]): (r[2] or "", bool(r[3])) for r in homol_rows}
+    # Map de informacion_faltante por search_code
+    info_rows = conn.execute("""
+        SELECT search_code, informacion_faltante FROM pj_master WHERE file_name = ?
+    """, (fn,)).fetchall()
+    info_map = {r[0]: (r[1] or "") for r in info_rows}
+    conn.close()
+
+    yellow = PatternFill(start_color="FFFF99", end_color="FFFF99", fill_type="solid")
+
+    # 1) Actualizar hoja "sabana de datos"
+    sh_sabana = None
+    for s in wb.sheetnames:
+        if "sabana" in s.lower() or "sábana" in s.lower():
+            sh_sabana = wb[s]; break
+    if sh_sabana:
+        headers = [c.value for c in sh_sabana[1]]
+        try:
+            col_mc = headers.index("main_chain") + 1
+            col_pn = headers.index("product_name") + 1
+            col_sc = headers.index("search_code") + 1
+        except ValueError:
+            return jsonify({"error": "Estructura de sabana inesperada"}), 400
+
+        for row_idx in range(2, sh_sabana.max_row + 1):
+            mc = sh_sabana.cell(row=row_idx, column=col_mc).value or ""
+            pn = sh_sabana.cell(row=row_idx, column=col_pn).value or ""
+            key = (str(mc), str(pn))
+            if key in homol_map:
+                sc, dub = homol_map[key]
+                if sc:
+                    cell = sh_sabana.cell(row=row_idx, column=col_sc, value=sc)
+                    if dub:
+                        cell.fill = yellow
+
+    # 2) Actualizar hoja "Maestra de productos" — agregar columna informacion_faltante si no existe
+    sh_master = None
+    for s in wb.sheetnames:
+        sl = s.lower()
+        if "maestra" in sl and "producto" in sl:
+            sh_master = wb[s]; break
+    if sh_master:
+        headers = [c.value for c in sh_master[1]]
+        col_info = None
+        if "informacion_faltante" in headers:
+            col_info = headers.index("informacion_faltante") + 1
+        else:
+            col_info = sh_master.max_column + 1
+            sh_master.cell(row=1, column=col_info, value="informacion_faltante")
+        col_sc_m = headers.index("search_code") + 1 if "search_code" in headers else None
+        if col_sc_m:
+            for row_idx in range(2, sh_master.max_row + 1):
+                sc = sh_master.cell(row=row_idx, column=col_sc_m).value or ""
+                if sc in info_map and info_map[sc]:
+                    sh_master.cell(row=row_idx, column=col_info, value=info_map[sc])
+
+    # Enviar como download
+    out = io.BytesIO()
+    wb.save(out)
+    out.seek(0)
+    from flask import send_file
+    # Preservar nombre del archivo original con sufijo _homologado
+    base, ext = os.path.splitext(fn)
+    out_name = f"{base}_homologado{ext or '.xlsx'}"
+    return send_file(out, as_attachment=True, download_name=out_name,
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+@app.route("/pj/reset", methods=["POST"])
+def pj_reset():
+    """Borra datos del archivo PJ activo de pj_sabana, pj_master, pj_cross.
+    NO toca pj_homol (son homologaciones globales persistentes)."""
+    fn = session.get(PJ_CURRENT_FILE_KEY)
+    if not fn:
+        return jsonify({"error": "Sin archivo activo"}), 400
+    conn = sqlite3.connect(DB_FILE)
+    _pj_clear_file(conn, fn)
+    conn.commit(); conn.close()
+    # Borrar archivo físico
+    p = session.get("pj_path")
+    if p and os.path.exists(p):
+        try: os.remove(p)
+        except: pass
+    session.pop(PJ_CURRENT_FILE_KEY, None)
+    session.pop("pj_path", None)
+    session.modified = True
+    return jsonify({"ok": True})
 
 def run_scoring_job(country, city=None, review_type="stores_restaurant",
                     dist_m=50, batch_size=2000):

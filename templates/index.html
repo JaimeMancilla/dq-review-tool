@@ -131,6 +131,10 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
 .mem-row:last-child{border-bottom:none}
 .type-card{border:2px solid var(--border2);border-radius:var(--rl);padding:28px 36px;cursor:pointer;background:var(--surf);transition:all .15s;min-width:180px}
 .type-card:hover{border-color:var(--blue);background:var(--bbg);transform:translateY(-2px);box-shadow:0 4px 16px rgba(0,0,0,.08)}
+
+/* Módulo Homologación PJ */
+.pj-list-item:hover{background:var(--surf)}
+.pj-list-item-active{background:var(--bbg)!important;border-left-color:var(--blue)!important}
 .dish-card{background:var(--surf);border:1px solid var(--border);border-radius:var(--rl);margin-bottom:10px;overflow:hidden}
 .dish-hdr{display:flex;align-items:center;gap:10px;padding:10px 16px;background:var(--surf2);border-bottom:1px solid var(--border)}
 .dish-body{padding:0}
@@ -269,6 +273,11 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
           <div style="font-size:28px;margin-bottom:10px">📍</div>
           <div style="font-weight:700;font-size:15px;margin-bottom:4px">Places</div>
           <div style="font-size:12px;color:var(--muted)">Malls · Dark kitchens</div>
+        </div>
+        <div class="type-card" onclick="openPj()">
+          <div style="font-size:28px;margin-bottom:10px">🍕</div>
+          <div style="font-weight:700;font-size:15px;margin-bottom:4px">Homologación PJ</div>
+          <div style="font-size:12px;color:var(--muted)">Papa John's · productos</div>
         </div>
       </div>
     </div>
@@ -683,6 +692,91 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
 
   </div>
 </div><!-- /placesScreen -->
+
+
+<!-- ═══════════════ Pantalla Homologación PJ ═══════════════ -->
+<div id="pjScreen" class="hidden">
+  <!-- Upload state -->
+  <div id="pjUploadState">
+    <div style="max-width:720px;margin:40px auto;padding:0 20px;text-align:center">
+      <div style="font-size:22px;font-weight:700;margin-bottom:8px">🍕 Homologación Papa John's</div>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:24px">
+        Sube un archivo Excel con hojas: <b>sabana de datos</b>, <b>Maestra de productos</b>, <b>Maestra competencia</b>.
+      </div>
+      <div class="drop-zone" id="pjDropZone" onclick="document.getElementById('pjFileInput').click()">
+        <input type="file" id="pjFileInput" accept=".xlsx" style="display:none" onchange="pjHandleUpload(this.files[0])">
+        <div class="drop-title">Arrastra tu archivo</div>
+        <div class="drop-sub">Excel (.xlsx)</div>
+        <button class="btn primary" onclick="event.stopPropagation();document.getElementById('pjFileInput').click()">Seleccionar archivo</button>
+      </div>
+      <div id="pjUploadMsg" style="margin-top:14px;font-size:12px;color:var(--muted)"></div>
+    </div>
+  </div>
+
+  <!-- Working state: 3 panels -->
+  <div id="pjWorkState" class="hidden" style="display:flex;flex-direction:column;height:calc(100vh - 60px)">
+    <!-- Top bar -->
+    <div style="border-bottom:1px solid var(--border);background:var(--surf);padding:10px 18px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:16px">🍕</span>
+        <span style="font-weight:700;font-size:14px">Homologación PJ</span>
+        <span id="pjFileLabel" style="font-family:monospace;font-size:11px;color:var(--muted);margin-left:6px"></span>
+      </div>
+      <div id="pjStatsBar" style="display:flex;gap:12px;font-size:11px;color:var(--muted);flex:1">
+        <!-- Se rellena con stats -->
+      </div>
+      <button class="btn sm" onclick="pjExport()" title="Descargar Excel con search_code rellenado">↓ Exportar</button>
+      <button class="btn sm" style="color:var(--red);border-color:var(--rborder)" onclick="pjReset()" title="Descartar archivo actual">✕ Cerrar archivo</button>
+      <button class="btn sm" onclick="pjBackToMenu()">← Menú</button>
+    </div>
+
+    <!-- Filter bar -->
+    <div style="border-bottom:1px solid var(--border);padding:8px 18px;display:flex;align-items:center;gap:10px;background:var(--surf2);flex-wrap:wrap">
+      <select id="pjFilterChain" onchange="pjLoadList()"
+        style="font-size:12px;padding:4px 8px;border:1px solid var(--border2);border-radius:var(--r);background:var(--surf)">
+        <option value="">Todas las cadenas</option>
+      </select>
+      <select id="pjFilterScraper" onchange="pjLoadList()"
+        style="font-size:12px;padding:4px 8px;border:1px solid var(--border2);border-radius:var(--r);background:var(--surf)">
+        <option value="">Todas las fuentes</option>
+      </select>
+      <select id="pjFilterStatus" onchange="pjLoadList()"
+        style="font-size:12px;padding:4px 8px;border:1px solid var(--border2);border-radius:var(--r);background:var(--surf)">
+        <option value="all">Todos</option>
+        <option value="pending">Pendientes</option>
+        <option value="done">Homologados</option>
+        <option value="dubious">Dudosos (⚠)</option>
+      </select>
+      <input type="text" id="pjSearchInput" placeholder="🔍 Buscar product_name…"
+        oninput="pjDebounceSearch()"
+        style="font-size:12px;padding:4px 10px;border:1px solid var(--border2);border-radius:var(--r);background:var(--surf);flex:1;max-width:360px">
+      <span id="pjListCount" style="font-size:11px;color:var(--muted);margin-left:auto"></span>
+    </div>
+
+    <!-- 3 panels -->
+    <div style="flex:1;display:flex;min-height:0">
+      <!-- Panel izquierdo: lista -->
+      <div style="width:340px;flex-shrink:0;border-right:1px solid var(--border);overflow-y:auto;background:var(--surf2)" id="pjListPanel">
+        <div style="padding:20px;text-align:center;color:var(--muted);font-size:12px">Cargando…</div>
+      </div>
+      <!-- Panel central: detalle -->
+      <div style="flex:1;overflow-y:auto;padding:14px 18px;min-width:0" id="pjDetailPanel">
+        <div style="color:var(--muted);font-size:13px;text-align:center;margin-top:80px">
+          Selecciona un producto de la lista para ver su detalle.
+        </div>
+      </div>
+      <!-- Panel derecho: maestra de la cadena activa -->
+      <div style="width:320px;flex-shrink:0;border-left:1px solid var(--border);overflow-y:auto;background:var(--surf2)" id="pjMasterPanel">
+        <div style="padding:14px;font-size:11px;color:var(--muted);text-transform:uppercase;font-weight:700;letter-spacing:.05em">
+          Maestra (click para homologar)
+        </div>
+        <div style="padding:0 12px;color:var(--muted);font-size:11px">
+          Selecciona un producto primero.
+        </div>
+      </div>
+    </div>
+  </div>
+</div><!-- /pjScreen -->
 
 
 <!-- Pantalla Dishes -->
@@ -4836,7 +4930,410 @@ function _bdDropAddChip(targetCluster, cid, sgi, appName, appAddr, newCluster, s
 
 let _placesRows = [];   // caché de la última carga
 
-function openPlaces() {
+// ═══════════════ Módulo Homologación PJ ═══════════════
+let PJ_STATE = {
+  file_name: null,
+  selected: null,  // {main_chain, product_name}
+  searchDebounce: null,
+};
+
+async function openPj() {
+  // Ocultar otras pantallas
+  document.getElementById('uploadScreen').classList.add('hidden');
+  document.getElementById('mainScreen').classList.add('hidden');
+  document.getElementById('dishesScreen').classList.add('hidden');
+  document.getElementById('dashboardScreen').classList.add('hidden');
+  document.getElementById('placesScreen').classList.add('hidden');
+  document.getElementById('pjScreen').classList.remove('hidden');
+  // Ocultar botones globales del header (PJ tiene sus propios)
+  document.getElementById('btnReset').style.display = 'none';
+  document.getElementById('btnExport').style.display = 'none';
+  document.getElementById('btnResetFile').style.display = 'none';
+  document.getElementById('btnMemory').style.display = 'none';
+  document.getElementById('btnDashboard').style.display = 'none';
+  document.getElementById('btnMarkReviewed').style.display = 'none';
+  document.getElementById('btnBdUpdate').style.display = 'none';
+
+  // Verificar si hay archivo activo
+  try {
+    const s = await api('/pj/session');
+    if (s.active) {
+      PJ_STATE.file_name = s.file_name;
+      pjShowWorkState();
+      await pjLoadList();
+    } else {
+      pjShowUploadState();
+    }
+  } catch(e) {
+    pjShowUploadState();
+  }
+}
+
+function pjBackToMenu() {
+  document.getElementById('pjScreen').classList.add('hidden');
+  document.getElementById('uploadScreen').classList.remove('hidden');
+  // Volver a mostrar el typeSelect, ocultar otros subpaneles del upload
+  document.getElementById('typeSelect').classList.remove('hidden');
+  document.getElementById('storesSubtype')?.classList.add('hidden');
+  document.getElementById('sourceSelect')?.classList.add('hidden');
+  document.getElementById('fileSelect')?.classList.add('hidden');
+  document.getElementById('bdDetectScreen')?.classList.add('hidden');
+}
+
+function pjShowUploadState() {
+  document.getElementById('pjUploadState').classList.remove('hidden');
+  document.getElementById('pjWorkState').classList.add('hidden');
+}
+
+function pjShowWorkState() {
+  document.getElementById('pjUploadState').classList.add('hidden');
+  document.getElementById('pjWorkState').classList.remove('hidden');
+  document.getElementById('pjFileLabel').textContent = '📂 ' + (PJ_STATE.file_name||'');
+}
+
+async function pjHandleUpload(file) {
+  if (!file) return;
+  const msgEl = document.getElementById('pjUploadMsg');
+  msgEl.textContent = '⏳ Subiendo y parseando…';
+  const fd = new FormData();
+  fd.append('file', file);
+  try {
+    const res = await fetch('/pj/upload', {method:'POST', body:fd});
+    const d = await res.json();
+    if (d.error) {
+      msgEl.innerHTML = `<span style="color:var(--red)">Error: ${esc(d.error)}</span>`;
+      return;
+    }
+    const s = d.stats;
+    PJ_STATE.file_name = s.file_name;
+    let extra = '';
+    if (s.preloaded_homologations > 0) {
+      extra = ` · ${s.preloaded_homologations} homologaciones precargadas de archivos previos`;
+    }
+    msgEl.innerHTML = `<span style="color:var(--green)">✓ ${s.sabana_rows.toLocaleString()} filas · ${s.master_rows} productos maestra · ${s.cross_rows} equivalencias${extra}</span>`;
+    setTimeout(() => {
+      pjShowWorkState();
+      pjLoadList();
+    }, 600);
+  } catch(e) {
+    msgEl.innerHTML = `<span style="color:var(--red)">Error: ${esc(e.message||e)}</span>`;
+  }
+}
+
+async function pjReset() {
+  if (!confirm('¿Cerrar archivo actual? Las homologaciones guardadas se mantienen (son globales), pero los datos del archivo se borrarán. Tendrás que volver a subir el Excel si quieres seguir.')) return;
+  try {
+    await api('/pj/reset', {});
+    PJ_STATE.file_name = null;
+    PJ_STATE.selected = null;
+    pjShowUploadState();
+    document.getElementById('pjUploadMsg').textContent = '';
+  } catch(e) {
+    toast('Error: ' + (e.message||e));
+  }
+}
+
+function pjExport() {
+  // Trigger download directo
+  window.location.href = '/pj/export';
+}
+
+function pjDebounceSearch() {
+  if (PJ_STATE.searchDebounce) clearTimeout(PJ_STATE.searchDebounce);
+  PJ_STATE.searchDebounce = setTimeout(() => pjLoadList(), 350);
+}
+
+async function pjLoadList() {
+  const panel = document.getElementById('pjListPanel');
+  panel.innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted);font-size:12px"><span class="spinner"></span> Cargando…</div>';
+
+  const mc     = document.getElementById('pjFilterChain').value;
+  const src    = document.getElementById('pjFilterScraper').value;
+  const status = document.getElementById('pjFilterStatus').value;
+  const q      = document.getElementById('pjSearchInput').value.trim();
+
+  const params = new URLSearchParams({
+    main_chain: mc, scraper_source: src, status: status, q: q, limit: 300, offset: 0
+  });
+
+  try {
+    const d = await api(`/pj/list?${params.toString()}`);
+    if (d.error) {
+      panel.innerHTML = `<div style="padding:20px;color:var(--red);font-size:12px">${esc(d.error)}</div>`;
+      return;
+    }
+    // Rellenar filtros (solo una vez al cargar la primera lista)
+    pjFillFilter('pjFilterChain', d.filters.chains, mc);
+    pjFillFilter('pjFilterScraper', d.filters.scrapers, src);
+
+    // Stats bar
+    const st = d.stats;
+    const pct = st.total_unique ? Math.round(100*st.total_done/st.total_unique) : 0;
+    document.getElementById('pjStatsBar').innerHTML = `
+      <span title="Productos únicos (main_chain, product_name) — ${st.total_rows.toLocaleString()} filas totales">
+        <b>${st.total_unique.toLocaleString()}</b> productos únicos
+      </span>
+      <span style="color:var(--green)">✓ <b>${st.total_done.toLocaleString()}</b> homologados (${pct}%)</span>
+      <span style="color:var(--amber)">⚠ <b>${st.total_dubious.toLocaleString()}</b> dudosos</span>
+    `;
+    // List count
+    document.getElementById('pjListCount').textContent =
+      d.items.length < d.total_filtered
+        ? `Mostrando ${d.items.length} de ${d.total_filtered.toLocaleString()}`
+        : `${d.total_filtered.toLocaleString()} resultados`;
+
+    // Render lista
+    if (!d.items.length) {
+      panel.innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted);font-size:12px">Sin resultados</div>';
+      return;
+    }
+    panel.innerHTML = d.items.map(it => pjRenderListItem(it)).join('');
+
+    // Si había un seleccionado previo y está en la lista, mantener highlight
+    if (PJ_STATE.selected) {
+      const key = PJ_STATE.selected.main_chain + '|' + PJ_STATE.selected.product_name;
+      const el = panel.querySelector(`[data-pjkey="${CSS.escape(key)}"]`);
+      if (el) el.classList.add('pj-list-item-active');
+    }
+  } catch(e) {
+    panel.innerHTML = `<div style="padding:20px;color:var(--red);font-size:12px">Error: ${esc(e.message||e)}</div>`;
+  }
+}
+
+function pjFillFilter(selectId, options, currentVal) {
+  const sel = document.getElementById(selectId);
+  const first = sel.options[0]; // el "Todos/Todas"
+  const opts = options.map(o => `<option value="${esc(o)}" ${o===currentVal?'selected':''}>${esc(o)}</option>`).join('');
+  sel.innerHTML = first.outerHTML + opts;
+  sel.value = currentVal || '';
+}
+
+function pjRenderListItem(it) {
+  const key = it.main_chain + '|' + it.product_name;
+  const priceStr = (it.price_min != null)
+    ? (it.price_min === it.price_max ? `₡${Math.round(it.price_min).toLocaleString()}` : `₡${Math.round(it.price_min).toLocaleString()}–${Math.round(it.price_max).toLocaleString()}`)
+    : '—';
+  // Color
+  let borderColor = 'var(--border)';
+  let statusIcon = '';
+  if (it.search_code) {
+    borderColor = 'var(--green)';
+    statusIcon = `<span style="font-size:9px;color:var(--green);font-weight:700">✓ ${esc(it.search_code)}</span>`;
+  } else if (it.is_dubious) {
+    borderColor = 'var(--amber)';
+    statusIcon = '<span style="font-size:9px;color:var(--amber);font-weight:700">⚠ dudoso</span>';
+  }
+  // Badge de chain sin maestra
+  const noMasterBadge = it.has_master ? '' :
+    '<span style="font-size:8px;color:var(--muted);background:var(--surf2);padding:1px 4px;border-radius:3px;margin-left:4px" title="Esta cadena no tiene maestra en el archivo">sin maestra</span>';
+  return `<div class="pj-list-item" data-pjkey="${esc(key)}"
+    onclick="pjSelectItem('${esc(it.main_chain)}', '${esc(it.product_name).replace(/'/g,"\\'")}')"
+    style="padding:8px 12px;border-bottom:1px solid var(--border);border-left:3px solid ${borderColor};cursor:pointer;transition:background .1s">
+    <div style="display:flex;align-items:baseline;gap:6px;margin-bottom:2px">
+      <span style="font-size:9px;color:var(--muted);font-weight:700;text-transform:uppercase">${esc(it.main_chain)}</span>${noMasterBadge}
+      ${statusIcon ? '<span style="margin-left:auto">'+statusIcon+'</span>' : ''}
+    </div>
+    <div style="font-size:12px;font-weight:600;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(it.product_name)}">${esc(it.product_name)}</div>
+    <div style="font-size:10px;color:var(--muted);margin-top:2px">
+      ${it.n_rows} filas · ${priceStr} · ${esc(it.sources.slice(0,3).join(', '))}
+    </div>
+  </div>`;
+}
+
+async function pjSelectItem(mc, pn) {
+  PJ_STATE.selected = {main_chain: mc, product_name: pn};
+  // Highlight en lista
+  document.querySelectorAll('.pj-list-item-active').forEach(el => el.classList.remove('pj-list-item-active'));
+  const key = mc + '|' + pn;
+  const el = document.querySelector(`[data-pjkey="${CSS.escape(key)}"]`);
+  if (el) el.classList.add('pj-list-item-active');
+
+  const detailPanel = document.getElementById('pjDetailPanel');
+  const masterPanel = document.getElementById('pjMasterPanel');
+  detailPanel.innerHTML = '<div style="padding:40px;text-align:center;color:var(--muted)"><span class="spinner"></span> Cargando detalle…</div>';
+
+  try {
+    const params = new URLSearchParams({main_chain: mc, product_name: pn});
+    const d = await api(`/pj/product_detail?${params.toString()}`);
+    if (d.error) {
+      detailPanel.innerHTML = `<div style="color:var(--red);padding:20px">${esc(d.error)}</div>`;
+      return;
+    }
+    pjRenderDetail(d);
+    pjRenderMaster(d);
+  } catch(e) {
+    detailPanel.innerHTML = `<div style="color:var(--red);padding:20px">Error: ${esc(e.message||e)}</div>`;
+  }
+}
+
+function pjRenderDetail(d) {
+  const h = d.homologation || {};
+  const pr = d.price || {};
+  const priceStr = (pr.min != null)
+    ? (pr.min === pr.max ? `₡${Math.round(pr.min).toLocaleString()}` : `₡${Math.round(pr.min).toLocaleString()} – ₡${Math.round(pr.max).toLocaleString()} (avg ₡${Math.round(pr.avg).toLocaleString()})`)
+    : '—';
+
+  const urlsHtml = Object.entries(d.url_examples||{}).map(([src, u]) =>
+    `<a href="${esc(u)}" target="_blank" rel="noopener" class="btn sm" style="font-size:10px;text-decoration:none">🔗 ${esc(src)}</a>`
+  ).join(' ');
+
+  const descsHtml = (d.descriptions||[]).map(x =>
+    `<div style="background:var(--surf2);border:1px solid var(--border);border-radius:var(--r);padding:6px 10px;font-size:11px;line-height:1.4">
+      <span style="font-size:9px;color:var(--muted);font-weight:700">${x.count}×</span> ${esc(x.text)}
+    </div>`
+  ).join('');
+
+  const catsHtml = (d.categories||[]).map(c =>
+    `<span style="background:var(--bbg);color:var(--blue);font-size:10px;padding:2px 6px;border-radius:3px">${esc(c)}</span>`
+  ).join(' ');
+
+  const suggestionsHtml = (d.suggestions||[]).length
+    ? `<div style="margin-top:12px">
+         <div style="font-size:10px;color:var(--muted);text-transform:uppercase;font-weight:700;letter-spacing:.05em;margin-bottom:6px">Sugerencias (match por nombre)</div>
+         ${d.suggestions.map(s => `
+           <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--gbg);border:1px solid var(--gborder);border-radius:var(--r);margin-bottom:4px">
+             <span style="font-family:monospace;font-size:11px;font-weight:700;color:var(--green)">${esc(s.search_code)}</span>
+             <span style="font-size:11px;flex:1">${esc(s.search_name)}</span>
+             <span style="font-size:9px;color:var(--muted)">${esc(s.match_type)}</span>
+             <button class="btn sm" style="font-size:10px" onclick="pjHomologate('${esc(s.search_code)}')">✓ Usar</button>
+           </div>`).join('')}
+       </div>` : '';
+
+  const statusBadge = h.search_code
+    ? `<span style="background:var(--gbg);color:var(--green);border:1px solid var(--gborder);padding:3px 8px;border-radius:4px;font-size:11px;font-weight:700;font-family:monospace">✓ ${esc(h.search_code)}</span>`
+    : h.is_dubious
+      ? '<span style="background:var(--abg);color:var(--amber);border:1px solid var(--aborder);padding:3px 8px;border-radius:4px;font-size:11px;font-weight:700">⚠ Dudoso</span>'
+      : '<span style="background:var(--surf2);color:var(--muted);padding:3px 8px;border-radius:4px;font-size:11px">Pendiente</span>';
+
+  document.getElementById('pjDetailPanel').innerHTML = `
+    <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:6px">
+      <span style="font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase">${esc(d.main_chain)}</span>
+      ${statusBadge}
+      <div style="margin-left:auto;font-size:11px;color:var(--muted)">${d.n_rows} filas</div>
+    </div>
+    <div style="font-size:18px;font-weight:700;margin-bottom:14px;line-height:1.3">${esc(d.product_name)}</div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+      <div>
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;font-weight:700;letter-spacing:.05em;margin-bottom:4px">Precio</div>
+        <div style="font-size:13px;font-weight:600">${priceStr}</div>
+      </div>
+      <div>
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;font-weight:700;letter-spacing:.05em;margin-bottom:4px">Fuentes</div>
+        <div style="font-size:12px">${(d.sources||[]).map(esc).join(' · ')}</div>
+      </div>
+    </div>
+
+    ${catsHtml ? `
+      <div style="margin-bottom:12px">
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;font-weight:700;letter-spacing:.05em;margin-bottom:4px">Categorías</div>
+        ${catsHtml}
+      </div>` : ''}
+
+    ${urlsHtml ? `
+      <div style="margin-bottom:12px">
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;font-weight:700;letter-spacing:.05em;margin-bottom:4px">URLs de ejemplo</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">${urlsHtml}</div>
+      </div>` : ''}
+
+    ${descsHtml ? `
+      <div style="margin-bottom:12px">
+        <div style="font-size:10px;color:var(--muted);text-transform:uppercase;font-weight:700;letter-spacing:.05em;margin-bottom:4px">Descripciones únicas (${d.descriptions.length})</div>
+        <div style="display:flex;flex-direction:column;gap:4px">${descsHtml}</div>
+      </div>` : ''}
+
+    ${suggestionsHtml}
+
+    <!-- Acciones -->
+    <div style="margin-top:20px;padding-top:14px;border-top:1px solid var(--border);display:flex;gap:8px;flex-wrap:wrap">
+      ${h.search_code ? `<button class="btn sm" style="color:var(--red);border-color:var(--rborder)" onclick="pjHomologate('')">✕ Quitar homologación</button>` : ''}
+      <button class="btn sm" style="background:${h.is_dubious?'var(--abg)':''};color:${h.is_dubious?'var(--amber)':''};border-color:${h.is_dubious?'var(--aborder)':''}"
+        onclick="pjToggleDubious(${h.is_dubious?1:0})">
+        ${h.is_dubious ? '⚠ Quitar marca dudoso' : '⚠ Marcar dudoso (amarillo)'}
+      </button>
+    </div>
+
+    <!-- Nota del revisor -->
+    <div style="margin-top:14px">
+      <div style="font-size:10px;color:var(--muted);text-transform:uppercase;font-weight:700;letter-spacing:.05em;margin-bottom:4px">Nota del revisor</div>
+      <textarea id="pjNote" rows="2" style="width:100%;font-size:12px;padding:6px 8px;border:1px solid var(--border2);border-radius:var(--r);background:var(--surf);font-family:inherit;resize:vertical"
+        placeholder="Opcional…">${esc(h.note||'')}</textarea>
+      <button class="btn sm" style="margin-top:4px;font-size:10px" onclick="pjSaveNote()">Guardar nota</button>
+    </div>
+  `;
+}
+
+function pjRenderMaster(d) {
+  const masterPanel = document.getElementById('pjMasterPanel');
+  if (!d.master || !d.master.length) {
+    masterPanel.innerHTML = `
+      <div style="padding:14px;font-size:11px;color:var(--muted);text-transform:uppercase;font-weight:700;letter-spacing:.05em">
+        Maestra — ${esc(d.main_chain)}
+      </div>
+      <div style="padding:12px;color:var(--muted);font-size:11px;text-align:center">
+        No hay maestra para esta cadena en el archivo.
+      </div>`;
+    return;
+  }
+  const currentCode = (d.homologation||{}).search_code || '';
+  const items = d.master.map(m => {
+    const active = m.search_code === currentCode;
+    return `<div style="padding:8px 12px;border-bottom:1px solid var(--border);cursor:pointer;${active?'background:var(--gbg);border-left:3px solid var(--green)':''}"
+      onclick="pjHomologate('${esc(m.search_code)}')" title="Click para homologar este producto">
+      <div style="font-family:monospace;font-size:10px;font-weight:700;color:${active?'var(--green)':'var(--blue)'}">${esc(m.search_code)}${active?' ✓':''}</div>
+      <div style="font-size:12px;margin-top:2px;line-height:1.3">${esc(m.search_name)}</div>
+      ${m.search_description ? `<div style="font-size:10px;color:var(--muted);margin-top:2px">${esc(m.search_description)}</div>` : ''}
+      ${m.informacion_faltante ? `<div style="font-size:9px;color:var(--amber);margin-top:3px;font-style:italic">ℹ ${esc(m.informacion_faltante)}</div>` : ''}
+    </div>`;
+  }).join('');
+  masterPanel.innerHTML = `
+    <div style="padding:12px 14px;font-size:11px;color:var(--muted);text-transform:uppercase;font-weight:700;letter-spacing:.05em;border-bottom:1px solid var(--border);background:var(--surf)">
+      Maestra — ${esc(d.main_chain)} <span style="color:var(--muted);font-weight:500;text-transform:none">(${d.master.length})</span>
+    </div>
+    <div>${items}</div>`;
+}
+
+async function pjHomologate(searchCode) {
+  if (!PJ_STATE.selected) return;
+  const {main_chain, product_name} = PJ_STATE.selected;
+  try {
+    await api('/pj/homologate', {main_chain, product_name, search_code: searchCode});
+    toast(searchCode ? `✓ ${product_name.slice(0,40)} → ${searchCode}` : '✓ Homologación quitada');
+    // Refrescar detalle y lista
+    await pjSelectItem(main_chain, product_name);
+    await pjLoadList();
+  } catch(e) {
+    toast('Error: ' + (e.message||e));
+  }
+}
+
+async function pjToggleDubious(current) {
+  if (!PJ_STATE.selected) return;
+  const {main_chain, product_name} = PJ_STATE.selected;
+  const newVal = current ? 0 : 1;
+  try {
+    await api('/pj/mark_dubious', {main_chain, product_name, is_dubious: newVal});
+    toast(newVal ? '⚠ Marcado dudoso' : '✓ Marca dudoso quitada');
+    await pjSelectItem(main_chain, product_name);
+    await pjLoadList();
+  } catch(e) {
+    toast('Error: ' + (e.message||e));
+  }
+}
+
+async function pjSaveNote() {
+  if (!PJ_STATE.selected) return;
+  const {main_chain, product_name} = PJ_STATE.selected;
+  const note = document.getElementById('pjNote').value.trim();
+  try {
+    await api('/pj/note', {main_chain, product_name, note});
+    toast('✓ Nota guardada');
+  } catch(e) {
+    toast('Error: ' + (e.message||e));
+  }
+}
+
+
   document.getElementById('uploadScreen').classList.add('hidden');
   document.getElementById('mainScreen').classList.add('hidden');
   document.getElementById('dishesScreen').classList.add('hidden');
