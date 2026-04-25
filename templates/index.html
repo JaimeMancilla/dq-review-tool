@@ -5089,6 +5089,16 @@ async function pjLoadList() {
     }
     panel.innerHTML = d.items.map(it => pjRenderListItem(it)).join('');
 
+    // Event delegation: usar data-mc y data-pn para evitar problemas de escape en HTML attributes.
+    // Se monta una sola vez por re-render, las refs viejas se descartan al cambiar innerHTML.
+    panel.querySelectorAll('.pj-list-item').forEach(el => {
+      el.addEventListener('click', () => {
+        const mc = el.dataset.mc;
+        const pn = el.dataset.pn;
+        if (mc && pn) pjSelectItem(mc, pn);
+      });
+    });
+
     // Si había un seleccionado previo y está en la lista, mantener highlight
     if (PJ_STATE.selected) {
       const key = PJ_STATE.selected.main_chain + '|' + PJ_STATE.selected.product_name;
@@ -5127,7 +5137,7 @@ function pjRenderListItem(it) {
   const noMasterBadge = it.has_master ? '' :
     '<span style="font-size:8px;color:var(--muted);background:var(--surf2);padding:1px 4px;border-radius:3px;margin-left:4px" title="Esta cadena no tiene maestra en el archivo">sin maestra</span>';
   return `<div class="pj-list-item" data-pjkey="${esc(key)}"
-    onclick="pjSelectItem('${esc(it.main_chain)}', '${esc(it.product_name).replace(/'/g,"\\'")}')"
+    data-mc="${esc(it.main_chain)}" data-pn="${esc(it.product_name)}"
     style="padding:8px 12px;border-bottom:1px solid var(--border);border-left:3px solid ${borderColor};cursor:pointer;transition:background .1s">
     <div style="display:flex;align-items:baseline;gap:6px;margin-bottom:2px">
       <span style="font-size:9px;color:var(--muted);font-weight:700;text-transform:uppercase">${esc(it.main_chain)}</span>${noMasterBadge}
