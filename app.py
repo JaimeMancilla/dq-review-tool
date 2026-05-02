@@ -2166,45 +2166,96 @@ def pg_status():
 
 @app.route("/cluster_search", methods=["POST"])
 def cluster_search():
-    """Busca clusters en dim_maestra por nombre o dirección.
+    """Busca clusters en dim_maestra con filtros separados.
+    - name_query: palabras buscadas en app_name (AND entre palabras)
+    - addr_query: palabras buscadas en app_address (AND entre palabras)
+    - size_filter: 'all' | 'multi' (>=2 stores) | 'small' (1-2 stores)
+    - cluster_index: si viene, se busca exacto por cluster_index (ignora otros filtros)
     Devuelve clusters únicos con sus miembros para trabajar sobre ellos
     independientemente del archivo en revisión.
+    Compatibilidad: si llega 'query' (versión vieja), se usa como name_query.
     """
     if not pg_is_configured():
         return jsonify({"error": "BD no configurada"}), 400
     d = request.json or {}
-    q = (d.get("query") or "").strip()
     country = (d.get("country") or session.get("country","mx")).strip()
-    if not q or len(q) < 3:
-        return jsonify({"error": "Query muy corta (mín 3 chars)"}), 400
+    name_q = (d.get("name_query") or d.get("query") or "").strip()
+    addr_q = (d.get("addr_query") or "").strip()
+    cluster_idx = (d.get("cluster_index") or "").strip()
+    size_filter = (d.get("size_filter") or "all").strip()
+    limit = max(10, min(200, int(d.get("limit") or 100)))
 
     table = get_pg_table()
-    # Normalizar query para búsqueda
-    q_norm = re.sub(r'[^\w\s]', ' ', q.lower()).strip()
-    words = [w for w in q_norm.split() if len(w) >= 3]
-    if not words:
-        return jsonify({"error": "Sin términos de búsqueda válidos"}), 400
 
-    # Construir condición OR por palabra en nombre o dirección
-    conditions = []
-    for w in words[:4]:
-        conditions.append(f"(app_name ilike '%{w}%' OR app_address ilike '%{w}%')")
-    where = " AND ".join(conditions)
+    def _words(s):
+        s_norm = re.sub(r'[^\w\s]', ' ', s.lower()).strip()
+        return [w for w in s_norm.split() if len(w) >= 3]
 
-    sql = f"""
-        SELECT DISTINCT cluster_index, cluster_name, cluster_address, country
-        FROM {table}
-        WHERE country = '{country}'
-          AND ({where})
-        ORDER BY cluster_name
-        LIMIT 30
-    """
-    rows, err = pg_query(sql)
-    if err:
-        return jsonify({"error": err}), 400
+    # Modo cluster_index exacto: bypass otros filtros
+    if cluster_idx:
+        # Sanitizar (solo caracteres seguros)
+        ci_safe = re.sub(r"[^\w:.\-]", "", cluster_idx)
+        if not ci_safe:
+            return jsonify({"error": "cluster_index inválido"}), 400
+        sql = f"""
+            SELECT DISTINCT cluster_index, cluster_name, cluster_address, country
+            FROM {table}
+            WHERE country = '{country}' AND cluster_index = '{ci_safe}'
+            LIMIT 1
+        """
+        rows, err = pg_query(sql)
+        if err: return jsonify({"error": err}), 400
+        if not rows: return jsonify({"clusters": [], "count": 0, "total": 0, "limited": False})
+    else:
+        name_words = _words(name_q)
+        addr_words = _words(addr_q)
+        if not name_words and not addr_words:
+            return jsonify({"error": "Especifica al menos un término en nombre o dirección (mín 3 chars)"}), 400
 
-    if not rows:
-        return jsonify({"clusters": [], "count": 0})
+        conditions = []
+        for w in name_words[:4]:
+            conditions.append(f"app_name ilike '%{w}%'")
+        for w in addr_words[:4]:
+            conditions.append(f"app_address ilike '%{w}%'")
+        where = " AND ".join(conditions)
+
+        # Filtro de tamaño: aplicado en HAVING tras agrupar
+        size_having = ""
+        if size_filter == "multi":
+            size_having = "HAVING COUNT(*) >= 2"
+        elif size_filter == "small":
+            size_having = "HAVING COUNT(*) <= 2"
+
+        # Primero contamos total de clusters que cumplen filtros (para mostrar al usuario si pegó al límite)
+        count_sql = f"""
+            SELECT COUNT(*) AS total FROM (
+                SELECT cluster_index
+                FROM {table}
+                WHERE country = '{country}' AND ({where})
+                GROUP BY cluster_index
+                {size_having}
+            ) t
+        """
+        count_rows, count_err = pg_query(count_sql, timeout_ms=15000)
+        total_count = int(count_rows[0]["total"]) if count_rows and not count_err else None
+
+        # Query principal: agrupada por cluster_index, con tamaño calculado
+        sql = f"""
+            SELECT cluster_index,
+                   MAX(cluster_name)    AS cluster_name,
+                   MAX(cluster_address) AS cluster_address,
+                   COUNT(*)             AS n_stores
+            FROM {table}
+            WHERE country = '{country}' AND ({where})
+            GROUP BY cluster_index
+            {size_having}
+            ORDER BY cluster_name
+            LIMIT {limit}
+        """
+        rows, err = pg_query(sql)
+        if err: return jsonify({"error": err}), 400
+        if not rows:
+            return jsonify({"clusters": [], "count": 0, "total": total_count or 0, "limited": False})
 
     # Traer todos los miembros de los clusters encontrados
     ci_list = ", ".join(f"'{str(r.get('cluster_index',''))}'" for r in rows)
@@ -2241,7 +2292,11 @@ def cluster_search():
             "bad_count":       len(by_cluster.get(ci, [])),
         })
 
-    return jsonify({"clusters": clusters, "count": len(clusters)})
+    # total = cuántos clusters cumplen filtros en BD (puede ser > limit)
+    # limited = True si pegamos al techo del limit
+    total = total_count if not cluster_idx and total_count is not None else len(clusters)
+    limited = (not cluster_idx) and (total_count is not None) and (total_count > len(clusters))
+    return jsonify({"clusters": clusters, "count": len(clusters), "total": total, "limited": limited})
 
 @app.route("/pg_query", methods=["POST"])
 def run_pg_query():

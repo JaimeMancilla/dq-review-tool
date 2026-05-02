@@ -830,14 +830,26 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
           <span style="font-weight:700;font-size:12px">🔍 Buscar cluster en BD</span>
           <button class="btn sm" style="margin-left:auto" onclick="toggleSgClusterSearch()">✕</button>
         </div>
-        <div style="padding:8px 12px;border-bottom:1px solid var(--border)">
-          <div style="display:flex;gap:6px">
-            <input id="sgClusterSearchInput" type="text" placeholder="Nombre, dirección o cluster_index…"
-              style="flex:1;padding:5px 8px;font-size:11px;border:1px solid var(--border2);border-radius:var(--r);background:var(--surf);color:var(--text)"
-              onkeydown="if(event.key==='Enter')doSgClusterSearch()">
+        <div style="padding:8px 12px;border-bottom:1px solid var(--border);display:flex;flex-direction:column;gap:6px">
+          <input id="sgClusterSearchName" type="text" placeholder="Nombre (ej: starbucks)"
+            style="padding:5px 8px;font-size:11px;border:1px solid var(--border2);border-radius:var(--r);background:var(--surf);color:var(--text)"
+            onkeydown="if(event.key==='Enter')doSgClusterSearch()">
+          <input id="sgClusterSearchAddr" type="text" placeholder="Dirección o ciudad (ej: providencia)"
+            style="padding:5px 8px;font-size:11px;border:1px solid var(--border2);border-radius:var(--r);background:var(--surf);color:var(--text)"
+            onkeydown="if(event.key==='Enter')doSgClusterSearch()">
+          <input id="sgClusterSearchCi" type="text" placeholder="cluster_index exacto (opcional)"
+            style="padding:5px 8px;font-size:10px;border:1px solid var(--border2);border-radius:var(--r);background:var(--surf);color:var(--text);font-family:monospace"
+            onkeydown="if(event.key==='Enter')doSgClusterSearch()">
+          <div style="display:flex;align-items:center;gap:6px">
+            <select id="sgClusterSearchSize"
+              style="flex:1;font-size:10px;padding:4px 6px;border:1px solid var(--border2);border-radius:var(--r);background:var(--surf);color:var(--text)">
+              <option value="all">Todos los tamaños</option>
+              <option value="multi">≥2 stores (clusters reales)</option>
+              <option value="small">1-2 stores (chicos/sospechosos)</option>
+            </select>
             <button class="btn blue sm" onclick="doSgClusterSearch()">Buscar</button>
           </div>
-          <div style="font-size:9px;color:var(--muted);margin-top:4px">Busca cualquier cluster en la BD e inícialo en el modal</div>
+          <div style="font-size:9px;color:var(--muted)">Combiná nombre + dirección para reducir resultados. cluster_index ignora el resto.</div>
         </div>
         <div id="sgClusterSearchResults" style="flex:1;overflow-y:auto"></div>
       </div>
@@ -6027,27 +6039,50 @@ function toggleSgClusterSearch() {
   panel.style.display = isOpen ? 'none' : 'flex';
   if (!isOpen) {
     document.getElementById("sgClusterSearchResults").innerHTML = '';
-    setTimeout(() => document.getElementById("sgClusterSearchInput")?.focus(), 50);
+    setTimeout(() => document.getElementById("sgClusterSearchName")?.focus(), 50);
   }
 }
 
 async function doSgClusterSearch() {
-  const input = document.getElementById("sgClusterSearchInput");
-  const q = (input?.value||"").trim();
-  if (!q) return;
-  _sgSearchQuery = q; // guardar para propagar al segundo modal
+  const nameQ = (document.getElementById("sgClusterSearchName")?.value||"").trim();
+  const addrQ = (document.getElementById("sgClusterSearchAddr")?.value||"").trim();
+  const ciQ   = (document.getElementById("sgClusterSearchCi")?.value||"").trim();
+  const sizeF = document.getElementById("sgClusterSearchSize")?.value || "all";
+
+  if (!ciQ && !nameQ && !addrQ) {
+    toast("Especifica al menos un nombre o dirección"); return;
+  }
+  // Guardar query principal para propagar al segundo modal (legacy)
+  _sgSearchQuery = ciQ || (nameQ + " " + addrQ).trim();
+
   const results = document.getElementById("sgClusterSearchResults");
   results.innerHTML = '<div style="padding:16px;text-align:center"><span class="spinner"></span></div>';
 
-  const d = await api("/cluster_search", {query: q, country: COUNTRY||'mx'});
+  const payload = {
+    country: COUNTRY||'mx',
+    name_query: nameQ,
+    addr_query: addrQ,
+    cluster_index: ciQ,
+    size_filter: sizeF,
+  };
+  const d = await api("/cluster_search", payload);
   if (d.error) {
     results.innerHTML = `<div style="padding:12px 14px;color:var(--red);font-size:12px">⚠ ${esc(d.error)}</div>`;
     return;
   }
   if (!d.clusters?.length) {
-    results.innerHTML = `<div style="padding:16px;text-align:center;font-size:12px;color:var(--muted)">Sin resultados para "${esc(q)}"</div>`;
+    results.innerHTML = `<div style="padding:16px;text-align:center;font-size:12px;color:var(--muted)">Sin resultados</div>`;
     return;
   }
+
+  const limitedFooter = d.limited
+    ? `<div style="padding:8px 12px;background:var(--abg);color:var(--amber);border-top:1px solid var(--aborder);font-size:10px;line-height:1.4">
+         ⚠ Mostrando los primeros <b>${d.count}</b> de <b>${d.total.toLocaleString()}</b> clusters que coinciden.<br>
+         Refiná tu búsqueda agregando palabras a <b>nombre</b> o <b>dirección</b> para encontrar el correcto.
+       </div>`
+    : `<div style="padding:6px 12px;font-size:10px;color:var(--muted);text-align:center;border-top:1px solid var(--border)">
+         ${d.total.toLocaleString()} resultado${d.total!==1?"s":""}
+       </div>`;
 
   results.innerHTML = d.clusters.map(cl => {
     const memberCount = cl.members?.length || 0;
@@ -6066,8 +6101,7 @@ async function doSgClusterSearch() {
         <span style="font-size:9px;color:var(--muted)">${memberCount} store${memberCount!==1?"s":""}</span>
       </div>
     </div>`;
-  }).join("") +
-  `<div style="padding:6px 12px;font-size:10px;color:var(--muted);text-align:center">${d.count} resultado${d.count!==1?"s":""}</div>`;
+  }).join("") + limitedFooter;
 }
 
 async function openSearchedClusterInModal(cl) {
