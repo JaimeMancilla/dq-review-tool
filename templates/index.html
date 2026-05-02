@@ -3806,8 +3806,11 @@ function buildSgGroupCard(cid, sg, sgi) {
           ${hasAnchorOfSg?`<span style="font-size:9px;color:var(--amber);font-weight:700">⚓ ancla aquí</span>`
             :hasAnchor?`<span style="font-size:9px;color:var(--muted)">⚓</span>`:""}
           ${alreadyAssignedBadge}
+          ${bdc._from_search ? `<span style="font-size:9px;color:var(--blue);background:var(--bbg);border:1px solid var(--blue);border-radius:3px;padding:1px 5px" title="Cluster agregado manualmente desde la búsqueda">+ búsqueda</span>` : ""}
           ${hasMatchInSg && !isCorr && !isClusterEmptied ? `<button class="btn sm" style="margin-left:auto;font-size:10px;padding:1px 8px;background:var(--gbg);color:var(--green);border-color:var(--gborder)"
             onclick="assignThisCluster('${esc(bdc.cluster_index)}','${esc(cid)}',${sgi})">✓ Este es</button>` : ""}
+          ${bdc._from_search ? `<button class="btn sm" style="${hasMatchInSg && !isCorr && !isClusterEmptied ? '' : 'margin-left:auto;'}font-size:10px;padding:1px 6px;color:var(--muted);background:none;border:1px solid var(--border)"
+            onclick="removeSearchedCluster('${esc(cid)}',${sgi},'${esc(bdc.cluster_index)}')" title="Quitar este cluster del panel (no afecta correcciones)">✕</button>` : ""}
         </div>
         <div style="padding:5px 8px" id="bdt_${CSS.escape(bdc.cluster_index)}">${chipsHtml2}${confirmedInHtml}</div>
         <div style="font-size:10px;color:var(--blue);padding:3px 8px 5px;opacity:.6;font-style:italic">← Arrastra stores aquí</div>
@@ -5928,12 +5931,24 @@ async function doSgClusterSearch() {
     const memberCount = cl.members?.length || 0;
     const addr = cl.anchor_address || '';
     const alreadyOpen = !!SUBGROUPS[cl.cluster_id];
+    // Detectar si este cluster ya está agregado al panel BD del subgrupo activo
+    const activeCid = _sgModalCid;
+    const activeSgi = _sgActiveSgi;
+    const activeSg = (activeCid != null && activeSgi != null) ? SUBGROUPS[activeCid]?.[activeSgi] : null;
+    const alreadyInPanel = !!activeSg?.bd_results?.some(b => b.cluster_index === cl.cluster_id);
     return `<div style="padding:9px 12px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .1s"
       onmouseenter="this.style.background='var(--surf2)'" onmouseleave="this.style.background=''"
       onclick="openSearchedClusterInModal(${JSON.stringify(cl).replace(/"/g,'&quot;')})">
       <div style="display:flex;align-items:center;gap:6px">
         <span style="font-size:11px;font-weight:700;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(cl.anchor_name||cl.cluster_id)}</span>
         ${alreadyOpen?`<span style="font-size:9px;background:var(--gbg);color:var(--green);border:1px solid var(--gborder);border-radius:3px;padding:0 4px">abierto</span>`:''}
+        ${alreadyInPanel
+          ? `<span style="font-size:9px;background:var(--bbg);color:var(--blue);border:1px solid var(--blue);border-radius:3px;padding:1px 5px;flex-shrink:0">en panel ✓</span>`
+          : (activeSg
+            ? `<button class="btn sm" style="font-size:9px;padding:2px 6px;flex-shrink:0"
+                onclick="event.stopPropagation();addSearchedClusterToBdResults('${esc(activeCid)}',${activeSgi},'${esc(cl.cluster_id)}')"
+                title="Agregar este cluster al panel central del subgrupo activo (sin abrir modal nuevo)">+ panel</button>`
+            : '')}
       </div>
       <div style="font-size:9px;color:var(--muted);margin-top:2px;line-height:1.3">${esc(addr.slice(0,55))}</div>
       <div style="display:flex;gap:8px;margin-top:3px">
@@ -5942,6 +5957,63 @@ async function doSgClusterSearch() {
       </div>
     </div>`;
   }).join("") + limitedFooter;
+
+  // Guardar el último response para que addSearchedClusterToBdResults pueda buscar el cluster por id
+  // (más seguro que pasar el JSON entero por el atributo onclick).
+  _lastSearchResults = d.clusters;
+}
+
+// ── Agregar/quitar clusters externos al panel BD del subgrupo activo ────────
+// Estos clusters vienen del panel lateral de búsqueda, no del SQL del SG.
+// Se inyectan en sg.bd_results con flag _from_search=true para distinguirlos.
+// Una vez agregados, se comportan como cualquier otro bd_result: drag, drop, tachado, todo igual.
+let _lastSearchResults = [];
+
+function addSearchedClusterToBdResults(cid, sgi, clusterId) {
+  const sg = SUBGROUPS[cid]?.[sgi];
+  if (!sg) { toast("Subgrupo no disponible"); return; }
+  if (!sg.bd_results) sg.bd_results = [];
+
+  // Buscar el cluster completo en el último response de búsqueda
+  const cluster = _lastSearchResults.find(c => c.cluster_id === clusterId);
+  if (!cluster) { toast("Cluster no encontrado en últimos resultados"); return; }
+
+  // Evitar duplicar si ya está
+  const exists = sg.bd_results.some(b => b.cluster_index === cluster.cluster_index);
+  if (exists) {
+    toast(`Ya está en el panel: ${cluster.cluster_index}`);
+    return;
+  }
+
+  sg.bd_results.push({
+    cluster_index: cluster.cluster_index,
+    cluster_name: cluster.anchor_name || "",
+    cluster_address: cluster.anchor_address || "",
+    members: cluster.members || [],
+    _from_search: true,  // flag interno: vino de búsqueda manual
+  });
+
+  toast(`✓ Agregado al panel: ${cluster.anchor_name||cluster.cluster_index}`);
+  renderSgActivePanel(cid, sgi);
+}
+
+function removeSearchedCluster(cid, sgi, clusterIdx) {
+  const sg = SUBGROUPS[cid]?.[sgi];
+  if (!sg?.bd_results) return;
+
+  // Salvaguarda: si hay moves pendientes hacia este cluster, advertir antes de quitar
+  const sgKey = `${cid}_${sgi}`;
+  const pendingMoves = (_bdPendingMoves[sgKey]||[]).filter(mv => mv.new_cluster === clusterIdx);
+  if (pendingMoves.length > 0) {
+    const ok = confirm(`Hay ${pendingMoves.length} move${pendingMoves.length>1?'s':''} pendiente${pendingMoves.length>1?'s':''} hacia este cluster. Si lo quitás, los moves se cancelan. ¿Continuar?`);
+    if (!ok) return;
+    // Cancelar los moves: filtrarlos de _bdPendingMoves
+    _bdPendingMoves[sgKey] = _bdPendingMoves[sgKey].filter(mv => mv.new_cluster !== clusterIdx);
+  }
+
+  sg.bd_results = sg.bd_results.filter(b => b.cluster_index !== clusterIdx);
+  renderSgActivePanel(cid, sgi);
+  toast(`Cluster quitado del panel: ${clusterIdx}`);
 }
 
 async function openSearchedClusterInModal(cl) {
