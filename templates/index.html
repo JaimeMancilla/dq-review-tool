@@ -1975,9 +1975,9 @@ async function regenerateSgSqlAndRender(cid, sgi) {
 }
 async function regenerateSgSql(cid){
   const sgs = SUBGROUPS[cid]; if(!sgs) return;
-  // Origen correcto de members: el cluster en CLUSTERS, no una variable global inexistente.
-  // El bug anterior usaba `allMembers` (undefined) → throw silencioso → SQL no se regeneraba al
-  // mover stores entre subgrupos, quedando la SQL inicial con el OR de los stores originales.
+  // Origen correcto de members: el cluster en CLUSTERS, no `allMembers` (variable inexistente).
+  // El bug anterior provocaba throw silencioso → SQL no se regeneraba al mover stores entre subgrupos,
+  // quedando la SQL inicial con OR de los stores originales (afectaba el filtro de búsqueda BD).
   const cl = getCl(cid);
   if(!cl || !cl.members) return;
   for(let i=0;i<sgs.length;i++){
@@ -3626,61 +3626,6 @@ function buildSgGroupCard(cid, sg, sgi) {
   const isCorr = !!sg.correction;
   const clMembers = cl ? cl.members : [];
 
-  // ── Helpers Item 2 ──────────────────────────────────────────────────────
-  const _addrTokens = (s) => {
-    if (!s) return new Set();
-    const norm = String(s).toLowerCase()
-      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^a-z0-9\s]/g, ' ')
-      .split(/\s+/).filter(w => w.length >= 3);
-    return new Set(norm);
-  };
-  const _jaccardSets = (a, b) => {
-    if (!a.size || !b.size) return 0;
-    let inter = 0;
-    a.forEach(t => { if (b.has(t)) inter++; });
-    return inter / (a.size + b.size - inter);
-  };
-  const _haversineM = (lat1, lng1, lat2, lng2) => {
-    const R = 6371000, toRad = x => x * Math.PI / 180;
-    const dlat = toRad(lat2 - lat1), dlng = toRad(lng2 - lng1);
-    const a = Math.sin(dlat/2)**2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dlng/2)**2;
-    return 2 * R * Math.asin(Math.sqrt(a));
-  };
-  // Buckets de geocoder fallback conocidos (top coords frecuentes en stores con revision=0).
-  // Estos son centroides donde el geocoder devuelve por defecto cuando no resuelve la dirección.
-  // Lista derivada empíricamente del análisis de stores con revision=0 en Chile y México.
-  const _FALLBACK_BUCKETS = [
-    // Chile (Santiago Metropolitana — top frecuencias)
-    [-33.453, -70.682],  // 92 stores en una sola coord — fallback Santiago centro
-    [-33.545, -70.571],  // 58 stores
-    [-33.437, -70.641],  // 49 stores
-    [-33.452, -70.569],  // 46 stores
-    [-33.516, -70.714],  // 28 stores
-    [-33.442, -70.652],  // 26 stores
-    [-33.436, -70.680],  // 23 stores
-    [-33.440, -70.649],  // 19 stores
-    [-33.488, -70.578],  // 18 stores
-    [-32.932, -71.518],  // 21 stores — sector Valparaíso
-  ];
-  const _isFallbackCoord = (lat, lng) => {
-    if (!isFinite(lat) || !isFinite(lng) || (lat === 0 && lng === 0)) return false;
-    return _FALLBACK_BUCKETS.some(([flat, flng]) => _haversineM(lat, lng, flat, flng) < 200);
-  };
-
-  // Tokens combinados de todas las direcciones del SG (para sim textual de cada bdc)
-  const sgAddrTokens = new Set();
-  const sgCoords = [];
-  sg.members.forEach(ii => {
-    const m = clMembers.find(mb => mb.item_index === ii);
-    if (!m) return;
-    _addrTokens(m.app_address || '').forEach(t => sgAddrTokens.add(t));
-    const lat = parseFloat(m.app_latitude);
-    const lng = parseFloat(m.app_longitude);
-    if (isFinite(lat) && isFinite(lng) && !(lat === 0 && lng === 0)) sgCoords.push({lat, lng});
-  });
-  const sgHasFallbackCoord = sgCoords.some(c => _isFallbackCoord(c.lat, c.lng));
-
   // Chips de stores con nombre + dirección
   const sgKey = `${cid}_${sgi}`;
   const allSgs = SUBGROUPS[cid] || [];
@@ -3731,18 +3676,13 @@ function buildSgGroupCard(cid, sg, sgi) {
     const isAnchor = m ? m.is_anchor : (ii === cid);
     const isMoved = movedStoreIds.has(String(storeId));
     const moveDest = isMoved ? moveDestByStoreId[String(storeId)] : null;
-    // Warning: coords del store sospechosas (probable geocoder fallback)
-    const lat = m ? parseFloat(m.app_latitude) : NaN;
-    const lng = m ? parseFloat(m.app_longitude) : NaN;
-    const isCoordSuspect = _isFallbackCoord(lat, lng);
     return `<div class="sg-chip${isMoved?' sg-chip-moved':''}" draggable="${!isMoved}"
       data-ii="${esc(ii)}" data-from-sgi="${sgi}" data-cid="${esc(cid)}"
       ondragstart="onSgChipDragStart(event)"
       ondragend="onSgChipDragEnd(event)"
-      title="${esc(ii)}${isAnchor?' — ⚓ ANCLA del cluster':''}${isMoved?' — movido'+(moveDest?' a '+moveDest:''):''}${isCoordSuspect?' — ⚠ Coords en zona de geocoder fallback (probables datos sucios). Confiar en la dirección textual.':''}">
+      title="${esc(ii)}${isAnchor?' — ⚓ ANCLA del cluster':''}${isMoved?' — movido'+(moveDest?' a '+moveDest:''):''}">
       <div class="sg-chip-name" style="${isMoved?'text-decoration:line-through;opacity:.45;':''}">
         ${isAnchor?`<span style="font-size:9px;color:var(--amber);margin-right:3px" title="Ancla del cluster">⚓</span>`:''}${esc(name)}
-        ${isCoordSuspect?`<span style="font-size:9px;color:var(--amber);margin-left:4px" title="Coords sospechosas (geocoder fallback)">⚠</span>`:''}
       </div>
       ${addr ? `<div class="sg-chip-addr" style="${isMoved?'text-decoration:line-through;opacity:.45;':''}">${esc(addr)}</div>` : ''}
       ${storeId ? `<div style="font-family:monospace;font-size:8px;color:var(--muted);margin-top:2px;opacity:.7">${esc(storeId)}</div>` : ''}
@@ -3758,50 +3698,6 @@ function buildSgGroupCard(cid, sg, sgi) {
 
     bdHtml = sg.bd_results.map((bdc, bi) => {
       if (!Array.isArray(bdc.members)) return '';
-
-      // ── Item 2: indicadores agregados a nivel cluster BD ──────────────────
-      // Similitud textual: jaccard de tokens de dirección entre SG y mejor member del BD
-      let bestTextSim = 0;
-      bdc.members.forEach(m => {
-        const sim = _jaccardSets(sgAddrTokens, _addrTokens(m.app_address || ''));
-        if (sim > bestTextSim) bestTextSim = sim;
-      });
-      // Distancia geo: distancia mínima entre cualquier coord del SG y cualquier coord del BD
-      let minDistM = Infinity;
-      bdc.members.forEach(m => {
-        const lat = parseFloat(m.app_latitude);
-        const lng = parseFloat(m.app_longitude);
-        if (!isFinite(lat) || !isFinite(lng) || (lat === 0 && lng === 0)) return;
-        sgCoords.forEach(c => {
-          const d = _haversineM(c.lat, c.lng, lat, lng);
-          if (d < minDistM) minDistM = d;
-        });
-      });
-      // Si el BD tiene coords coincidentes con un fallback bucket, marcamos
-      const bdHasFallbackCoord = bdc.members.some(m => {
-        const lat = parseFloat(m.app_latitude);
-        const lng = parseFloat(m.app_longitude);
-        return _isFallbackCoord(lat, lng);
-      });
-
-      // Formateo
-      const textSimPct = Math.round(bestTextSim * 100);
-      const textSimColor = bestTextSim >= 0.5 ? 'var(--green)' : bestTextSim >= 0.25 ? 'var(--amber)' : 'var(--muted)';
-      const distLabel = minDistM === Infinity ? '—'
-        : minDistM < 1000 ? Math.round(minDistM) + ' m'
-        : (minDistM/1000).toFixed(1) + ' km';
-      const distColor = minDistM === Infinity ? 'var(--muted)'
-        : minDistM < 500 ? 'var(--green)'
-        : minDistM < 5000 ? 'var(--amber)'
-        : 'var(--red)';
-      // Si SG o BD tienen coord sospechosa, la distancia geo no es confiable
-      const distSuspect = sgHasFallbackCoord || bdHasFallbackCoord;
-
-      const matchBadge = `<span style="display:inline-flex;align-items:center;gap:5px;font-size:9px;flex-shrink:0;margin-left:6px"
-        title="Similitud textual de dirección entre SG y este cluster (jaccard de palabras)${distSuspect?' · ⚠ coords sospechosas (geocoder fallback): la distancia geo puede no ser confiable':''}">
-        <span style="color:${textSimColor};font-weight:700">🔤 ${textSimPct}%</span>
-        <span style="color:${distColor}">📍 ${distLabel}${distSuspect?' ⚠':''}</span>
-      </span>`;
       const hasAnchorOfSg = bdc.members.some(m =>
         (m.is_anchor || m.item_index === bdc.cluster_index) &&
         sgStoreIds.has(String(m.store_id||""))
@@ -3902,14 +3798,11 @@ function buildSgGroupCard(cid, sg, sgi) {
 
       return `<div class="sg-bd-cluster bd-drop-zone${isClusterEmptied?' cluster-emptied':''}" id="bdz_${CSS.escape(bdc.cluster_index)}"
         data-cluster="${esc(bdc.cluster_index)}"
-        data-text-sim="${textSimPct}"
-        data-dist-m="${minDistM === Infinity ? -1 : Math.round(minDistM)}"
         ondragover="onBdDropZoneOver(event)" ondragleave="onBdDropZoneLeave(event)"
         ondrop="onBdDrop(event,'${esc(bdc.cluster_index)}','${esc(cid)}',${sgi})">
         <div style="display:flex;align-items:center;gap:6px;padding:5px 8px;${hdrBg}">
           <span class="sg-bd-cluster-id"${isClusterEmptied?' style="text-decoration:line-through;opacity:.6"':''}>${esc(bdc.cluster_index)}</span>
           ${countLabel}
-          ${matchBadge}
           ${hasAnchorOfSg?`<span style="font-size:9px;color:var(--amber);font-weight:700">⚓ ancla aquí</span>`
             :hasAnchor?`<span style="font-size:9px;color:var(--muted)">⚓</span>`:""}
           ${alreadyAssignedBadge}
@@ -5935,61 +5828,12 @@ function initBdMap(cid, sgi) {
       <span style="font-family:monospace;font-size:9px;color:#3b82f6">${escHtml(p.cluster_index)}</span>
     </div>`);
     marker._clusterId = p.cluster_index;
-    marker._isSubgroup = !!p.isSubgroup;
     markers.push(marker);
   });
 
   map._markers = markers;
-
-  // Viewport inicial: bounds restringido a stores del SG + BD cercanos al SG.
-  // Razón: el cluster suele estar mal armado y los BD pueden estar dispersos por todo el país.
-  // Si usamos fitBounds(todos), el zoom out es tan grande que pierde sentido el SG.
-  // Estrategia:
-  //   1. Si hay stores SG: bounds = SG + BD a <= MAX_M de cualquier SG.
-  //   2. Si no hay SG (raro), bounds = todos.
-  //   3. Si solo el SG cabe en el bounds (sin BD cercanos), pequeño padding extra.
-  // Los BD lejanos siguen visibles en el mapa (no se ocultan), solo no estiran el viewport.
-  const MAX_M = 500; // 500 m alrededor del SG
-  const sgPts = points.filter(p => p.isSubgroup);
-  let viewPts = points;
-  if (sgPts.length) {
-    const cosLat = Math.cos(sgPts[0].lat * Math.PI / 180);
-    const isNear = p => sgPts.some(sg => {
-      const dlat = (p.lat - sg.lat) * 111320;
-      const dlng = (p.lng - sg.lng) * 111320 * cosLat;
-      return Math.sqrt(dlat*dlat + dlng*dlng) <= MAX_M;
-    });
-    viewPts = points.filter(p => p.isSubgroup || isNear(p));
-    if (viewPts.length === sgPts.length) {
-      // Solo SG en el viewport: forzar un mini-bounds alrededor del SG
-      const buf = 0.003; // ~330m
-      viewPts = sgPts.flatMap(p => [
-        {lat: p.lat - buf, lng: p.lng - buf},
-        {lat: p.lat + buf, lng: p.lng + buf},
-      ]);
-    }
-  }
-  const bounds = L.latLngBounds(viewPts.map(p=>[p.lat,p.lng]));
-  map.fitBounds(bounds, {padding:[20,20], maxZoom: 17});
-
-  // Botón "ver todos" si hay puntos fuera del viewport
-  const farCount = points.length - (sgPts.length ? viewPts.filter(v => v.lat !== undefined && points.some(p => p.lat===v.lat && p.lng===v.lng)).length : points.length);
-  if (sgPts.length && points.length > sgPts.length) {
-    const allBounds = L.latLngBounds(points.map(p=>[p.lat,p.lng]));
-    if (!bounds.contains(allBounds.getNorthEast()) || !bounds.contains(allBounds.getSouthWest())) {
-      const btn = L.control({position: 'topright'});
-      btn.onAdd = function() {
-        const div = L.DomUtil.create('div', '');
-        div.innerHTML = `<button style="padding:5px 8px;font-size:11px;background:#fff;border:1px solid #ccc;border-radius:4px;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.15)" title="Hay stores BD lejanos al subgrupo">🌎 Ver todos los pins</button>`;
-        L.DomEvent.disableClickPropagation(div);
-        div.querySelector('button').onclick = () => {
-          map.fitBounds(allBounds, {padding:[20,20]});
-        };
-        return div;
-      };
-      btn.addTo(map);
-    }
-  }
+  const bounds = L.latLngBounds(points.map(p=>[p.lat,p.lng]));
+  map.fitBounds(bounds, {padding:[20,20]});
 
   // Aplicar filtro activo si existe
   const filterInput = wrap.parentElement?.querySelector('input[type="text"]');
@@ -6003,10 +5847,6 @@ function syncMapFilter(cid, sgi, visibleClusters) {
   const mapObj = _bdMaps[key];
   if (!mapObj || !mapObj._markers) return;
   mapObj._markers.forEach(m => {
-    // Stores del SG: nunca se ocultan ni atenúan (son el contexto fijo)
-    if (m._isSubgroup) return;
-    // setStyle existe solo en circleMarker; los marker con divIcon no tienen.
-    if (typeof m.setStyle !== 'function') return;
     if (!visibleClusters) {
       m.setStyle({opacity:1, fillOpacity:0.85});
     } else {
@@ -6081,7 +5921,7 @@ async function doSgClusterSearch() {
          Refiná tu búsqueda agregando palabras a <b>nombre</b> o <b>dirección</b> para encontrar el correcto.
        </div>`
     : `<div style="padding:6px 12px;font-size:10px;color:var(--muted);text-align:center;border-top:1px solid var(--border)">
-         ${d.total.toLocaleString()} resultado${d.total!==1?"s":""}
+         ${(d.total||d.count).toLocaleString()} resultado${(d.total||d.count)!==1?"s":""}
        </div>`;
 
   results.innerHTML = d.clusters.map(cl => {
