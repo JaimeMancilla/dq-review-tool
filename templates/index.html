@@ -1792,7 +1792,7 @@ function buildSgBlock(cl,sg,sgi){
           app_address: m.app_address||"", scraper_source: m.scraper_source||"",
           from_cluster: bdc.cluster_index, cluster_name: bdc.cluster_name||"",
           cluster_address: bdc.cluster_address||"", item_index: m.item_index||""
-        })) : "";
+        })).replace(/'/g, '%27') : "";
         return `<div style="display:flex;flex-direction:column;border:1px solid var(--border2);border-radius:5px;padding:5px 8px;font-size:10px;${chipBg};transition:all .12s;margin-bottom:3px"
           ${draggable?`draggable="true" ondragstart="onBdRowDragStart(event,'${dragJson}')" ondragend="event.target.style.opacity='1'"`:""}
           >
@@ -3728,7 +3728,7 @@ function buildSgGroupCard(cid, sg, sgi) {
           from_cluster: bdc.cluster_index, cluster_name: bdc.cluster_name||"",
           cluster_address: bdc.cluster_address||"", item_index: m.item_index||"",
           is_anchor: !!isAnchor
-        })) : "";
+        })).replace(/'/g, '%27') : "";
 
         // Icono: tachado > recibido > ancla > default. El ancla movida conserva el ⚓ pequeño gris para contexto.
         const icon = isMovedOut ? `<span style="font-size:9px;color:var(--red)">${isAnchor?'⚓':'✕'}</span>`
