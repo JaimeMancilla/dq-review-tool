@@ -1413,6 +1413,60 @@ def build_subgroups(bad_members):
         "vegetal","mccafe","cafe","express","drive","thru","junior"
     }
 
+    # Buckets de geocoder fallback conocidos (ignoramos lat/lng si caen ahí)
+    # Mismo set que en frontend _FALLBACK_BUCKETS.
+    FALLBACK_BUCKETS = [
+        (-33.453, -70.682), (-33.545, -70.571), (-33.437, -70.641),
+        (-33.452, -70.569), (-33.516, -70.714), (-33.442, -70.652),
+        (-33.436, -70.680), (-33.440, -70.649), (-33.488, -70.578),
+        (-32.932, -71.518),
+    ]
+    # Si dos stores tienen coords confiables (no fallback) y están a más de
+    # SG_GEO_THRESHOLD_M, NO los agrupo aunque tengan nombre+dirección parecida.
+    # Conservador: solo separa outliers geográficos obvios. No desarma SGs que tienen
+    # nombre/dirección distintos (ese filtro lo sigue haciendo el código original).
+    SG_GEO_THRESHOLD_M = 2000  # 2 km
+
+    def haversine_m(lat1, lng1, lat2, lng2):
+        from math import radians, sin, cos, asin, sqrt
+        R = 6371000
+        lat1, lng1, lat2, lng2 = map(radians, [lat1, lng1, lat2, lng2])
+        dlat, dlng = lat2-lat1, lng2-lng1
+        a = sin(dlat/2)**2 + cos(lat1)*cos(lat2)*sin(dlng/2)**2
+        return 2 * R * asin(sqrt(a))
+
+    def is_fallback_coord(lat, lng):
+        try:
+            lat, lng = float(lat), float(lng)
+        except (ValueError, TypeError):
+            return True  # coord inválida → tratar como fallback (ignorar)
+        if lat == 0 and lng == 0: return True
+        for flat, flng in FALLBACK_BUCKETS:
+            if haversine_m(lat, lng, flat, flng) < 200:
+                return True
+        return False
+
+    def get_clean_coords(member):
+        """Devuelve (lat, lng) si confiables, None si son fallback o inválidas."""
+        lat = member.get("app_latitude")
+        lng = member.get("app_longitude")
+        if lat is None or lng is None or lat == "" or lng == "":
+            return None
+        if is_fallback_coord(lat, lng):
+            return None
+        try:
+            return (float(lat), float(lng))
+        except (ValueError, TypeError):
+            return None
+
+    def too_far_geographically(a, b):
+        """True si las coords de ambos son confiables y la distancia > umbral."""
+        ca = get_clean_coords(a)
+        cb = get_clean_coords(b)
+        if ca is None or cb is None:
+            return False  # alguna coord no es confiable → no aplico el filtro geo
+        return haversine_m(ca[0], ca[1], cb[0], cb[1]) > SG_GEO_THRESHOLD_M
+
     def has_sub_entity(name):
         return any(w in FAST_FOOD_SUBS for w in norm(name).split())
 
@@ -1436,6 +1490,9 @@ def build_subgroups(bad_members):
                 bk = set(extract_addr_keys(b.get("app_address","")))
                 if ak and bk and not ak & bk:
                     continue  # direcciones distintas → subgrupos separados
+            # Filtro geográfico: si ambas coords son confiables y están lejos, separar
+            if too_far_geographically(a, b):
+                continue  # outlier geográfico → subgrupo separado
             grp.append(b); used[j] = True
         grp.sort(key=lambda m: m.get("item_index",""))
         subgroups.append({
@@ -2927,6 +2984,27 @@ def ext_correction_list():
 def ext_correction_delete():
     ext_corr_delete(request.json.get("id"))
     return jsonify({"ok": True})
+
+@app.route("/ext_correction/delete_for_sg", methods=["POST"])
+def ext_correction_delete_for_sg():
+    """Borra todas las external_corrections asociadas a un SG específico.
+    Filtros: file_name (archivo activo) + store_ids (stores externos del SG).
+    Esto permite hacer un undo total de un SG sin afectar correcciones de otros SGs.
+    """
+    data = request.json or {}
+    file_name = (data.get("file_name") or session.get("filename","")).strip()
+    store_ids = data.get("store_ids") or []   # lista de store_ids a borrar
+    if not file_name or not store_ids:
+        return jsonify({"ok": True, "deleted": 0})
+    conn = sqlite3.connect(DB_FILE)
+    placeholders = ",".join(["?"] * len(store_ids))
+    cur = conn.execute(
+        f"DELETE FROM external_corrections WHERE file_name = ? AND store_id IN ({placeholders})",
+        [file_name] + [str(s) for s in store_ids]
+    )
+    deleted = cur.rowcount
+    conn.commit(); conn.close()
+    return jsonify({"ok": True, "deleted": deleted})
 
 def progress_stats_dishes():
     """Progreso de revisión de dishes — solo desde memoria interna."""

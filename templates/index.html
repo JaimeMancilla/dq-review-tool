@@ -53,7 +53,8 @@ th{text-align:left;padding:6px 10px;font-size:10px;font-weight:700;color:var(--m
 th:hover{background:var(--surf3)}
 td{padding:7px 10px;border-bottom:1px solid var(--border);vertical-align:middle}
 tr:last-child td{border-bottom:none}
-tr.row-anchor td{background:var(--abg)}
+/* Ancla pegada arriba al hacer scroll dentro del cluster */
+tr.row-anchor td{background:var(--abg);position:sticky;top:0;z-index:5;box-shadow:0 2px 4px -2px rgba(0,0,0,0.08)}
 tr.row-bad td{background:var(--rbg)}
 tr.row-ok td{background:var(--surf)}
 tr.row-mem td{background:#f0ecff}
@@ -1527,8 +1528,10 @@ function clusterProgress(cl) {
   const bad  = cl.members.filter(m => m.revision === 0).length;
   if (bad === 0) return { done: true, bad: 0, corrected: 0, total: 0, corrected_stores: 0, total_stores: bad };
   if (!sgs.length) return { done: false, bad, corrected: 0, total: 0, corrected_stores: 0, total_stores: bad };
-  const corrected = sgs.filter(sg => sg.correction).length;
-  const corrected_stores = sgs.filter(sg => sg.correction).reduce((acc, sg) => acc + sg.members.length, 0);
+  // Un SG cuenta como "resuelto" si tiene corrección O fue marcado como done manualmente
+  const isResolved = sg => !!sg.correction || !!sg.done;
+  const corrected = sgs.filter(isResolved).length;
+  const corrected_stores = sgs.filter(isResolved).reduce((acc, sg) => acc + sg.members.length, 0);
   return { done: corrected === sgs.length, bad, corrected, total: sgs.length,
            corrected_stores, total_stores: bad };
 }
@@ -1730,7 +1733,7 @@ function buildBdPanel(cl){
       </div>
     </div>`;
   }
-  const corrCount=sgs.filter(sg=>sg.correction).length;
+  const corrCount=sgs.filter(sg=>sg.correction || sg.done).length;
   const total=sgs.length;
   const allDone=corrCount===total;
   return`<div class="col-bd" id="bdPanel_${CSS.escape(cid)}" data-cid="${esc(cid)}"
@@ -1849,19 +1852,24 @@ function buildSgBlock(cl,sg,sgi){
     :`<span style="font-size:11px;color:var(--muted)">Sin asignar</span>`;
 
   const isCorr = !!sg.correction;
-  // Colapsado por default si ya tiene corrección, expandido si no
-  const bodyDisplay = isCorr ? "none" : "block";
-  const chevRot     = isCorr ? "rotate(-90deg)" : "";
+  const isDone = !!sg.done;
+  // Colapsado por default si ya tiene corrección O está marcado como done
+  const bodyDisplay = (isCorr || isDone) ? "none" : "block";
+  const chevRot     = (isCorr || isDone) ? "rotate(-90deg)" : "";
 
-  return`<div class="sg-block drop-zone-target" id="sg_${sgKey}"
+  return`<div class="sg-block drop-zone-target ${isDone?'sg-block-done':''}" id="sg_${sgKey}"
     ondragover="onSgDragOver(event,'${esc(cid)}',${sgi})"
     ondragleave="onSgDragLeave(event)"
     ondrop="onSgDrop(event,'${esc(cid)}',${sgi})">
-    <div class="sg-hdr" style="cursor:pointer;display:flex;align-items:center;gap:8px" onclick="toggleSgBlock(this.querySelector('.sg-chev'))">
-      <span class="badge ${isCorr?'ok':'bad'}">${isCorr?'✓ '+(sgi+1):'Grupo '+(sgi+1)}</span>
+    <div class="sg-hdr" style="cursor:pointer;display:flex;align-items:center;gap:8px${isDone?';opacity:0.7':''}" onclick="toggleSgBlock(this.querySelector('.sg-chev'))">
+      <span class="badge ${(isCorr||isDone)?'ok':'bad'}">${isDone?'✓ OK '+(sgi+1):(isCorr?'✓ '+(sgi+1):'Grupo '+(sgi+1))}</span>
       <span style="font-weight:600;font-size:12px;flex:1">${esc(sg.rep_name)}</span>
       <span style="font-size:10px;color:var(--muted)">${sg.members.length} store${sg.members.length!==1?"s":""}</span>
+      ${isDone?`<span title="Marcado como OK manualmente — no requiere acción" style="font-size:10px;color:var(--green);font-weight:700">OK ✓</span>`:''}
       ${isCorr?`<span style="font-family:monospace;font-size:10px;color:var(--green);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:140px">${esc(sg.correction)}</span>`:''}
+      <button class="btn sm" style="font-size:9px;padding:1px 6px;color:${isDone?'var(--amber)':'var(--muted)'}"
+        onclick="event.stopPropagation();toggleSgDone('${esc(cid)}',${sgi})"
+        title="${isDone?'Quitar marca de OK':'Marcar este SG como OK (no requiere correcciones)'}">${isDone?'↺ Reabrir':'✓ OK'}</button>
       <span class="sg-chev" style="font-size:10px;color:var(--muted);transition:transform .15s;flex-shrink:0;transform:${chevRot}">▼</span>
     </div>
     <div class="sg-body" style="display:${bodyDisplay}">
@@ -2176,40 +2184,101 @@ async function clearSgCorr(cid, sgi) {
   if (!sgs || !sgs[sgi]) return;
   const sg = sgs[sgi];
 
-  // Limpiar estado JS del subgrupo — NO borrar ext_corrections (son independientes)
-  const confirmedSids = new Set((sg._confirmed_store_ids||[]).map(String));
+  // Recolectar TODOS los store_ids tocados por este SG: del propio sg + externos confirmados
+  const confirmedSgSids = new Set((sg._confirmed_store_ids||[]).map(String));
+  const externalSids = new Set();
+  Object.values(sg._confirmed_moves_in||{}).forEach(arr => {
+    arr.forEach(m => {
+      if (!m.is_subgroup) externalSids.add(String(m.store_id));
+    });
+  });
+  const allTouchedSids = new Set([...confirmedSgSids, ...externalSids]);
+
+  // Confirmar si hay externas (acción más invasiva)
+  if (externalSids.size > 0) {
+    const ok = confirm(
+      `Este subgrupo tiene ${externalSids.size} corrección${externalSids.size!==1?'es':''} externa${externalSids.size!==1?'s':''} aplicada${externalSids.size!==1?'s':''} a SQLite.\n\n` +
+      `¿Querés deshacer TODO (corrección del SG + correcciones externas)?\n\n` +
+      `NOTA: si ya hiciste "Actualizar BD" hacia Postgres, esos cambios NO se revierten — solo se borran de SQLite local.`
+    );
+    if (!ok) return;
+  }
+
+  // Limpiar estado JS del subgrupo
   sg.correction = ""; sg.is_new = false;
   sg._confirmed_store_ids = [];
   sg._confirmed_moves_in  = {};
 
-  // Revertir _moved_out solo para stores del subgrupo (is_subgroup)
-  // Las stores externas mantienen su tachado porque sus ext_corrections siguen vigentes
+  // Revertir _moved_out / _moved_in para TODOS los stores tocados (sg + externas)
   sgs.forEach(otherSg => {
     if (!otherSg.bd_results) return;
     otherSg.bd_results = otherSg.bd_results.map(bdc => ({
       ...bdc,
-      members: bdc.members.map(m => ({
-        ...m,
-        _moved_out: confirmedSids.has(String(m.store_id)) ? false : m._moved_out,
-      }))
+      members: bdc.members
+        // Quitar chips fantasma _moved_in que vinieron por las correcciones externas
+        .filter(m => !(m._moved_in && allTouchedSids.has(String(m.store_id))))
+        .map(m => ({
+          ...m,
+          _moved_out: allTouchedSids.has(String(m.store_id)) ? false : m._moved_out,
+        }))
     }));
   });
 
-  // Revertir _sessionClusterState solo para stores del subgrupo
-  confirmedSids.forEach(sid => {
+  // Revertir _sessionClusterState
+  allTouchedSids.forEach(sid => {
     Object.values(_sessionClusterState).forEach(state => {
       if (state.moved_out instanceof Set) state.moved_out.delete(sid);
+      else if (Array.isArray(state.moved_out)) {
+        state.moved_out = state.moved_out.filter(s => String(s) !== sid);
+      }
+      if (Array.isArray(state.moved_in)) {
+        state.moved_in = state.moved_in.filter(x => String(x.store_id) !== sid);
+      }
     });
   });
 
+  // Borrar de SQLite: corrección del SG + externas
   await api("/set_correction", {cluster_id: cid, item_indexes: sg.members, correction: ""});
+  if (externalSids.size > 0) {
+    await api("/ext_correction/delete_for_sg", {
+      file_name: CURRENT_FILENAME || "",
+      store_ids: [...externalSids]
+    });
+  }
   api("/save_subgroups", {subgroups: SUBGROUPS});
   refreshClusterBadge(cid);
   renderFilterBar();
   updateSgModalProgress(cid);
   if (_sgModalCid === cid) { renderSgList(cid); renderSgActivePanel(cid, _sgActiveSgi); }
   else rebuildBdPanel(getCl(cid)||{cluster_id: cid});
-  toast("↩ Corrección del subgrupo deshecha");
+  toast(externalSids.size > 0
+    ? `↩ SG deshecho: 1 corrección + ${externalSids.size} externa${externalSids.size!==1?'s':''} borradas`
+    : "↩ Corrección del subgrupo deshecha");
+}
+
+// Marcar / desmarcar un subgrupo como "OK manualmente" (no requiere corrección)
+// Útil cuando los stores del SG ya fueron corregidos externamente desde otro SG del mismo archivo.
+// Es un flag visual que persiste en SUBGROUPS, no toca corrections ni external_corrections.
+async function toggleSgDone(cid, sgi) {
+  const sgs = SUBGROUPS[cid];
+  if (!sgs || !sgs[sgi]) return;
+  const sg = sgs[sgi];
+
+  if (sg.done) {
+    // Desmarcar
+    sg.done = false;
+    toast("↺ SG reabierto — vuelve a estado no revisado");
+  } else {
+    // Marcar como OK
+    sg.done = true;
+    toast("✓ SG marcado como OK manualmente");
+  }
+
+  api("/save_subgroups", {subgroups: SUBGROUPS});
+  refreshClusterBadge(cid);
+  renderFilterBar();
+  updateSgModalProgress(cid);
+  if (_sgModalCid === cid) { renderSgList(cid); }
 }
 function refreshClusterBadge(cid) {
   const cl  = getCl(cid); if (!cl) return;
@@ -3890,6 +3959,9 @@ function buildSgGroupCard(cid, sg, sgi) {
       <div class="sg-group-count">${sg.members.length} store${sg.members.length!==1?"s":""}</div>
       ${isCorr?`<div class="sg-group-corr-badge" title="${esc(sg.correction)}">${esc(sg.correction)}</div>`:''}
       <div style="display:flex;gap:4px;margin-left:auto">
+      <button class="btn sm" onclick="resetSg('${esc(cid)}',${sgi})"
+      title="Resetear visualmente este subgrupo (cancela moves pendientes, no toca correcciones aplicadas)"
+      style="color:var(--muted)">↺ Reset</button>
         ${prevSgi>=0?`<button class="btn sm" style="padding:1px 8px;font-size:11px" onclick="selectSgItem('${esc(cid)}',${prevSgi})">◀</button>`:''}
         ${nextSgi>=0?`<button class="btn sm" style="padding:1px 8px;font-size:11px" onclick="selectSgItem('${esc(cid)}',${nextSgi})">▶</button>`:''}
       </div>
@@ -4176,7 +4248,7 @@ async function assignSgInputModal(cid, sgi) {
 function updateSgModalProgress(cid) {
   const sgs = SUBGROUPS[cid] || [];
   const total = sgs.length;
-  const corrected = sgs.filter(sg => sg.correction).length;
+  const corrected = sgs.filter(sg => sg.correction || sg.done).length;
   const el = document.getElementById("sgModalProgress");
   if (el) {
     el.innerHTML = total
@@ -4903,7 +4975,8 @@ function undoLastBdMove(cid, sgi) {
   }
 
   // 4. Destachar en bd_results si era move externo (el store vuelve a estar disponible)
-  if (!m.is_subgroup && m.from_cluster) {
+  // Aplica siempre (sea move de chip SG o de chip BD), porque ambos casos persisten _moved_out.
+  if (!m.is_subgroup) {
     const sgsRef = SUBGROUPS[cid]||[];
     sgsRef.forEach(otherSg => {
       if (!otherSg.bd_results) return;
@@ -4926,6 +4999,78 @@ function undoLastBdMove(cid, sgi) {
   renderSgActivePanel(cid, sgi);
   _bdShowConfirmBtn(cid, sgi);
   toast("↩ Movimiento deshecho");
+}
+
+function resetSg(cid, sgi) {
+  const sgKey = `${cid}_${sgi}`;
+  const sg = SUBGROUPS[cid]?.[sgi];
+  if (!sg) return;
+
+  // Contar para el confirm dialog
+  const pendingCount = (_bdPendingMoves[sgKey]||[]).length;
+  const fromSearchCount = (sg.bd_results||[]).filter(b => b._from_search).length;
+
+  // Contar chips tachados (estimado por _moved_out en bd_results)
+  let tachadosCount = 0;
+  (sg.bd_results||[]).forEach(bdc => {
+    bdc.members?.forEach(m => { if (m._moved_out || m._moved_in) tachadosCount++; });
+  });
+
+  if (pendingCount === 0 && fromSearchCount === 0 && tachadosCount === 0) {
+    toast("Nada que resetear en este SG"); return;
+  }
+
+  const sgName = sg.rep_name || sg.members?.[0] || "subgrupo actual";
+  const msg = `¿Resetear visualmente "${sgName}"?\n\n` +
+    `Esto limpia el estado de moves de este SG en la sesión actual:\n` +
+    `• ${pendingCount} move${pendingCount!==1?'s':''} pendiente${pendingCount!==1?'s':''} se cancela${pendingCount!==1?'n':''}\n` +
+    `• ${tachadosCount} chip${tachadosCount!==1?'s':''} tachado${tachadosCount!==1?'s':''} vuelve${tachadosCount!==1?'n':''} a normal\n` +
+    `• ${fromSearchCount} cluster${fromSearchCount!==1?'es':''} de búsqueda se quita${fromSearchCount!==1?'n':''} del panel\n\n` +
+    `Las correcciones YA APLICADAS al backend NO se tocan.\n\n` +
+    `¿Continuar?`;
+
+  if (!confirm(msg)) return;
+
+  // 1. Limpiar pendientes
+  _bdPendingMoves[sgKey] = [];
+  delete _pendingNewCluster[sgKey];
+  _bdUndoStack[sgKey] = [];
+
+  // 2 + 3. Limpiar _moved_out / _moved_in en bd_results y _sessionClusterState
+  // Primero, qué store_ids estaban involucrados en moves del sg actual
+  const involvedStoreIds = new Set();
+  (sg.bd_results||[]).forEach(bdc => {
+    bdc.members?.forEach(m => {
+      if (m._moved_out || m._moved_in) involvedStoreIds.add(String(m.store_id));
+    });
+  });
+
+  // Limpiar de _sessionClusterState esos store_ids
+  Object.values(_sessionClusterState).forEach(state => {
+    if (state.moved_out instanceof Set) {
+      involvedStoreIds.forEach(sid => state.moved_out.delete(sid));
+    } else if (Array.isArray(state.moved_out)) {
+      state.moved_out = state.moved_out.filter(s => !involvedStoreIds.has(String(s)));
+    }
+    if (Array.isArray(state.moved_in)) {
+      state.moved_in = state.moved_in.filter(x => !involvedStoreIds.has(String(x.store_id)));
+    }
+  });
+
+  // Limpiar _moved_out / _moved_in de bd_results, y también filtrar los chips fantasma _moved_in
+  sg.bd_results = (sg.bd_results||[])
+    .filter(bdc => !bdc._from_search) // 4. Quitar from_search
+    .map(bdc => ({
+      ...bdc,
+      members: (bdc.members||[])
+        .filter(m => !m._moved_in)  // quitar los chips agregados como _moved_in fantasma
+        .map(m => ({...m, _moved_out: false}))
+    }));
+
+  // 6. Re-render
+  renderSgActivePanel(cid, sgi);
+  _bdShowConfirmBtn(cid, sgi);
+  toast(`↺ Subgrupo reseteado`);
 }
 
 function _bdDropAddChip(targetCluster, cid, sgi, appName, appAddr, newCluster, storeId) {
