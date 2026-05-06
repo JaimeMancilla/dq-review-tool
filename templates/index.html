@@ -2061,7 +2061,17 @@ async function runSgQuery(cid, sgi){
       if (btn) { btn.innerHTML = "▶ Ejecutar"; btn.disabled = false; }
       return;
     }
-    sgs[sgi].bd_results = d.clusters_found || [];
+    sgs[sgi].bd_results = (d.clusters_found || []).filter(bdc => {
+      // Filtrar clusters auto-referenciales: cluster con 1 solo member que es ancla y
+      // ese member es una store del archivo cargado. Esos clusters son ruido visual
+      // (la misma store que estás revisando, mostrada como su propio cluster en BD).
+      if (!Array.isArray(bdc.members) || bdc.members.length !== 1) return true;
+      const only = bdc.members[0];
+      const isAnchor = only.is_anchor === true || only.is_anchor === "true";
+      if (!isAnchor) return true;
+      // Si la store está en el archivo cargado, este es ruido auto-referencial → filtrar
+      return !isStoreInLoadedFile(only.store_id);
+    });
     const block = allBlocks[sgi];
     if (block) {
       const cl = getCl(cid);
@@ -4254,7 +4264,16 @@ async function runSgQueryModal(cid, sgi) {
         ).map(mi => ({...mi, _moved_in: true, is_anchor: false}));
         return {...bdc, members: [...members, ...incoming]};
       });
-      sgs[sgi].bd_results = clusters.filter(bdc => Array.isArray(bdc.members));
+      sgs[sgi].bd_results = clusters
+        .filter(bdc => Array.isArray(bdc.members))
+        .filter(bdc => {
+          // Filtrar clusters auto-referenciales (1 member que es ancla y es store del archivo)
+          if (bdc.members.length !== 1) return true;
+          const only = bdc.members[0];
+          const isAnchor = only.is_anchor === true || only.is_anchor === "true";
+          if (!isAnchor) return true;
+          return !isStoreInLoadedFile(only.store_id);
+        });
       if (!clusters.length) toast("Sin resultados — intenta reagrupar o ingresa manualmente");
       else toast(`${clusters.length} cluster(s) encontrados`);
     }
@@ -5013,26 +5032,25 @@ function undoLastBdMove(cid, sgi) {
       (_sessionClusterState[m.new_cluster].moved_in||[]).filter(x => String(x.store_id) !== sid);
   }
 
-  // 4. Destachar en bd_results si era move externo (el store vuelve a estar disponible)
-  // Aplica siempre (sea move de chip SG o de chip BD), porque ambos casos persisten _moved_out.
-  if (!m.is_subgroup) {
-    const sgsRef = SUBGROUPS[cid]||[];
-    sgsRef.forEach(otherSg => {
-      if (!otherSg.bd_results) return;
-      otherSg.bd_results = otherSg.bd_results.map(bdc => ({
-        ...bdc,
-        members: bdc.members
-          // Quitar _moved_in que se había agregado como fantasma en cluster destino
-          .filter(mb => !(mb._moved_in && String(mb.store_id) === sid && bdc.cluster_index === m.new_cluster))
-          .map(mb => {
-            if (String(mb.store_id) === sid && bdc.cluster_index === m.from_cluster) {
-              return {...mb, _moved_out: false};
-            }
-            return mb;
-          })
-      }));
-    });
-  }
+  // 4. Destachar en bd_results: el store vuelve a estar disponible.
+  // Aplica SIEMPRE (interno o externo), porque ambos casos persistieron _moved_out.
+  // (Antes solo se aplicaba a externos, lo que dejaba chips tachados al deshacer moves del SG.)
+  const sgsRef = SUBGROUPS[cid]||[];
+  sgsRef.forEach(otherSg => {
+    if (!otherSg.bd_results) return;
+    otherSg.bd_results = otherSg.bd_results.map(bdc => ({
+      ...bdc,
+      members: bdc.members
+        // Quitar _moved_in que se había agregado como fantasma en cluster destino
+        .filter(mb => !(mb._moved_in && String(mb.store_id) === sid && bdc.cluster_index === m.new_cluster))
+        .map(mb => {
+          if (String(mb.store_id) === sid && bdc.cluster_index === m.from_cluster) {
+            return {...mb, _moved_out: false};
+          }
+          return mb;
+        })
+    }));
+  });
 
   // 5. Re-render panel para reflejar estado consistente
   renderSgActivePanel(cid, sgi);
