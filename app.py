@@ -1454,18 +1454,19 @@ def build_subgroups(bad_members):
         if ca is None or cb is None: return False
         return haversine_m(ca[0], ca[1], cb[0], cb[1]) > SG_GEO_THRESHOLD_M
 
-    # Detector de "número de calle" en addr_keys: típicamente el primer token numérico.
-    # Se usa para separar SGs cuando dos stores tienen números de calle CLARAMENTE distintos
-    # (ej: "Camilo Henríquez 3296" vs "Camilo Henríquez 5800").
-    # Esto cubre el caso de cadenas multi-ciudad (Buffalo Waffles, Starbucks, Doggis) donde
-    # antes se agrupaban todas porque la marca tiene 2+ palabras y no entra al filtro original.
-    def get_street_numbers(addr_keys):
-        """De los addr_keys, devuelve el set de tokens que parecen números de calle (>=2 dígitos)."""
-        return {k for k in addr_keys if k.isdigit() and len(k) >= 2}
+    # Detector de "número de calle": busca DIRECTAMENTE en la dirección original.
+    # No depende de extract_addr_keys (que solo devuelve 2 keys y puede saltarse el número).
+    # Devuelve set de números de 2-5 dígitos que aparecen en la dirección.
+    def get_street_numbers(addr):
+        if not addr: return set()
+        # Solo números de 2 a 5 dígitos (descarta CPs largos y "1" suelto)
+        nums = re.findall(r"\b(\d{2,5})\b", addr)
+        return set(nums)
 
-    def addresses_clearly_different(ak, bk):
-        """True si ambas direcciones tienen números de calle Y son distintos (sin intersección)."""
-        an = get_street_numbers(ak); bn = get_street_numbers(bk)
+    def addresses_clearly_different(addr_a, addr_b):
+        """True si ambas direcciones tienen números Y son completamente distintos."""
+        an = get_street_numbers(addr_a)
+        bn = get_street_numbers(addr_b)
         if not an or not bn: return False
         return not (an & bn)
 
@@ -1495,7 +1496,7 @@ def build_subgroups(bad_members):
                     continue  # direcciones distintas → subgrupos separados
             #   2. NUEVO: SIEMPRE separar si los números de calle son claramente distintos
             #      Cubre cadenas multi-ciudad (Buffalo Waffles, Starbucks, etc.)
-            if addresses_clearly_different(ak, bk):
+            if addresses_clearly_different(a.get("app_address",""), b.get("app_address","")):
                 continue
             #   3. NUEVO: filtro geográfico — si coords confiables y distancia > 2km
             if too_far_geographically(a, b):
