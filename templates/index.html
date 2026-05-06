@@ -1435,6 +1435,7 @@ async function doUpload(file){
       if(d.error){toast("Error: "+d.error);return}
       CLUSTERS=d.clusters;COUNTRY=d.country||"mx";SUBGROUPS={};FILTER="all";
       CURRENT_FILENAME = d.filename||'';
+      invalidateLoadedStoreIdsCache();
       // Restaurar subgrupos si existen
       if(d.subgroups_restored && Object.keys(d.subgroups_restored).length){
         SUBGROUPS = d.subgroups_restored;
@@ -1593,6 +1594,36 @@ function renderAll() {
   filtered.forEach(cl => list.appendChild(buildCard(cl)));
 }
 function getCl(id){return CLUSTERS.find(c=>c.cluster_id===id)}
+
+// Detecta si un store_id pertenece al archivo cargado (en cualquier cluster, cualquier SG).
+// Se usa para distinguir correcciones internas (store del archivo) vs externas (store solo en BD).
+// Cachea el set en window._loadedStoreIds; se invalida al recargar CLUSTERS.
+let _loadedStoreIdsCache = null;
+let _loadedStoreIdsCacheVersion = -1;
+function isStoreInLoadedFile(storeId) {
+  if (!storeId) return false;
+  // Invalidar cache si CLUSTERS cambió de tamaño (proxy simple de "fue recargado")
+  if (_loadedStoreIdsCache === null || _loadedStoreIdsCacheVersion !== CLUSTERS.length) {
+    _loadedStoreIdsCache = new Set();
+    CLUSTERS.forEach(cl => {
+      (cl.members||[]).forEach(m => {
+        if (m.store_id) _loadedStoreIdsCache.add(String(m.store_id));
+        if (m.item_index) {
+          // También indexar por item_index sin prefijo, por si el move trae solo store_id sin prefijo
+          const i = String(m.item_index).indexOf("_");
+          _loadedStoreIdsCache.add(i >= 0 ? String(m.item_index).slice(i+1) : String(m.item_index));
+        }
+      });
+    });
+    _loadedStoreIdsCacheVersion = CLUSTERS.length;
+  }
+  return _loadedStoreIdsCache.has(String(storeId));
+}
+// Invalidar manualmente (llamar después de recargar/resetear archivo)
+function invalidateLoadedStoreIdsCache() {
+  _loadedStoreIdsCache = null;
+  _loadedStoreIdsCacheVersion = -1;
+}
 
 function buildCard(cl){
   const wrap=document.createElement("div");
@@ -2937,6 +2968,7 @@ async function confirmResetFile(){
       // Limpiar estado JS
       CLUSTERS=[];SUBGROUPS={};FILTER="all";DISH_GROUPS=[];
       REVIEW_TYPE=savedReviewType;
+      invalidateLoadedStoreIdsCache();
       // Ocultar pantallas de revisión
       document.getElementById("mainScreen").classList.add("hidden");
       document.getElementById("dishesScreen").classList.add("hidden");
@@ -2992,6 +3024,7 @@ function initDropzone(){
 
 async function resetApp(){
   CLUSTERS=[];COUNTRY="mx";SUBGROUPS={};DISH_GROUPS=[];REVIEW_TYPE=null;
+  invalidateLoadedStoreIdsCache();
   document.getElementById("uploadScreen").classList.remove("hidden");
   document.getElementById("mainScreen").classList.add("hidden");
   document.getElementById("dishesScreen").classList.add("hidden");
@@ -4613,10 +4646,12 @@ async function onBdDrop(e, targetCluster, cid, sgi) {
       item_index: m.item_index, new_cluster: newCluster, is_new: isNew,
       is_subgroup: false
     };
-    // Ver si es del subgrupo
-    const sgs=SUBGROUPS[cid]||[]; const sg=sgs[sgi]||{};
-    const sgIds=new Set((sg.members||[]).map(ii=>{const i=ii.indexOf("_");return i>=0?ii.slice(i+1):ii;}));
-    if (sgIds.has(String(m.store_id))||sgIds.has(String(m.item_index))) moveEntry.is_subgroup = true;
+    // Ver si la store pertenece al archivo (cualquier cluster, cualquier SG).
+    // Una corrección es "interna" si la store está en el archivo cargado;
+    // es "externa" solo si la store viene de BD pero no fue cargada en el archivo.
+    if (isStoreInLoadedFile(m.store_id) || isStoreInLoadedFile(m.item_index)) {
+      moveEntry.is_subgroup = true;
+    }
     _bdPendingMoves[key].push(moveEntry);
     // Guardar en undo stack
     if (!_bdUndoStack[key]) _bdUndoStack[key] = [];
