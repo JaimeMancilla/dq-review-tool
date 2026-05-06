@@ -3013,6 +3013,68 @@ def ext_correction_delete_for_sg():
     conn.commit(); conn.close()
     return jsonify({"ok": True, "deleted": deleted})
 
+@app.route("/ext_correction/cleanup_misclassified", methods=["POST"])
+def ext_correction_cleanup_misclassified():
+    """Identifica external_corrections que en realidad pertenecen al archivo cargado
+    (es decir, el store_id está en alguna fila del archivo en `clusters` de la sesión)
+    y opcionalmente las migra de external_corrections → corrections.
+
+    Body:
+      - file_name: archivo a auditar (default: archivo activo en sesión)
+      - dry_run: True (default) solo lista candidatos. False las borra.
+
+    Retorna: {file_name, total_in_file, candidatos: [{store_id, cluster_index, correction}], deleted}
+    """
+    data = request.json or {}
+    file_name = (data.get("file_name") or session.get("filename","")).strip()
+    dry_run = data.get("dry_run", True)
+    if not file_name:
+        return jsonify({"error": "Falta file_name"}), 400
+
+    # Cargar el set de store_ids del archivo (de la sesión activa)
+    clusters = session.get("clusters", []) or []
+    file_store_ids = set()
+    for cl in clusters:
+        for m in cl.get("members", []):
+            sid = str(m.get("store_id","") or "").strip()
+            if sid: file_store_ids.add(sid)
+            ii  = str(m.get("item_index","") or "").strip()
+            if ii:
+                idx = ii.find("_")
+                file_store_ids.add(ii[idx+1:] if idx >= 0 else ii)
+
+    if not file_store_ids:
+        return jsonify({"error": "No hay clusters en sesión — abrí el archivo primero"}), 400
+
+    # Buscar ext_corrections de este file_name cuyas store_id estén en el archivo
+    conn = sqlite3.connect(DB_FILE)
+    rows = conn.execute(
+        "SELECT id, store_id, cluster_index, correction FROM external_corrections WHERE file_name = ?",
+        (file_name,)
+    ).fetchall()
+    candidatos = []
+    for rid, sid, ci, corr in rows:
+        if str(sid) in file_store_ids:
+            candidatos.append({"id": rid, "store_id": sid, "cluster_index": ci, "correction": corr})
+
+    deleted = 0
+    if not dry_run and candidatos:
+        ids = [c["id"] for c in candidatos]
+        placeholders = ",".join(["?"] * len(ids))
+        cur = conn.execute(
+            f"DELETE FROM external_corrections WHERE id IN ({placeholders})", ids
+        )
+        deleted = cur.rowcount
+        conn.commit()
+    conn.close()
+    return jsonify({
+        "file_name": file_name,
+        "total_in_file": len(file_store_ids),
+        "candidatos": candidatos,
+        "deleted": deleted,
+        "dry_run": dry_run,
+    })
+
 def progress_stats_dishes():
     """Progreso de revisión de dishes — solo desde memoria interna."""
     files = get_reviewed_files("dishes")

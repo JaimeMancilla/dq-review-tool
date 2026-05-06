@@ -4908,9 +4908,15 @@ async function confirmBdMoves(cid, sgi) {
     await api("/set_correction", {cluster_id: cid, item_indexes: sgs[sgi].members, correction: newCluster});
   }
 
-  // 2. Guardar correcciones externas (stores BD que no son del subgrupo)
+  // 2. Guardar correcciones externas (stores BD que no son del archivo cargado).
+  // FIX DEFINITIVO: rechecamos isStoreInLoadedFile en este momento, no confiamos
+  // en el flag pre-calculado m.is_subgroup. Esto evita problemas de cache desincronizado:
+  // si el flag se calculó cuando CLUSTERS estaba parcialmente cargado, la decisión
+  // queda mal. Acá invalidamos cache y re-evaluamos contra CLUSTERS actual.
+  invalidateLoadedStoreIdsCache();
   for (const m of moves) {
-    if (!m.is_subgroup && m.from_cluster) {
+    const isReallyInternal = isStoreInLoadedFile(m.store_id) || isStoreInLoadedFile(m.item_index);
+    if (!isReallyInternal && m.from_cluster) {
       await api("/ext_correction/add", {
         store_id: m.store_id, app_name: m.app_name, app_address: m.app_address,
         cluster_index: m.from_cluster, cluster_name: m.cluster_name||"",
