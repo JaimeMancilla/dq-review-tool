@@ -1414,17 +1414,12 @@ def build_subgroups(bad_members):
     }
 
     # Buckets de geocoder fallback conocidos (ignoramos lat/lng si caen ahí)
-    # Mismo set que en frontend _FALLBACK_BUCKETS.
     FALLBACK_BUCKETS = [
         (-33.453, -70.682), (-33.545, -70.571), (-33.437, -70.641),
         (-33.452, -70.569), (-33.516, -70.714), (-33.442, -70.652),
         (-33.436, -70.680), (-33.440, -70.649), (-33.488, -70.578),
         (-32.932, -71.518),
     ]
-    # Si dos stores tienen coords confiables (no fallback) y están a más de
-    # SG_GEO_THRESHOLD_M, NO los agrupo aunque tengan nombre+dirección parecida.
-    # Conservador: solo separa outliers geográficos obvios. No desarma SGs que tienen
-    # nombre/dirección distintos (ese filtro lo sigue haciendo el código original).
     SG_GEO_THRESHOLD_M = 2000  # 2 km
 
     def haversine_m(lat1, lng1, lat2, lng2):
@@ -1439,7 +1434,7 @@ def build_subgroups(bad_members):
         try:
             lat, lng = float(lat), float(lng)
         except (ValueError, TypeError):
-            return True  # coord inválida → tratar como fallback (ignorar)
+            return True
         if lat == 0 and lng == 0: return True
         for flat, flng in FALLBACK_BUCKETS:
             if haversine_m(lat, lng, flat, flng) < 200:
@@ -1447,25 +1442,32 @@ def build_subgroups(bad_members):
         return False
 
     def get_clean_coords(member):
-        """Devuelve (lat, lng) si confiables, None si son fallback o inválidas."""
-        lat = member.get("app_latitude")
-        lng = member.get("app_longitude")
+        lat = member.get("app_latitude"); lng = member.get("app_longitude")
         if lat is None or lng is None or lat == "" or lng == "":
             return None
-        if is_fallback_coord(lat, lng):
-            return None
-        try:
-            return (float(lat), float(lng))
-        except (ValueError, TypeError):
-            return None
+        if is_fallback_coord(lat, lng): return None
+        try: return (float(lat), float(lng))
+        except (ValueError, TypeError): return None
 
     def too_far_geographically(a, b):
-        """True si las coords de ambos son confiables y la distancia > umbral."""
-        ca = get_clean_coords(a)
-        cb = get_clean_coords(b)
-        if ca is None or cb is None:
-            return False  # alguna coord no es confiable → no aplico el filtro geo
+        ca = get_clean_coords(a); cb = get_clean_coords(b)
+        if ca is None or cb is None: return False
         return haversine_m(ca[0], ca[1], cb[0], cb[1]) > SG_GEO_THRESHOLD_M
+
+    # Detector de "número de calle" en addr_keys: típicamente el primer token numérico.
+    # Se usa para separar SGs cuando dos stores tienen números de calle CLARAMENTE distintos
+    # (ej: "Camilo Henríquez 3296" vs "Camilo Henríquez 5800").
+    # Esto cubre el caso de cadenas multi-ciudad (Buffalo Waffles, Starbucks, Doggis) donde
+    # antes se agrupaban todas porque la marca tiene 2+ palabras y no entra al filtro original.
+    def get_street_numbers(addr_keys):
+        """De los addr_keys, devuelve el set de tokens que parecen números de calle (>=2 dígitos)."""
+        return {k for k in addr_keys if k.isdigit() and len(k) >= 2}
+
+    def addresses_clearly_different(ak, bk):
+        """True si ambas direcciones tienen números de calle Y son distintos (sin intersección)."""
+        an = get_street_numbers(ak); bn = get_street_numbers(bk)
+        if not an or not bn: return False
+        return not (an & bn)
 
     def has_sub_entity(name):
         return any(w in FAST_FOOD_SUBS for w in norm(name).split())
@@ -1485,14 +1487,19 @@ def build_subgroups(bad_members):
             if not wa or not wb: continue
             union = wa|wb; inter = wa&wb
             if not union or len(inter)/len(union) < 0.60: continue
-            # Separar por dirección si: marca genérica O tiene sub-entidad
+            bk = set(extract_addr_keys(b.get("app_address","")))
+            # Separar por dirección si:
+            #   1. marca genérica O sub-entidad: filtro original (direcciones distintas en addr_keys completos)
             if generic_brand or has_sub_entity(a.get("app_name","")) or has_sub_entity(b.get("app_name","")):
-                bk = set(extract_addr_keys(b.get("app_address","")))
                 if ak and bk and not ak & bk:
                     continue  # direcciones distintas → subgrupos separados
-            # Filtro geográfico: si ambas coords son confiables y están lejos, separar
+            #   2. NUEVO: SIEMPRE separar si los números de calle son claramente distintos
+            #      Cubre cadenas multi-ciudad (Buffalo Waffles, Starbucks, etc.)
+            if addresses_clearly_different(ak, bk):
+                continue
+            #   3. NUEVO: filtro geográfico — si coords confiables y distancia > 2km
             if too_far_geographically(a, b):
-                continue  # outlier geográfico → subgrupo separado
+                continue
             grp.append(b); used[j] = True
         grp.sort(key=lambda m: m.get("item_index",""))
         subgroups.append({
@@ -2989,11 +2996,10 @@ def ext_correction_delete():
 def ext_correction_delete_for_sg():
     """Borra todas las external_corrections asociadas a un SG específico.
     Filtros: file_name (archivo activo) + store_ids (stores externos del SG).
-    Esto permite hacer un undo total de un SG sin afectar correcciones de otros SGs.
     """
     data = request.json or {}
     file_name = (data.get("file_name") or session.get("filename","")).strip()
-    store_ids = data.get("store_ids") or []   # lista de store_ids a borrar
+    store_ids = data.get("store_ids") or []
     if not file_name or not store_ids:
         return jsonify({"ok": True, "deleted": 0})
     conn = sqlite3.connect(DB_FILE)

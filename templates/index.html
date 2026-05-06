@@ -2265,11 +2265,9 @@ async function toggleSgDone(cid, sgi) {
   const sg = sgs[sgi];
 
   if (sg.done) {
-    // Desmarcar
     sg.done = false;
     toast("↺ SG reabierto — vuelve a estado no revisado");
   } else {
-    // Marcar como OK
     sg.done = true;
     toast("✓ SG marcado como OK manualmente");
   }
