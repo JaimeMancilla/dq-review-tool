@@ -1,9 +1,0 @@
-.env
-flask_sessions/
-memory.db
-uploads/
-__pycache__/
-*.pyc
-feedback.json
-*.xlsx
-*.csv
