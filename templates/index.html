@@ -1436,6 +1436,8 @@ async function doUpload(file){
       CLUSTERS=d.clusters;COUNTRY=d.country||"mx";SUBGROUPS={};FILTER="all";
       CURRENT_FILENAME = d.filename||'';
       invalidateLoadedStoreIdsCache();
+      // Cargar projections globales del archivo (estado proyectado de clusters BD)
+      await loadProjections();
       // Restaurar subgrupos si existen
       if(d.subgroups_restored && Object.keys(d.subgroups_restored).length){
         SUBGROUPS = d.subgroups_restored;
@@ -2061,20 +2063,23 @@ async function runSgQuery(cid, sgi){
       if (btn) { btn.innerHTML = "▶ Ejecutar"; btn.disabled = false; }
       return;
     }
-    sgs[sgi].bd_results = (d.clusters_found || []).filter(bdc => {
-      // Filtrar clusters auto-referenciales: cluster con 1 solo member que es ancla y
-      // ese member es una store del archivo cargado. Esos clusters son ruido visual
-      // (la misma store que estás revisando, mostrada como su propio cluster en BD).
+    let bdResults = (d.clusters_found || []).filter(bdc => {
+      // Filtrar clusters auto-referenciales (1 member que es ancla y es store del archivo)
       if (!Array.isArray(bdc.members) || bdc.members.length !== 1) return true;
       const only = bdc.members[0];
       const isAnchor = only.is_anchor === true || only.is_anchor === "true";
       if (!isAnchor) return true;
-      // Si la store está en el archivo cargado, este es ruido auto-referencial → filtrar
       return !isStoreInLoadedFile(only.store_id);
     });
+    // Aplicar projections globales: tachar movimientos previos + agregar moves recibidos en otros SGs
+    const cl = getCl(cid);
+    const sgMembersForMatch = (sgs[sgi].members||[]).map(ii =>
+      cl?.members?.find(m => m.item_index === ii)
+    ).filter(Boolean);
+    bdResults = applyProjectionsToBdResults(bdResults, sgMembersForMatch);
+    sgs[sgi].bd_results = bdResults;
     const block = allBlocks[sgi];
     if (block) {
-      const cl = getCl(cid);
       if (cl) { const tmp=document.createElement("div"); tmp.innerHTML=buildSgBlock(cl,sgs[sgi],sgi); block.replaceWith(tmp.firstElementChild); }
     }
     if (d.clusters_found && d.clusters_found.length > 0)
@@ -2277,6 +2282,22 @@ async function clearSgCorr(cid, sgi) {
       }
     });
   });
+
+  // Revertir _clusterProjections para TODOS los stores afectados
+  allTouchedSids.forEach(sid => {
+    Object.entries(_clusterProjections).forEach(([ci, proj]) => {
+      proj.moved_out.delete(sid);
+      proj.moved_in.delete(sid);
+    });
+  });
+  // Eliminar projections que quedaron vacías (sin moved_out ni moved_in)
+  Object.entries(_clusterProjections).forEach(([ci, proj]) => {
+    if (proj.moved_out.size === 0 && proj.moved_in.size === 0 && !proj.is_new) {
+      delete _clusterProjections[ci];
+    }
+  });
+  // Persistir cambios al backend
+  saveAllProjections();
 
   // Borrar de SQLite: corrección del SG + externas
   await api("/set_correction", {cluster_id: cid, item_indexes: sg.members, correction: ""});
@@ -3929,10 +3950,11 @@ function buildSgGroupCard(cid, sg, sgi) {
 
     const cleanCount = sg.bd_results.filter(b=>b.is_clean).length;
 
-    // Bloque "nuevo cluster en construcción" (persistido en _pendingNewCluster)
-    // Se renderiza antes de la drop zone "＋ Nuevo cluster" para que acumule stores y sobreviva re-renders.
-    const pendNew = _pendingNewCluster[sgKey];
-    if (pendNew && pendNew.members && pendNew.members.length) {
+    // Bloques "nuevo cluster en construcción" (persistido en _pendingNewCluster como array)
+    // Ahora renderiza UN bloque por cada pending del SG, permitiendo varios nuevos clusters.
+    const pendingArr = _getAllPendingNew(sgKey);
+    pendingArr.forEach((pendNew, pendIdx) => {
+      if (!pendNew.members || !pendNew.members.length) return;
       const pendChips = pendNew.members.map(mi => `
         <div style="display:flex;flex-direction:column;border:1px solid var(--pborder,#c4b5fd);border-radius:5px;padding:5px 8px;font-size:10px;background:var(--pbg,#f5f3ff);margin-bottom:3px"
              data-store-id="${esc(String(mi.store_id||''))}">
@@ -3950,21 +3972,22 @@ function buildSgGroupCard(cid, sg, sgi) {
           ${mi.store_id?`<div style="font-family:monospace;font-size:8px;color:var(--muted);margin-top:2px;opacity:.7">${esc(String(mi.store_id))}</div>`:''}
         </div>`).join('');
       bdHtml += `
-      <div class="sg-bd-cluster bd-drop-zone" id="bdzPending_${CSS.escape(cid)}_${sgi}"
-        data-cluster="${esc(pendNew.cluster_index)}"
+      <div class="sg-bd-cluster bd-drop-zone" id="bdzPending_${CSS.escape(cid)}_${sgi}_${pendIdx}"
+        data-cluster="${esc(pendNew.cluster_index||'')}"
         data-pending-new="1"
+        data-pending-ci="${esc(pendNew.cluster_index||'')}"
         style="border:1px solid var(--gborder);border-radius:var(--r);overflow:hidden;margin-top:4px"
         ondragover="onBdDropZoneOver(event)" ondragleave="onBdDropZoneLeave(event)"
-        ondrop="onBdDrop(event,'NEW','${esc(cid)}',${sgi})">
+        ondrop="onBdDrop(event,'NEW:${esc(pendNew.cluster_index||'')}','${esc(cid)}',${sgi})">
         <div style="display:flex;align-items:center;gap:6px;padding:5px 8px;background:var(--gbg);border-bottom:1px solid var(--gborder)">
-          <span style="font-family:monospace;font-size:10px;font-weight:700;color:var(--green)">${esc(pendNew.cluster_index)}</span>
+          <span style="font-family:monospace;font-size:10px;font-weight:700;color:var(--green)">${esc(pendNew.cluster_index||'(calculando)')}</span>
           <span style="font-size:9px;color:var(--green)">✦ Nuevo cluster (pendiente)</span>
           <span style="font-size:10px;color:var(--muted);margin-left:auto">${pendNew.members.length} store${pendNew.members.length!==1?'s':''}</span>
         </div>
-        <div style="padding:5px 8px" id="bdtPending_${CSS.escape(cid)}_${sgi}">${pendChips}</div>
-        <div style="font-size:10px;color:var(--blue);padding:3px 8px 5px;opacity:.6;font-style:italic">← Arrastra más stores aquí para sumarlos</div>
+        <div style="padding:5px 8px" id="bdtPending_${CSS.escape(cid)}_${sgi}_${pendIdx}">${pendChips}</div>
+        <div style="font-size:10px;color:var(--blue);padding:3px 8px 5px;opacity:.6;font-style:italic">← Arrastra más stores aquí para sumarlos a este cluster</div>
       </div>`;
-    }
+    });
 
     bdHtml += `
     <div class="sg-bd-cluster bd-drop-zone" id="bdz_NEW_${CSS.escape(cid)}_${sgi}"
@@ -4146,28 +4169,31 @@ function removeSgChip(cid, sgi, ii) {
 }
 
 // Quitar un store del "nuevo cluster en construcción" (botón ✕ en el chip pendiente).
-// Revierte el move: saca el store de _pendingNewCluster, _bdPendingMoves, _bdUndoStack,
-// _sessionClusterState, y destacha el chip origen en bd_results. Si el NEW queda vacío, lo elimina.
+// Encuentra el pending que contiene ese storeId entre los pending del SG.
+// Si el pending queda vacío, lo elimina del array; si el array queda vacío, elimina la clave.
 function removePendingNewMember(cid, sgi, storeId) {
   const key = `${cid}_${sgi}`;
   const sid = String(storeId);
-  const pend = _pendingNewCluster[key];
-  if (!pend) return;
+  const pendings = _getAllPendingNew(key);
+  // Encontrar el pending que tiene este storeId
+  const pendIdx = pendings.findIndex(p => p.members.some(x => String(x.store_id) === sid));
+  if (pendIdx < 0) return;
+  const pend = pendings[pendIdx];
 
   // 1. Quitar del modelo del NEW
   const removedMember = pend.members.find(x => String(x.store_id) === sid);
+  const oldClusterIndex = pend.cluster_index;  // antes del recálculo
   pend.members = pend.members.filter(x => String(x.store_id) !== sid);
 
-  // 2. Quitar del pending moves
+  // 2. Quitar del pending moves (matchea por store_id + new_cluster del pending viejo)
   const moves = _bdPendingMoves[key] || [];
-  const removedMove = moves.find(mv => String(mv.store_id) === sid && mv.new_cluster === pend.cluster_index);
-  _bdPendingMoves[key] = moves.filter(mv => !(String(mv.store_id) === sid && mv.new_cluster === pend.cluster_index));
+  const removedMove = moves.find(mv => String(mv.store_id) === sid && mv.new_cluster === oldClusterIndex);
+  _bdPendingMoves[key] = moves.filter(mv => !(String(mv.store_id) === sid && mv.new_cluster === oldClusterIndex));
 
-  // 3. Quitar del undo stack (entradas de ese mismo move)
-  _bdUndoStack[key] = (_bdUndoStack[key]||[]).filter(u => !(u.move && String(u.move.store_id) === sid && u.move.new_cluster === pend.cluster_index));
+  // 3. Quitar del undo stack
+  _bdUndoStack[key] = (_bdUndoStack[key]||[]).filter(u => !(u.move && String(u.move.store_id) === sid && u.move.new_cluster === oldClusterIndex));
 
-  // 4. Destachar en bd_results de todos los subgrupos (el store vuelve a estar disponible)
-  // Solo si este store vino de un cluster BD (move externo). Si era del subgrupo, no estaba en bd_results.
+  // 4. Destachar en bd_results si era move externo
   if (removedMove && !removedMove.is_subgroup && removedMove.from_cluster) {
     const sgsRef = SUBGROUPS[cid]||[];
     sgsRef.forEach(otherSg => {
@@ -4180,7 +4206,6 @@ function removePendingNewMember(cid, sgi, storeId) {
         })
       }));
     });
-    // Actualizar _sessionClusterState: quitar el store del set moved_out del cluster origen
     const state = _sessionClusterState[removedMove.from_cluster];
     if (state) {
       if (state.moved_out instanceof Set) state.moved_out.delete(sid);
@@ -4188,9 +4213,19 @@ function removePendingNewMember(cid, sgi, storeId) {
     }
   }
 
-  // 5. Si el NEW quedó vacío, eliminar el modelo
+  // 5. Si el pending quedó vacío, eliminarlo del array. Si el array quedó vacío, eliminar la clave.
   if (pend.members.length === 0) {
-    delete _pendingNewCluster[key];
+    pendings.splice(pendIdx, 1);
+    if (pendings.length === 0) delete _pendingNewCluster[key];
+  } else {
+    // Si quedan members, recalcular cluster_index (puede haber cambiado el ancla)
+    _recalcPendingClusterIndex(pend);
+    // Y actualizar el new_cluster en los moves restantes que apuntaban al cluster_index viejo
+    if (pend.cluster_index !== oldClusterIndex) {
+      (_bdPendingMoves[key]||[]).forEach(mv => {
+        if (mv.new_cluster === oldClusterIndex) mv.new_cluster = pend.cluster_index;
+      });
+    }
   }
 
   // 6. Re-render y actualizar botón confirmar
@@ -4264,7 +4299,7 @@ async function runSgQueryModal(cid, sgi) {
         ).map(mi => ({...mi, _moved_in: true, is_anchor: false}));
         return {...bdc, members: [...members, ...incoming]};
       });
-      sgs[sgi].bd_results = clusters
+      let bdFiltered = clusters
         .filter(bdc => Array.isArray(bdc.members))
         .filter(bdc => {
           // Filtrar clusters auto-referenciales (1 member que es ancla y es store del archivo)
@@ -4274,6 +4309,12 @@ async function runSgQueryModal(cid, sgi) {
           if (!isAnchor) return true;
           return !isStoreInLoadedFile(only.store_id);
         });
+      // Aplicar projections globales sobre el snapshot
+      const cl0 = getCl(cid);
+      const sgMembersForMatch = (sgs[sgi].members||[]).map(ii =>
+        cl0?.members?.find(m => m.item_index === ii)
+      ).filter(Boolean);
+      sgs[sgi].bd_results = applyProjectionsToBdResults(bdFiltered, sgMembersForMatch);
       if (!clusters.length) toast("Sin resultados — intenta reagrupar o ingresa manualmente");
       else toast(`${clusters.length} cluster(s) encontrados`);
     }
@@ -4540,11 +4581,251 @@ const _bdUndoStack = {};
 // Estado local de clusters modificados en esta sesión
 // clave = cluster_index, valor = {moved_out: Set(store_ids), moved_in: [{store_id, app_name, app_address}]}
 const _sessionClusterState = {};
-// "Nuevo cluster en construcción" por subgrupo: clave = "cid_sgi", valor = {cluster_index, members:[{store_id, app_name, app_address, scraper_source}]}
-// Se persiste aquí para que renderSgActivePanel lo reconstruya y para acumular múltiples stores en un mismo NEW.
+// "Nuevos clusters en construcción" por subgrupo: clave = "cid_sgi", valor = ARRAY de objetos
+// {cluster_index, members:[{store_id, app_name, app_address, scraper_source}], anchor_name, anchor_address}
+// Permite múltiples nuevos clusters por SG: un drag a "+ Nuevo cluster" se añade al pending
+// existente si comparte marca; si no, crea uno nuevo.
 const _pendingNewCluster = {};
+
+// Devuelve el pending al que pertenece un nuevo store (por brand match).
+// Si no hay pending compatible, crea uno nuevo y lo agrega al array.
+// Calcula el cluster_index basado en el app_id MENOR de los miembros incluyendo el nuevo store.
+function _getOrCreatePendingNewFor(sgKey, draggedStore) {
+  if (!Array.isArray(_pendingNewCluster[sgKey])) {
+    _pendingNewCluster[sgKey] = [];
+  }
+  const arr = _pendingNewCluster[sgKey];
+  const draggedWords = brandWordsJs(draggedStore.app_name||"");
+  // Buscar pending compatible: brand overlap >= 1 palabra
+  let target = null;
+  for (const p of arr) {
+    const pWords = brandWordsJs(p.anchor_name||"");
+    if (pWords.some(w => draggedWords.includes(w))) {
+      target = p;
+      break;
+    }
+  }
+  if (!target) {
+    // Crear nuevo pending
+    target = {
+      cluster_index: null,  // se calcula tras agregar el primer member
+      members: [],
+      anchor_name: draggedStore.app_name||"",
+      anchor_address: draggedStore.app_address||"",
+    };
+    arr.push(target);
+  }
+  return target;
+}
+
+// Recalcula el cluster_index del pending tras cambios en sus members.
+// Usa el app_id MENOR + store_id de ese store como ancla.
+function _recalcPendingClusterIndex(pending) {
+  if (!pending || !pending.members.length) return;
+  pending.cluster_index = calcNewClusterIndex(pending.members);
+}
+
+// Devuelve TODOS los nuevos clusters pendientes del SG (array). Helper de lectura.
+function _getAllPendingNew(sgKey) {
+  return Array.isArray(_pendingNewCluster[sgKey]) ? _pendingNewCluster[sgKey] : [];
+}
+
+// Helper de búsqueda por cluster_index dentro de los pending del SG
+function _findPendingByClusterIndex(sgKey, ci) {
+  return _getAllPendingNew(sgKey).find(p => p.cluster_index === ci) || null;
+}
 // Filtro BD persistente por subgrupo: clave = "cid_sgi", valor = string
 const _bdFilterBySgKey = {};
+
+// ── PROYECCIONES GLOBALES DE CLUSTERS ────────────────────────────────────────
+// Vista global del estado proyectado de clusters BD post-aplicación de moves del usuario.
+// Cualquier cluster (existente o nuevo) que haya sido tocado tiene una entrada acá.
+// Se sincroniza con tabla cluster_projections en SQLite.
+//
+// Estructura: { [cluster_index]: { moved_out: Set<store_id>, moved_in: Map<store_id, {...}>,
+//                                  is_new, new_anchor_name, new_anchor_addr, is_emptied } }
+let _clusterProjections = {};
+
+function getOrCreateProjection(cluster_index) {
+  if (!_clusterProjections[cluster_index]) {
+    _clusterProjections[cluster_index] = {
+      moved_out:        new Set(),
+      moved_in:         new Map(),
+      is_new:           false,
+      new_anchor_name:  "",
+      new_anchor_addr:  "",
+      is_emptied:       false,
+    };
+  }
+  return _clusterProjections[cluster_index];
+}
+
+// Serializar una proyección al formato persistible (Sets/Maps → arrays/objects)
+function serializeProjection(proj) {
+  return {
+    moved_out:        [...proj.moved_out],
+    moved_in:         Object.fromEntries(proj.moved_in),
+    is_new:           !!proj.is_new,
+    new_anchor_name:  proj.new_anchor_name||"",
+    new_anchor_addr:  proj.new_anchor_addr||"",
+    is_emptied:       !!proj.is_emptied,
+  };
+}
+
+// Deserializar una proyección recibida del backend
+function deserializeProjection(raw) {
+  return {
+    moved_out:        new Set(raw.moved_out || []),
+    moved_in:         new Map(Object.entries(raw.moved_in || {})),
+    is_new:           !!raw.is_new,
+    new_anchor_name:  raw.new_anchor_name || "",
+    new_anchor_addr:  raw.new_anchor_addr || "",
+    is_emptied:       !!raw.is_emptied,
+  };
+}
+
+// Persistir todas las projections actuales al backend
+async function saveAllProjections() {
+  if (!CURRENT_FILENAME) return;
+  const projObj = {};
+  Object.entries(_clusterProjections).forEach(([ci, p]) => {
+    projObj[ci] = serializeProjection(p);
+  });
+  try {
+    await api("/projections/save_bulk", {file_name: CURRENT_FILENAME, projections: projObj});
+  } catch(e) {
+    console.warn("Error al guardar projections:", e);
+  }
+}
+
+// Cargar projections del backend para el archivo activo
+async function loadProjections() {
+  _clusterProjections = {};
+  if (!CURRENT_FILENAME) return;
+  try {
+    const d = await fetch(`/projections/list?file_name=${encodeURIComponent(CURRENT_FILENAME)}`).then(r => r.json());
+    Object.entries(d.projections || {}).forEach(([ci, raw]) => {
+      _clusterProjections[ci] = deserializeProjection(raw);
+    });
+  } catch(e) {
+    console.warn("Error al cargar projections:", e);
+  }
+}
+
+// Aplica las projections sobre un array de bd_results y retorna el array modificado.
+// - Tacha (moved_out) members que se fueron del cluster.
+// - Agrega (moved_in) members que llegaron al cluster.
+// - Agrega clusters nuevos (is_new) si tienen alguna relación con el SG actual.
+function applyProjectionsToBdResults(bd_results, sg_members_for_match) {
+  if (!Array.isArray(bd_results)) return bd_results;
+  // 1. Aplicar projections a clusters existentes en bd_results
+  const result = bd_results.map(bdc => {
+    const proj = _clusterProjections[bdc.cluster_index];
+    if (!proj) return bdc;
+    let members = (bdc.members || []).map(m => ({
+      ...m,
+      _moved_out: proj.moved_out.has(String(m.store_id)) || m._moved_out || false,
+    }));
+    // Agregar moved_in que no esté ya
+    proj.moved_in.forEach((info, sid) => {
+      const exists = members.some(m => String(m.store_id) === sid);
+      if (!exists) {
+        members.push({
+          store_id: sid,
+          app_name: info.app_name || "",
+          app_address: info.app_address || "",
+          is_anchor: false,
+          _moved_in: true,
+          _from_cluster: info.from_cluster || "",
+          _from_sg: info.from_sg,
+          scraper_source: info.scraper_source || "",
+        });
+      }
+    });
+    return {...bdc, members};
+  });
+  // 2. Agregar clusters nuevos (is_new) que tengan overlap con el SG actual.
+  //    Criterio: el nuevo cluster tiene alguna palabra de marca en común con algún member del SG.
+  const sgWords = new Set();
+  if (Array.isArray(sg_members_for_match)) {
+    sg_members_for_match.forEach(m => {
+      brandWordsJs(m?.app_name || "").forEach(w => sgWords.add(w));
+    });
+  }
+  Object.entries(_clusterProjections).forEach(([ci, proj]) => {
+    if (!proj.is_new) return;
+    if (result.some(b => b.cluster_index === ci)) return;
+    // Verificar overlap con marca del SG
+    const newWords = brandWordsJs(proj.new_anchor_name || "");
+    const overlap = sgWords.size === 0 || newWords.some(w => sgWords.has(w));
+    if (!overlap) return;
+    // Construir el cluster nuevo desde la projection
+    const members = [];
+    proj.moved_in.forEach((info, sid) => {
+      members.push({
+        store_id: sid,
+        app_name: info.app_name || "",
+        app_address: info.app_address || "",
+        is_anchor: false,
+        _moved_in: true,
+        _from_cluster: info.from_cluster || "",
+        _from_sg: info.from_sg,
+        scraper_source: info.scraper_source || "",
+      });
+    });
+    result.push({
+      cluster_index: ci,
+      cluster_name: proj.new_anchor_name || "",
+      cluster_address: proj.new_anchor_addr || "",
+      members,
+      _is_projection_new: true,  // flag para distinguir en UI
+    });
+  });
+  return result;
+}
+
+// Helper: extraer palabras de marca (minúsculas, ≥3 chars, no stopwords)
+function brandWordsJs(name) {
+  const stop = new Set(["mall","plaza","local","centro","con","del","la","el","los","las","san","santa","store","cafe","express"]);
+  return (name||"").toLowerCase()
+    .replace(/[^a-záéíóúñ0-9 ]/gi, " ")
+    .split(/\s+/)
+    .filter(w => w.length >= 3 && !stop.has(w));
+}
+
+// Helper: dado un store object, calcular su app_id (numero del scraper).
+// Ejemplo: scraper_source="Justo" → 19, "Pedidos Ya" → 1, "Rappi" → 3, "Uber Eats" → 21, etc.
+function getAppIdNumber(store) {
+  const s = (store.scraper_source || "").toLowerCase();
+  // Tabla derivada del prefijo de cluster_index conocido
+  const map = {
+    "pedidos ya": 1, "pedidosya": 1, "pedidos_ya": 1,
+    "uber": 21, "uber eats": 21, "uber_eats": 21, "ubereats": 21,
+    "rappi": 3,
+    "didi": 8, "didi food": 8,
+    "justo": 19,
+    "google": 7, "gmaps": 7,
+    "facebook": 2, "fb": 2,
+  };
+  // Si scraper_source tiene un número directo (ej. "1_xxx"), lo extraemos
+  for (const [key, val] of Object.entries(map)) {
+    if (s.includes(key)) return val;
+  }
+  // Fallback: intentar extraer del item_index si está disponible
+  const ii = String(store.item_index || "");
+  const m = ii.match(/^(\d+)_/);
+  if (m) return parseInt(m[1], 10);
+  return 999;  // valor alto = última prioridad
+}
+
+// Calcular cluster_index óptimo para un nuevo cluster: app_id menor + store_id de ese
+function calcNewClusterIndex(stores) {
+  if (!stores || !stores.length) return null;
+  const withId = stores.map(s => ({store: s, appId: getAppIdNumber(s)}));
+  withId.sort((a, b) => a.appId - b.appId || String(a.store.store_id).localeCompare(String(b.store.store_id)));
+  const winner = withId[0];
+  return `${winner.appId}_${winner.store.store_id}`;
+}
 
 function onBdRowDragStart(e, dragJson) {
   try { _bdDragData = JSON.parse(decodeURIComponent(dragJson)); }
@@ -4581,17 +4862,32 @@ async function onBdDrop(e, targetCluster, cid, sgi) {
     }
 
     let newCluster = targetCluster, isNew = false;
-    if (targetCluster === "NEW") {
-      // Reutilizar el "nuevo cluster en construcción" de este subgrupo si existe
-      if (_pendingNewCluster[key]?.cluster_index) {
-        newCluster = _pendingNewCluster[key].cluster_index;
-        isNew = true;
+    let isNewTarget = (targetCluster === "NEW" || (typeof targetCluster === "string" && targetCluster.startsWith("NEW:")));
+    if (isNewTarget) {
+      isNew = true;
+      let pend;
+      if (targetCluster.startsWith("NEW:")) {
+        // Drop específico a un pending existente (por su cluster_index actual)
+        const targetCi = targetCluster.slice(4);
+        pend = _findPendingByClusterIndex(key, targetCi);
+        if (!pend) {
+          // El cluster_index ya cambió por recálculos previos: caer al helper genérico
+          pend = _getOrCreatePendingNewFor(key, m);
+        }
       } else {
-        const appId = scraperToAppId(m.scraper_source) || (m.scraper_source||"").trim();
-        newCluster = appId ? `${appId}_${m.store_id}` : `NUEVO:${m.store_id}`;
-        isNew = true;
-        _pendingNewCluster[key] = {cluster_index: newCluster, members: []};
+        // Drop a "+ Nuevo cluster" (zona en blanco): buscar pending compatible o crear uno
+        pend = _getOrCreatePendingNewFor(key, m);
       }
+      // Agregar al pending si no estaba
+      const sidStr = String(m.store_id);
+      if (!pend.members.some(x => String(x.store_id) === sidStr)) {
+        pend.members.push({
+          store_id: m.store_id, app_name: m.app_name, app_address: m.app_address,
+          scraper_source: m.scraper_source||"", is_subgroup: false
+        });
+      }
+      _recalcPendingClusterIndex(pend);
+      newCluster = pend.cluster_index;
     }
     // Tachar en origen — usar data-store-id para evitar tachar stores con mismo nombre
     const fromC = document.getElementById("bdt_" + CSS.escape(m.from_cluster));
@@ -4605,23 +4901,14 @@ async function onBdDrop(e, targetCluster, cid, sgi) {
     // Nota: se permite mover el ancla de su propio cluster. En escenarios de consolidación
     // (dos clusters BD con el mismo store como ancla semántica), mover el ancla es legítimo.
     // El backend resuelve el new_cluster a partir de la corrección elegida.
-    // Agregar chip en destino
-    _bdDropAddChip(targetCluster, cid, sgi, m.app_name, m.app_address, newCluster, m.store_id);
-    // Registrar en el modelo del "nuevo cluster en construcción" (para que renderSgActivePanel lo reconstruya)
-    if (targetCluster === "NEW" && _pendingNewCluster[key]) {
-      if (!_pendingNewCluster[key].members.some(x => String(x.store_id) === String(m.store_id))) {
-        _pendingNewCluster[key].members.push({
-          store_id: m.store_id, app_name: m.app_name, app_address: m.app_address,
-          scraper_source: m.scraper_source||"", is_subgroup: false
-        });
-      }
-    }
+    // Agregar chip en destino (newCluster ya fue resuelto arriba para casos NEW/NEW:ci)
+    _bdDropAddChip(isNewTarget ? "NEW" : targetCluster, cid, sgi, m.app_name, m.app_address, newCluster, m.store_id);
     // Actualizar _sessionClusterState inmediatamente
     if (m.from_cluster && m.from_cluster !== "NEW") {
       if (!_sessionClusterState[m.from_cluster]) _sessionClusterState[m.from_cluster] = {moved_out: new Set(), moved_in: []};
       _sessionClusterState[m.from_cluster].moved_out.add(String(m.store_id));
     }
-    if (targetCluster !== "NEW") {
+    if (!isNewTarget) {
       if (!_sessionClusterState[targetCluster]) _sessionClusterState[targetCluster] = {moved_out: new Set(), moved_in: []};
       _sessionClusterState[targetCluster].moved_in.push({store_id: m.store_id, app_name: m.app_name, app_address: m.app_address});
     }
@@ -4720,44 +5007,43 @@ async function onBdDrop(e, targetCluster, cid, sgi) {
     }
 
     let newCluster = targetCluster, isNew = false;
-    if (targetCluster === "NEW") {
-      // Si ya hay un "nuevo cluster en construcción" para este subgrupo, reutilizar su ID
-      if (_pendingNewCluster[sgKey]?.cluster_index) {
-        newCluster = _pendingNewCluster[sgKey].cluster_index;
-        isNew = true; // sigue siendo un cluster nuevo aunque ya tenga stores adentro
+    let isNewTarget2 = (targetCluster === "NEW" || (typeof targetCluster === "string" && targetCluster.startsWith("NEW:")));
+    if (isNewTarget2) {
+      isNew = true;
+      const appName0 = dragged?.app_name || ii;
+      const appAddr0 = dragged?.app_address || "";
+      const sidVal   = dragged?.store_id || (ii.includes("_") ? ii.slice(ii.indexOf("_")+1) : ii);
+      const draggedForMatch = {
+        store_id: sidVal, app_name: appName0, app_address: appAddr0,
+        scraper_source: dragged?.scraper_source||"", is_subgroup: true, item_index: ii
+      };
+      let pend;
+      if (targetCluster.startsWith("NEW:")) {
+        const targetCi = targetCluster.slice(4);
+        pend = _findPendingByClusterIndex(sgKey, targetCi) || _getOrCreatePendingNewFor(sgKey, draggedForMatch);
       } else {
-        // Crear con store_id del primer store arrastrado como ancla del nuevo cluster
-        const appId = scraperToAppId(dragged?.scraper_source) || dragged?.scraper_source?.trim() || "";
-        const storeId = ii.includes("_") ? ii.slice(ii.indexOf("_")+1) : ii;
-        newCluster = appId ? `${appId}_${storeId}` : `NUEVO:${storeId}`;
-        isNew = true;
-        // Inicializar estado
-        _pendingNewCluster[sgKey] = {cluster_index: newCluster, members: []};
+        pend = _getOrCreatePendingNewFor(sgKey, draggedForMatch);
       }
+      const sidStr = String(sidVal);
+      if (!pend.members.some(x => String(x.store_id) === sidStr)) {
+        pend.members.push(draggedForMatch);
+      }
+      _recalcPendingClusterIndex(pend);
+      newCluster = pend.cluster_index;
     }
     const appName = dragged?.app_name || ii;
     const appAddr = dragged?.app_address || "";
 
     // Capturar HTML del destino ANTES de modificarlo (para undo)
-    const tgtElBefore = targetCluster !== "NEW"
+    const tgtElBefore = !isNewTarget2
       ? document.getElementById("bdt_" + CSS.escape(targetCluster))
       : null;
     const tgtHtmlBefore = tgtElBefore ? tgtElBefore.innerHTML : null;
 
-    // Agregar chip en destino — el bloque pendiente persiste en _pendingNewCluster
-    _bdDropAddChip(targetCluster, cid, sgi, appName, appAddr, newCluster, dragged?.store_id||"");
-    // Registrar en el modelo del "nuevo cluster en construcción" (sobrevive a re-renders)
-    if (targetCluster === "NEW" && _pendingNewCluster[sgKey]) {
-      const sid = String(dragged?.store_id||ii);
-      if (!_pendingNewCluster[sgKey].members.some(x => String(x.store_id) === sid)) {
-        _pendingNewCluster[sgKey].members.push({
-          store_id: dragged?.store_id||ii, app_name: appName, app_address: appAddr,
-          scraper_source: dragged?.scraper_source||"", is_subgroup: true, item_index: ii
-        });
-      }
-    }
+    // Agregar chip en destino (newCluster ya resuelto)
+    _bdDropAddChip(isNewTarget2 ? "NEW" : targetCluster, cid, sgi, appName, appAddr, newCluster, dragged?.store_id||"");
     // Actualizar _sessionClusterState
-    if (targetCluster !== "NEW") {
+    if (!isNewTarget2) {
       if (!_sessionClusterState[targetCluster]) _sessionClusterState[targetCluster] = {moved_out: new Set(), moved_in: []};
       _sessionClusterState[targetCluster].moved_in.push({store_id: dragged?.store_id||ii, app_name: appName, app_address: appAddr});
     }
@@ -4950,6 +5236,40 @@ async function confirmBdMoves(cid, sgi) {
   renderFilterBar();
   renderSgList(cid);
   updateSgModalProgress(cid);
+
+  // 3. Actualizar _clusterProjections con los moves recién aplicados.
+  //    Esto hace que los moves se vean en futuras consultas BD desde otros SGs.
+  for (const m of moves) {
+    const sid = String(m.store_id||"");
+    // Origen: agregar a moved_out
+    if (m.from_cluster && m.from_cluster !== "NEW") {
+      const projOrig = getOrCreateProjection(m.from_cluster);
+      projOrig.moved_out.add(sid);
+    }
+    // Destino: agregar a moved_in (con metadata)
+    if (m.new_cluster) {
+      const projDest = getOrCreateProjection(m.new_cluster);
+      if (m.is_new) {
+        projDest.is_new = true;
+        // Si aún no tiene anchor, usar el primer store agregado
+        if (!projDest.new_anchor_name) {
+          projDest.new_anchor_name = m.app_name||"";
+          projDest.new_anchor_addr = m.app_address||"";
+        }
+      }
+      projDest.moved_in.set(sid, {
+        store_id: sid,
+        app_name: m.app_name||"",
+        app_address: m.app_address||"",
+        from_cluster: m.from_cluster||"",
+        from_sg: sgi,
+        scraper_source: m.scraper_source||"",
+      });
+    }
+  }
+  // Persistir todas las projections al backend (async, no bloqueante)
+  saveAllProjections();
+
   delete _bdPendingMoves[key];
   delete _bdUndoStack[key];
   delete _pendingNewCluster[key];    // limpiar bloque "nuevo cluster (pendiente)"
@@ -5014,11 +5334,18 @@ function undoLastBdMove(cid, sgi) {
     delete _bdPendingMoves[key];
   }
 
-  // 2. Si el move apuntaba al "nuevo cluster en construcción", sacar del modelo
-  const pend = _pendingNewCluster[key];
-  if (pend && m.new_cluster === pend.cluster_index) {
+  // 2. Si el move apuntaba a un "nuevo cluster en construcción", sacarlo del pending correcto
+  const pendings = _getAllPendingNew(key);
+  const pendIdx = pendings.findIndex(p => p.cluster_index === m.new_cluster);
+  if (pendIdx >= 0) {
+    const pend = pendings[pendIdx];
     pend.members = pend.members.filter(x => String(x.store_id) !== sid);
-    if (pend.members.length === 0) delete _pendingNewCluster[key];
+    if (pend.members.length === 0) {
+      pendings.splice(pendIdx, 1);
+      if (pendings.length === 0) delete _pendingNewCluster[key];
+    } else {
+      _recalcPendingClusterIndex(pend);
+    }
   }
 
   // 3. Revertir _sessionClusterState

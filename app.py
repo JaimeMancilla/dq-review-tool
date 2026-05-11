@@ -306,6 +306,29 @@ def _migrate_pj_tables():
 
 _migrate_pj_tables()
 
+# Migración: tabla cluster_projections — vista global del estado proyectado de clusters BD
+# tras moves que el usuario haya hecho (pendientes confirmados o aplicados desde otros SGs).
+# Sirve para que cualquier SG vea el "estado futuro" proyectado al consultar BD.
+def _migrate_cluster_projections():
+    conn = sqlite3.connect(DB_FILE)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS cluster_projections (
+            file_name        TEXT NOT NULL,
+            cluster_index    TEXT NOT NULL,
+            moved_out        TEXT DEFAULT '[]',
+            moved_in         TEXT DEFAULT '{}',
+            is_new           INTEGER DEFAULT 0,
+            new_anchor_name  TEXT DEFAULT '',
+            new_anchor_addr  TEXT DEFAULT '',
+            is_emptied       INTEGER DEFAULT 0,
+            updated_at       REAL,
+            PRIMARY KEY (file_name, cluster_index)
+        )
+    """)
+    conn.commit(); conn.close()
+
+_migrate_cluster_projections()
+
 # ── Módulo Homologación PJ: parseo + endpoints ───────────────────────────────
 PJ_CURRENT_FILE_KEY = "pj_filename"  # clave de sesión para archivo activo
 
@@ -3074,6 +3097,150 @@ def ext_correction_cleanup_misclassified():
         "deleted": deleted,
         "dry_run": dry_run,
     })
+
+# ── Cluster Projections: vista global del estado proyectado de clusters BD ────
+# Esta tabla guarda, por archivo, qué moves se han registrado a cada cluster_index.
+# Permite que cualquier SG vea el "estado futuro" cuando hace runSgQuery.
+
+@app.route("/projections/list", methods=["GET"])
+def projections_list():
+    """Devuelve todas las cluster_projections del archivo activo."""
+    file_name = request.args.get("file_name", "").strip() or session.get("filename", "")
+    if not file_name:
+        return jsonify({"projections": {}})
+    conn = sqlite3.connect(DB_FILE)
+    rows = conn.execute("""
+        SELECT cluster_index, moved_out, moved_in, is_new, new_anchor_name, new_anchor_addr, is_emptied
+        FROM cluster_projections WHERE file_name = ?
+    """, (file_name,)).fetchall()
+    conn.close()
+    out = {}
+    for ci, mo, mi, isnew, nname, naddr, emptied in rows:
+        try:    moved_out = json.loads(mo or "[]")
+        except: moved_out = []
+        try:    moved_in  = json.loads(mi or "{}")
+        except: moved_in  = {}
+        out[ci] = {
+            "moved_out":       moved_out,
+            "moved_in":        moved_in,
+            "is_new":          bool(isnew),
+            "new_anchor_name": nname or "",
+            "new_anchor_addr": naddr or "",
+            "is_emptied":      bool(emptied),
+        }
+    return jsonify({"projections": out, "file_name": file_name})
+
+@app.route("/projections/save", methods=["POST"])
+def projections_save():
+    """Guarda/actualiza una projection. Body: {file_name, cluster_index, moved_out, moved_in, is_new, ...}"""
+    data = request.json or {}
+    file_name = (data.get("file_name") or session.get("filename","")).strip()
+    ci        = (data.get("cluster_index") or "").strip()
+    if not file_name or not ci:
+        return jsonify({"error": "Faltan file_name o cluster_index"}), 400
+    moved_out = json.dumps(data.get("moved_out") or [])
+    moved_in  = json.dumps(data.get("moved_in") or {})
+    is_new    = 1 if data.get("is_new") else 0
+    nname     = (data.get("new_anchor_name") or "").strip()
+    naddr     = (data.get("new_anchor_addr") or "").strip()
+    emptied   = 1 if data.get("is_emptied") else 0
+    conn = sqlite3.connect(DB_FILE)
+    conn.execute("""
+        INSERT OR REPLACE INTO cluster_projections
+        (file_name, cluster_index, moved_out, moved_in, is_new, new_anchor_name, new_anchor_addr, is_emptied, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (file_name, ci, moved_out, moved_in, is_new, nname, naddr, emptied, time.time()))
+    conn.commit(); conn.close()
+    return jsonify({"ok": True})
+
+@app.route("/projections/save_bulk", methods=["POST"])
+def projections_save_bulk():
+    """Guarda múltiples projections de una vez. Body: {file_name, projections: {ci: {...}}}"""
+    data = request.json or {}
+    file_name = (data.get("file_name") or session.get("filename","")).strip()
+    projs     = data.get("projections") or {}
+    if not file_name:
+        return jsonify({"error": "Falta file_name"}), 400
+    conn = sqlite3.connect(DB_FILE)
+    for ci, p in projs.items():
+        moved_out = json.dumps(p.get("moved_out") or [])
+        moved_in  = json.dumps(p.get("moved_in") or {})
+        is_new    = 1 if p.get("is_new") else 0
+        nname     = (p.get("new_anchor_name") or "").strip()
+        naddr     = (p.get("new_anchor_addr") or "").strip()
+        emptied   = 1 if p.get("is_emptied") else 0
+        conn.execute("""
+            INSERT OR REPLACE INTO cluster_projections
+            (file_name, cluster_index, moved_out, moved_in, is_new, new_anchor_name, new_anchor_addr, is_emptied, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (file_name, ci, moved_out, moved_in, is_new, nname, naddr, emptied, time.time()))
+    conn.commit(); conn.close()
+    return jsonify({"ok": True, "saved": len(projs)})
+
+@app.route("/projections/clear_for_file", methods=["POST"])
+def projections_clear_for_file():
+    """Borra TODAS las projections del archivo. Útil para reset/limpieza."""
+    data = request.json or {}
+    file_name = (data.get("file_name") or session.get("filename","")).strip()
+    if not file_name:
+        return jsonify({"error": "Falta file_name"}), 400
+    conn = sqlite3.connect(DB_FILE)
+    cur = conn.execute("DELETE FROM cluster_projections WHERE file_name = ?", (file_name,))
+    deleted = cur.rowcount
+    conn.commit(); conn.close()
+    return jsonify({"ok": True, "deleted": deleted})
+
+@app.route("/projections/hydrate_from_corrections", methods=["POST"])
+def projections_hydrate_from_corrections():
+    """Reconstruye cluster_projections desde corrections + external_corrections del file_name.
+    Útil para migrar archivos que se trabajaron antes de tener projections.
+    """
+    data = request.json or {}
+    file_name = (data.get("file_name") or session.get("filename","")).strip()
+    if not file_name:
+        return jsonify({"error": "Falta file_name"}), 400
+    conn = sqlite3.connect(DB_FILE)
+    # Datos de external_corrections
+    ext_rows = conn.execute("""
+        SELECT store_id, app_name, app_address, cluster_index, correction, scraper_source, is_new
+        FROM external_corrections WHERE file_name = ?
+    """, (file_name,)).fetchall()
+    # Datos de corrections (correcciones por SG: cluster_id, item_index, correction)
+    corr_rows = conn.execute("""
+        SELECT cluster_id, item_index, correction FROM corrections WHERE cluster_id IS NOT NULL
+    """).fetchall()
+    projs = {}  # cluster_index -> projection
+    def get_proj(ci):
+        if ci not in projs:
+            projs[ci] = {"moved_out": [], "moved_in": {}, "is_new": 0,
+                         "new_anchor_name": "", "new_anchor_addr": "", "is_emptied": 0}
+        return projs[ci]
+    # Hydrate desde external_corrections
+    for store_id, app_name, app_addr, ci_orig, correction, scraper, is_new in ext_rows:
+        if ci_orig:
+            p_orig = get_proj(ci_orig)
+            if str(store_id) not in p_orig["moved_out"]:
+                p_orig["moved_out"].append(str(store_id))
+        if correction:
+            p_dest = get_proj(correction)
+            if is_new: p_dest["is_new"] = 1
+            p_dest["moved_in"][str(store_id)] = {
+                "store_id": str(store_id),
+                "app_name": app_name or "", "app_address": app_addr or "",
+                "from_cluster": ci_orig or "", "scraper_source": scraper or "",
+            }
+    # Persistir
+    saved = 0
+    for ci, p in projs.items():
+        conn.execute("""
+            INSERT OR REPLACE INTO cluster_projections
+            (file_name, cluster_index, moved_out, moved_in, is_new, new_anchor_name, new_anchor_addr, is_emptied, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (file_name, ci, json.dumps(p["moved_out"]), json.dumps(p["moved_in"]),
+              p["is_new"], p["new_anchor_name"], p["new_anchor_addr"], p["is_emptied"], time.time()))
+        saved += 1
+    conn.commit(); conn.close()
+    return jsonify({"ok": True, "rebuilt": saved, "from_ext": len(ext_rows)})
 
 def progress_stats_dishes():
     """Progreso de revisión de dishes — solo desde memoria interna."""
