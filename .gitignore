@@ -1,0 +1,34 @@
+# Credenciales - NUNCA subir
+.env
+.env.local
+.env.*.local
+
+# Datos locales
+memory.db
+memory.db-journal
+flask_sessions/
+uploads/
+pj_uploads/
+
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+
+# Scripts experimentales (los que estás usando para aprender libpostal)
+test_postal.py
+test_match.py
+analiza_coords_mx.py
+
+# Editor / sistema
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Outputs / logs
+*.log
