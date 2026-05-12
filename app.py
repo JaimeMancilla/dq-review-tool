@@ -3533,12 +3533,85 @@ def duplicates_check_cluster():
                     } for s, sc in matches],
                 })
 
+    # Capa 4 (modelo semántico sobre nombres) — solo si está pedido y el modelo está listo.
+    # Detecta casos como "Buffalo Waffles Lomas" vs "BUFFALO WAFFLES - LOMAS PLAZA"
+    # donde la marca/sede es la misma pero el texto difiere mucho.
+    # Importante: solo se usa para CONFIRMAR un par que ya tiene OTRA señal débil (misma chain).
+    name_groups_out = []
+    use_semantic = bool(data.get("use_semantic", True))
+    if use_semantic and _model_ready and stores_input:
+        try:
+            from sentence_transformers import util
+            m = get_model()
+            if m is not None:
+                # Evitar duplicar con stores ya cubiertos por Capa 2 o 3
+                seen_already = set()
+                for g in groups_out:
+                    for s in g["stores"]: seen_already.add(str(s["store_id"]))
+                for g in addr_groups_out:
+                    seen_already.add(str(g.get("src_store_id") or ""))
+                    for s in g["stores"]: seen_already.add(str(s["store_id"]))
+                # Para cada store del cluster activo, buscar nombres semánticamente cercanos
+                # dentro de la MISMA chain en otros clusters del archivo
+                from collections import defaultdict as _dd2
+                by_chain2 = _dd2(list)
+                for s in all_stores:
+                    sid = str(s.get("store_id") or "")
+                    if sid in seen_already: continue
+                    chain = (s.get("main_chain") or "").strip().lower()
+                    if not chain: continue
+                    by_chain2[chain].append(s)
+                THRESHOLD_NAME = 0.78  # umbral semántico: alto para evitar falsos positivos
+                for src in stores_input:
+                    sid = str(src.get("store_id") or "")
+                    if sid in seen_already: continue
+                    src_name = (src.get("app_name") or "").strip()
+                    if not src_name: continue
+                    src_chain = (src.get("main_chain") or "").strip().lower()
+                    if not src_chain: continue
+                    src_ci = str(src.get("cluster_index") or "")
+                    candidatos = [s for s in by_chain2.get(src_chain, [])
+                                  if str(s.get("cluster_index") or "") != src_ci and (s.get("app_name") or "").strip()]
+                    if not candidatos: continue
+                    src_emb = m.encode(src_name, convert_to_tensor=True, show_progress_bar=False)
+                    cand_names = [(s.get("app_name") or "").strip() for s in candidatos]
+                    cand_emb = m.encode(cand_names, convert_to_tensor=True, show_progress_bar=False)
+                    matches = []
+                    for i, cand in enumerate(candidatos):
+                        sim = float(util.cos_sim(src_emb, cand_emb[i]))
+                        if sim >= THRESHOLD_NAME:
+                            matches.append((cand, round(sim, 3)))
+                    if matches:
+                        # Ordenar por score desc y tomar top 10
+                        matches.sort(key=lambda x: -x[1])
+                        matches = matches[:10]
+                        name_groups_out.append({
+                            "reason": "name_semantic",
+                            "main_chain": src_chain,
+                            "src_store_id": sid,
+                            "src_app_name": src_name,
+                            "src_cluster_index": src_ci,
+                            "stores": [{
+                                "store_id": str(s.get("store_id") or ""),
+                                "app_name": s.get("app_name") or "",
+                                "app_address": s.get("app_address") or "",
+                                "cluster_index": str(s.get("cluster_index") or ""),
+                                "scraper_source": s.get("scraper_source") or "",
+                                "score": sc,
+                            } for s, sc in matches],
+                        })
+        except Exception as _e:
+            # Si el modelo semántico falla por cualquier razón, no rompemos el endpoint
+            name_groups_out = []
+
     return jsonify({
         "cluster_id": cluster_id,
         "groups_coord": groups_out,
         "groups_addr": addr_groups_out,
+        "groups_name_sim": name_groups_out,
         "fallback_coords_count": len(fallback_coords),
         "libpostal_available": _libpostal_ready(),
+        "semantic_model_available": bool(_model_ready),
     })
 
 def progress_stats_dishes():

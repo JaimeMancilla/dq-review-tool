@@ -4380,8 +4380,10 @@ async function checkDuplicatesForCluster() {
 function renderDuplicatesModal(cid, data) {
   const groupsC = data.groups_coord || [];
   const groupsA = data.groups_addr || [];
-  const total = groupsC.length + groupsA.length;
+  const groupsN = data.groups_name_sim || [];
+  const total = groupsC.length + groupsA.length + groupsN.length;
   const lpAvail = !!data.libpostal_available;
+  const smAvail = !!data.semantic_model_available;
 
   let modalEl = document.getElementById("dupModal");
   if (!modalEl) {
@@ -4434,6 +4436,33 @@ function renderDuplicatesModal(cid, data) {
       </div>`;
     });
   }
+  if (groupsN.length) {
+    groupsHtml += `<div style="margin-top:12px;margin-bottom:8px;font-size:12px;color:#7c3aed;font-weight:700">🧠 Por similitud semántica de nombres (Capa 4): ${groupsN.length} grupos</div>`;
+    groupsN.forEach((g) => {
+      const maxScore = Math.max(...(g.stores||[]).map(s => s.score||0));
+      groupsHtml += `
+      <div style="border:1px solid #c4b5fd;border-radius:6px;padding:8px;margin-bottom:6px;background:#faf5ff">
+        <div style="font-size:11px;color:var(--muted);margin-bottom:6px">
+          <span style="font-weight:700;color:#000">${esc(g.main_chain)}</span> · top score: ${maxScore.toFixed(2)} · Nombres semánticamente cercanos
+        </div>
+        <div style="font-size:11px;margin-bottom:4px;background:#ede9fe;padding:4px;border-radius:4px">
+          <div><b>ACTUAL:</b> ${esc(g.src_app_name||'')} <span style="color:var(--muted)">[${esc(g.src_cluster_index||'')}]</span></div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:3px">
+          ${(g.stores||[]).map(s => {
+            return `
+            <div style="display:flex;align-items:center;gap:6px;padding:4px 8px;border:1px solid var(--border);border-radius:4px;font-size:11px;background:var(--surf)">
+              <span style="font-family:monospace;font-size:10px;color:var(--muted)">${esc(s.cluster_index||'?')}</span>
+              <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(s.app_name||'?')}</span>
+              <span style="font-size:9px;color:var(--muted)">[${esc(s.scraper_source||'')}]</span>
+              <span style="font-size:10px;color:#7c3aed;font-weight:700">${(s.score||0).toFixed(2)}</span>
+              <button class="btn sm" style="font-size:10px;padding:1px 6px" onclick="goToClusterFromDup('${esc(s.cluster_index||'')}')">→ Ir</button>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>`;
+    });
+  }
   if (total === 0) {
     groupsHtml = `<div style="text-align:center;padding:40px;color:var(--muted)">✓ No se detectaron duplicados para los stores de este cluster.</div>`;
   }
@@ -4447,7 +4476,8 @@ function renderDuplicatesModal(cid, data) {
       <div style="font-size:11px;color:var(--muted);margin-bottom:12px">
         Detectados: <b>${total}</b> grupos
         ${data.fallback_coords_count>0?`· ${data.fallback_coords_count} coords ignoradas como fallback`:''}
-        · libpostal: <span style="color:${lpAvail?'var(--green)':'var(--muted)'}">${lpAvail?'✓ activo':'✗ no disponible (Capa 3 deshabilitada)'}</span>
+        · libpostal: <span style="color:${lpAvail?'var(--green)':'var(--muted)'}">${lpAvail?'✓':'✗'}</span>
+        · semántico: <span style="color:${smAvail?'var(--green)':'var(--muted)'}">${smAvail?'✓':'✗ (carga al usar)'}</span>
       </div>
       ${groupsHtml}
     </div>`;
