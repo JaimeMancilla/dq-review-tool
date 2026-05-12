@@ -3333,6 +3333,36 @@ def _addresses_match_libpostal(addr_a, addr_b, umbral=0.55):
         return score >= 0.45, score, "nums_match"
     return score >= umbral, score, "no_nums"
 
+# Detección de sub-marca a partir del nombre del store.
+# Una sub-marca es una categoría/línea separada dentro de una misma cadena
+# (ej. "McDonald's Postres" vs "McDonald's regular" — comparten local pero
+# operan como tiendas independientes en las plataformas de delivery).
+#
+# "Turbo" se considera modificador genérico (variante de operación, no de marca).
+# Si una store es "McDonald's Turbo Desayunos", la sub-marca es "desayunos".
+#
+# Si el nombre no contiene ningún modificador detectado → sub_brand = "regular".
+_SUB_BRAND_PATTERNS = [
+    # (regex case-insensitive, sub_brand)
+    (re.compile(r"\b(desayuno|desayunos|despierta)\b", re.IGNORECASE),  "desayunos"),
+    (re.compile(r"\b(postres|postre)\b",                re.IGNORECASE), "postres"),
+    (re.compile(r"\b(pollos|pollo de|chicken)\b",       re.IGNORECASE), "pollos"),
+    (re.compile(r"\b(helados|mcflurry|ice cream)\b",    re.IGNORECASE), "helados"),
+    (re.compile(r"\b(mccafe|mc cafe|bk cafe)\b",        re.IGNORECASE), "cafe"),
+]
+
+def _detect_sub_brand(store_name):
+    """Devuelve la sub-marca detectada en el nombre, o 'regular' si no encuentra."""
+    if not store_name:
+        return "regular"
+    name = str(store_name)
+    # Buscar el primer patrón que matchee. El orden importa: desayunos primero
+    # porque puede convivir con turbo, postres, etc. en nombres compuestos.
+    for pat, label in _SUB_BRAND_PATTERNS:
+        if pat.search(name):
+            return label
+    return "regular"
+
 # Detección automática de coords fallback en un dataset
 def _detect_fallback_coords(stores, precision=3, min_stores=10, min_marcas=5):
     """Identifica coords sospechosas de ser fallback de geocoder.
@@ -3639,8 +3669,11 @@ def duplicates_cluster_fragmentation():
     fallback = _detect_fallback_coords(all_stores)
 
     from collections import defaultdict as _dd
-    # Agrupar stores del cluster por coord (precisión 4 decimales = ~11m)
-    by_coord = _dd(list)
+    # Agrupar stores del cluster por (coord, sub_brand).
+    # coord con precisión 4 decimales (~11m).
+    # sub_brand se detecta del nombre del store (postres/desayunos/pollos/etc.).
+    # Stores con misma coord pero distinta sub_brand → grupos separados.
+    by_coord_sub = _dd(list)
     invalid_or_fallback = []
     for s in stores:
         try:
@@ -3656,14 +3689,15 @@ def duplicates_cluster_fragmentation():
         if ckey_fb in fallback:
             invalid_or_fallback.append({"reason":"fallback", "store": s, "coord": f"{ckey_fb[0]},{ckey_fb[1]}"})
             continue
-        # Agrupar con precisión 4 decimales (~11m), más estricto que 3 decimales
+        # Agrupar con precisión 4 decimales (~11m) + sub-marca
         ckey = (round(lat, 4), round(lng, 4))
-        by_coord[ckey].append(s)
+        sub_brand = _detect_sub_brand(s.get("app_name") or "")
+        by_coord_sub[(ckey, sub_brand)].append(s)
 
     # Construir grupos ordenados por tamaño descendente
     grupos = []
-    for ckey, members in sorted(by_coord.items(), key=lambda x: -len(x[1])):
-        # Calcular dirección representativa: la más larga (suele ser la más completa)
+    for (ckey, sub_brand), members in sorted(by_coord_sub.items(), key=lambda x: -len(x[1])):
+        # Calcular dirección y nombre representativos: el más largo (suele ser el más completo)
         addr_rep = ""
         name_rep = ""
         if members:
@@ -3673,6 +3707,7 @@ def duplicates_cluster_fragmentation():
             "coord_key": f"{ckey[0]},{ckey[1]}",
             "lat": ckey[0],
             "lng": ckey[1],
+            "sub_brand": sub_brand,
             "count": len(members),
             "representative_name": name_rep,
             "representative_address": addr_rep,
@@ -3682,14 +3717,19 @@ def duplicates_cluster_fragmentation():
                 "app_name": s.get("app_name") or "",
                 "app_address": s.get("app_address") or "",
                 "scraper_source": s.get("scraper_source") or "",
+                "sub_brand": _detect_sub_brand(s.get("app_name") or ""),
                 "is_anchor": str(s.get("item_index") or "") == cluster_id,
             } for s in members],
         })
 
+    # num_geo_groups: cantidad de coords distintas (sin contar sub_brand).
+    # num_groups: cantidad total de grupos (coord × sub_brand).
+    geo_keys = {g["coord_key"] for g in grupos}
     return jsonify({
         "cluster_id": cluster_id,
-        "is_fragmented": len(grupos) > 1,
-        "num_geo_groups": len(grupos),
+        "is_fragmented": len(geo_keys) > 1 or len(grupos) > 1,
+        "num_geo_groups": len(geo_keys),
+        "num_groups": len(grupos),
         "groups": grupos,
         "invalid_or_fallback": [{
             "reason": x["reason"],

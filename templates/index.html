@@ -4544,9 +4544,14 @@ function renderFragmentationModal(cid, data) {
     </div>
     <div style="margin-top:10px">${renderFragGroup(groups[0], 1, false)}</div>`;
   } else {
+    const numGeo = data.num_geo_groups || groups.length;
+    const subBrandGroups = groups.filter(g => g.sub_brand && g.sub_brand !== 'regular').length;
+    const detail = subBrandGroups > 0
+      ? `${numGeo} grupo${numGeo!==1?'s':''} geográfico${numGeo!==1?'s':''} · ${subBrandGroups} grupo${subBrandGroups!==1?'s':''} con sub-marca distinta (postres/desayunos/pollos/etc.)`
+      : `${numGeo} grupo${numGeo!==1?'s':''} geográfico${numGeo!==1?'s':''} distinto${numGeo!==1?'s':''}`;
     groupsHtml = `<div style="background:#fffbeb;border:1px solid #f59e0b;padding:12px;border-radius:6px;color:#92400e;font-weight:600;margin-bottom:10px">
-      ⚠ Cluster fragmentado — se detectaron <b>${groups.length}</b> grupos geográficos distintos.<br>
-      <span style="font-weight:400;font-size:11px">Los stores en distintos grupos probablemente sean lugares físicos diferentes. Considerá separarlos en clusters distintos.</span>
+      ⚠ Cluster fragmentado — ${detail}.<br>
+      <span style="font-weight:400;font-size:11px">Cada grupo es probablemente un cluster distinto (lugar físico distinto, o sub-marca como McDonald's Postres / Desayunos / Pollos).</span>
     </div>`;
     groups.forEach((g, i) => {
       groupsHtml += renderFragGroup(g, i + 1, true);
@@ -4588,22 +4593,31 @@ function renderFragGroup(g, idx, highlightFrag) {
   const borderColor = highlightFrag ? '#f59e0b' : 'var(--border)';
   const bgColor = highlightFrag ? '#fffbeb' : 'var(--surf)';
   const labelColor = highlightFrag ? '#92400e' : 'var(--muted)';
+  const subBrand = g.sub_brand && g.sub_brand !== 'regular'
+    ? `<span style="margin-left:6px;padding:1px 6px;background:#ddd6fe;color:#5b21b6;border-radius:3px;font-size:10px;font-weight:700">${esc(g.sub_brand)}</span>`
+    : '';
   return `
   <div style="border:1px solid ${borderColor};border-radius:6px;padding:8px;margin-bottom:6px;background:${bgColor}">
     <div style="font-size:11px;color:${labelColor};margin-bottom:6px;font-weight:600">
-      Grupo ${idx} · coord <span style="font-family:monospace">${esc(g.coord_key)}</span> · ${g.count} store${g.count!==1?'s':''}
+      Grupo ${idx} · coord <span style="font-family:monospace">${esc(g.coord_key)}</span> · ${g.count} store${g.count!==1?'s':''}${subBrand}
     </div>
     <div style="font-size:11px;color:#374151;margin-bottom:6px;font-style:italic">
       📍 ${esc((g.representative_address||'').slice(0, 100))}${(g.representative_address||'').length>100?'…':''}
     </div>
     <div style="display:flex;flex-direction:column;gap:3px">
-      ${(g.stores||[]).map(s => `
+      ${(g.stores||[]).map(s => {
+        const subBadge = s.sub_brand && s.sub_brand !== 'regular'
+          ? `<span style="font-size:9px;color:#5b21b6;font-weight:700;background:#ede9fe;padding:0 4px;border-radius:2px">${esc(s.sub_brand)}</span>`
+          : '';
+        return `
       <div style="display:flex;align-items:center;gap:6px;padding:4px 8px;border:1px solid ${s.is_anchor?'var(--blue)':'var(--border)'};border-radius:4px;font-size:11px;background:${s.is_anchor?'#eff6ff':'#fff'}">
         ${s.is_anchor?'<span style="font-size:9px;color:var(--blue);font-weight:700">⚓ ANCLA</span>':''}
         <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><b>${esc(s.app_name||'?')}</b></span>
+        ${subBadge}
         <span style="font-size:9px;color:var(--muted)">[${esc(s.scraper_source||'')}]</span>
         <span style="font-family:monospace;font-size:9px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:150px">${esc(s.item_index||'')}</span>
-      </div>`).join('')}
+      </div>`;
+      }).join('')}
     </div>
   </div>`;
 }
