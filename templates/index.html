@@ -806,6 +806,7 @@ input[type=checkbox]{width:14px;height:14px;cursor:pointer;accent-color:var(--re
       <button class="btn sm" onclick="sgModalAddGroup()">+ Grupo</button>
       <button class="btn sm" id="sgMoveUndoBtn" style="display:none" title="Deshacer último movimiento entre subgrupos" onclick="sgMoveUndo(_sgModalCid)">↩</button>
       <button class="btn sm" onclick="toggleSgClusterSearch()" title="Buscar otro cluster">🔍</button>
+      <button class="btn sm" id="sgDupCheckBtn" onclick="checkDuplicatesForCluster()" title="Detectar posibles duplicados de stores del cluster en otros clusters del archivo">⚠ Duplicados</button>
       <button class="btn sm" onclick="closeSgModal()">✕ Cerrar</button>
     </div>
     <div class="sg-modal-body" style="position:relative">
@@ -4348,6 +4349,118 @@ function updateSgModalProgress(cid) {
          </span>`
       : "";
   }
+}
+
+// ── Detección de duplicados (Capa 2: coords; Capa 3: libpostal) ─────────
+async function checkDuplicatesForCluster() {
+  if (!_sgModalCid) return;
+  const cid = _sgModalCid;
+  const cl = getCl(cid);
+  if (!cl) { toast("No se pudo cargar el cluster"); return; }
+  const btn = document.getElementById("sgDupCheckBtn");
+  if (btn) { btn.disabled = true; btn.innerHTML = "⏳ Buscando..."; }
+  try {
+    const stores = (cl.members||[]).map(m => ({
+      store_id: m.store_id, app_name: m.app_name, app_address: m.app_address,
+      app_latitude: m.app_latitude, app_longitude: m.app_longitude,
+      main_chain: m.main_chain, cluster_index: m.cluster_index || cid,
+      scraper_source: m.scraper_source,
+    }));
+    const d = await api("/duplicates/check_cluster", {
+      cluster_id: cid, stores, file_name: CURRENT_FILENAME||""
+    });
+    renderDuplicatesModal(cid, d);
+  } catch(e) {
+    toast("Error detectando duplicados: " + e.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = "⚠ Duplicados"; }
+  }
+}
+
+function renderDuplicatesModal(cid, data) {
+  const groupsC = data.groups_coord || [];
+  const groupsA = data.groups_addr || [];
+  const total = groupsC.length + groupsA.length;
+  const lpAvail = !!data.libpostal_available;
+
+  let modalEl = document.getElementById("dupModal");
+  if (!modalEl) {
+    modalEl = document.createElement("div");
+    modalEl.id = "dupModal";
+    modalEl.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center";
+    document.body.appendChild(modalEl);
+  }
+
+  const fmtChip = (s, isCurrent) => `
+    <div style="display:flex;align-items:center;gap:6px;padding:4px 8px;border:1px solid ${isCurrent?'var(--blue)':'var(--border)'};border-radius:4px;font-size:11px;${isCurrent?'background:#eff6ff;':'background:var(--surf);'}">
+      <span style="font-family:monospace;font-size:10px;color:${isCurrent?'var(--blue)':'var(--muted)'};font-weight:${isCurrent?'700':'400'}">${esc(s.cluster_index||'?')}</span>
+      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(s.app_name||'?')}</span>
+      <span style="font-size:9px;color:var(--muted)">[${esc(s.scraper_source||'')}]</span>
+      ${isCurrent ? '<span style="font-size:9px;color:var(--blue);font-weight:700">ACTUAL</span>' : ''}
+      ${!isCurrent ? `<button class="btn sm" style="font-size:10px;padding:1px 6px" onclick="goToClusterFromDup('${esc(s.cluster_index||'')}')">→ Ir</button>` : ''}
+    </div>`;
+
+  let groupsHtml = "";
+  if (groupsC.length) {
+    groupsHtml += `<div style="margin-bottom:8px;font-size:12px;color:var(--green);font-weight:700">📍 Por coordenadas (Capa 2): ${groupsC.length} grupos</div>`;
+    groupsC.forEach((g, i) => {
+      const sortedStores = (g.stores||[]).slice().sort((a,b) => (b.is_current_cluster?1:0) - (a.is_current_cluster?1:0));
+      groupsHtml += `
+      <div style="border:1px solid var(--border);border-radius:6px;padding:8px;margin-bottom:6px;background:var(--surf)">
+        <div style="font-size:11px;color:var(--muted);margin-bottom:6px">
+          <span style="font-weight:700;color:#000">${esc(g.main_chain)}</span> @ <span style="font-family:monospace">${esc(g.coord_key)}</span> · ${g.stores.length} stores
+        </div>
+        <div style="display:flex;flex-direction:column;gap:3px">
+          ${sortedStores.map(s => fmtChip(s, !!s.is_current_cluster)).join('')}
+        </div>
+      </div>`;
+    });
+  }
+  if (groupsA.length) {
+    groupsHtml += `<div style="margin-top:12px;margin-bottom:8px;font-size:12px;color:var(--blue);font-weight:700">📝 Por dirección (Capa 3 libpostal): ${groupsA.length} grupos</div>`;
+    groupsA.forEach((g) => {
+      groupsHtml += `
+      <div style="border:1px solid var(--border);border-radius:6px;padding:8px;margin-bottom:6px;background:var(--surf)">
+        <div style="font-size:11px;color:var(--muted);margin-bottom:6px">
+          <span style="font-weight:700;color:#000">${esc(g.main_chain)}</span> · score: ${(g.score||0).toFixed(2)} · Match por dirección
+        </div>
+        <div style="font-size:11px;margin-bottom:4px;background:#eff6ff;padding:4px;border-radius:4px">
+          <div><b>ACTUAL:</b> ${esc(g.src_app_name||'')} <span style="color:var(--muted)">[${esc(g.src_cluster_index||'')}]</span></div>
+          <div style="color:var(--muted);font-size:10px">${esc(g.src_app_address||'')}</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:3px">
+          ${(g.stores||[]).map(s => fmtChip(s, false)).join('')}
+        </div>
+      </div>`;
+    });
+  }
+  if (total === 0) {
+    groupsHtml = `<div style="text-align:center;padding:40px;color:var(--muted)">✓ No se detectaron duplicados para los stores de este cluster.</div>`;
+  }
+
+  modalEl.innerHTML = `
+    <div style="background:var(--bg);border-radius:8px;padding:20px;max-width:850px;max-height:80vh;overflow:auto;width:90%;box-shadow:0 8px 32px rgba(0,0,0,0.3)">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+        <div style="font-size:18px;font-weight:700;flex:1">⚠ Posibles duplicados — cluster ${esc(cid)}</div>
+        <button class="btn sm" onclick="document.getElementById('dupModal').remove()">✕ Cerrar</button>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:12px">
+        Detectados: <b>${total}</b> grupos
+        ${data.fallback_coords_count>0?`· ${data.fallback_coords_count} coords ignoradas como fallback`:''}
+        · libpostal: <span style="color:${lpAvail?'var(--green)':'var(--muted)'}">${lpAvail?'✓ activo':'✗ no disponible (Capa 3 deshabilitada)'}</span>
+      </div>
+      ${groupsHtml}
+    </div>`;
+  modalEl.onclick = (e) => { if (e.target === modalEl) modalEl.remove(); };
+}
+
+// Navegar a otro cluster desde el modal de duplicados
+function goToClusterFromDup(otherCid) {
+  if (!otherCid) return;
+  document.getElementById('dupModal')?.remove();
+  // Cerrar modal SG actual, abrir el destino
+  closeSgModal();
+  setTimeout(() => openSgModal(otherCid), 50);
 }
 </script>
 

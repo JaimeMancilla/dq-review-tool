@@ -3242,6 +3242,305 @@ def projections_hydrate_from_corrections():
     conn.commit(); conn.close()
     return jsonify({"ok": True, "rebuilt": saved, "from_ext": len(ext_rows)})
 
+# ── DETECCIÓN DE DUPLICADOS ──────────────────────────────────────────────────
+# Capa 2 (coords): mismo punto geográfico + misma cadena = posible duplicado.
+# Capa 3 (libpostal): direcciones que matchean por Jaccard + house_number.
+# Capa 1 (landmarks): pendiente, requiere scraper de places para MX/AR/BR.
+
+from math import radians, sin, cos, asin, sqrt
+
+def _haversine_m_global(lat1, lng1, lat2, lng2):
+    """Distancia entre dos coordenadas en metros."""
+    try:
+        lat1, lng1, lat2, lng2 = float(lat1), float(lng1), float(lat2), float(lng2)
+    except (TypeError, ValueError):
+        return float("inf")
+    R = 6371000
+    lat1, lng1, lat2, lng2 = map(radians, [lat1, lng1, lat2, lng2])
+    dlat, dlng = lat2 - lat1, lng2 - lng1
+    a = sin(dlat / 2) ** 2 + cos(lat1) * cos(lat2) * sin(dlng / 2) ** 2
+    return 2 * R * asin(sqrt(a))
+
+# Carga lazy de libpostal: si no está, la app sigue funcionando sin Capa 3.
+_libpostal_available = None
+def _libpostal_ready():
+    global _libpostal_available
+    if _libpostal_available is None:
+        try:
+            from postal.expand import expand_address  # noqa: F401
+            _libpostal_available = True
+        except Exception:
+            _libpostal_available = False
+    return _libpostal_available
+
+# Stopwords y aliases — validados en sesión con casos LATAM reales.
+_DUP_STOPWORDS = {
+    "de","del","la","el","los","las","y",
+    "calle","avenida","av","calzada","calz","boulevard","blvd",
+    "rua","alameda","praça","praca","estrada",
+    "no","número","numero","n","col","colonia","fracc","fraccionamiento",
+    "barrio","bairro","comuna",
+}
+_DUP_ALIASES = {
+    "cdmx":"ciudad de mexico", "df":"ciudad de mexico",
+    "distrito":"", "federal":"",
+    "caba":"buenos aires", "capital":"buenos aires",
+}
+
+def _addr_tokens(addr):
+    """Normaliza una dirección con libpostal y la convierte en (nums_set, words_set)."""
+    if not addr or not _libpostal_ready():
+        return set(), set()
+    from postal.expand import expand_address
+    try:
+        variantes = expand_address(addr)
+    except Exception:
+        return set(), set()
+    if not variantes:
+        return set(), set()
+    base = variantes[0]
+    tokens = []
+    for tok in base.split():
+        tok = _DUP_ALIASES.get(tok, tok)
+        if tok:
+            tokens.extend(tok.split())
+    nums = set()
+    words = set()
+    for tok in tokens:
+        if tok in _DUP_STOPWORDS:
+            continue
+        if re.fullmatch(r"\d{2,5}", tok):
+            nums.add(tok)
+        elif not tok.isdigit():
+            words.add(tok)
+    return nums, words
+
+def _addresses_match_libpostal(addr_a, addr_b, umbral=0.55):
+    """Versión backend del matcher validado: retorna (match_bool, score, regla)."""
+    if not _libpostal_ready():
+        return False, 0.0, "libpostal_unavailable"
+    nums_a, words_a = _addr_tokens(addr_a)
+    nums_b, words_b = _addr_tokens(addr_b)
+    # Regla dura: si ambas tienen números y NO comparten ninguno → no match
+    if nums_a and nums_b and not (nums_a & nums_b):
+        return False, 0.0, "nums_differ"
+    if not words_a or not words_b:
+        return False, 0.0, "empty_tokens"
+    inter = len(words_a & words_b)
+    union = len(words_a | words_b)
+    score = inter / union if union else 0.0
+    if nums_a & nums_b:
+        return score >= 0.45, score, "nums_match"
+    return score >= umbral, score, "no_nums"
+
+# Detección automática de coords fallback en un dataset
+def _detect_fallback_coords(stores, precision=3, min_stores=10, min_marcas=5):
+    """Identifica coords sospechosas de ser fallback de geocoder.
+    Regla empírica: si una coord tiene >=10 stores Y >=5 marcas distintas → fallback.
+    """
+    from collections import defaultdict
+    by_coord = defaultdict(list)
+    for s in stores:
+        lat = s.get("app_latitude"); lng = s.get("app_longitude")
+        try:
+            lat, lng = float(lat), float(lng)
+        except (TypeError, ValueError):
+            continue
+        if lat == 0 and lng == 0: continue
+        key = (round(lat, precision), round(lng, precision))
+        by_coord[key].append(s)
+    fallback = set()
+    for key, lst in by_coord.items():
+        if len(lst) < min_stores: continue
+        marcas = {(s.get("main_chain") or "").strip().lower() for s in lst if s.get("main_chain")}
+        marcas.discard("")
+        if len(marcas) >= min_marcas:
+            fallback.add(key)
+    return fallback
+
+def _get_loaded_file_stores(file_name):
+    """Devuelve todos los stores del archivo desde session_state, o None si no está."""
+    conn = sqlite3.connect(DB_FILE)
+    row = conn.execute(
+        "SELECT state_json FROM session_state WHERE file_name = ?", (file_name,)
+    ).fetchone()
+    conn.close()
+    if not row:
+        return None
+    try:
+        state = json.loads(row[0])
+    except Exception:
+        return None
+    # state_json puede ser list de clusters o dict con 'clusters'
+    if isinstance(state, dict):
+        clusters = state.get("clusters") or state.get("subgroups") or []
+    elif isinstance(state, list):
+        clusters = state
+    else:
+        return None
+    stores = []
+    for cl in clusters:
+        if not isinstance(cl, dict): continue
+        for m in cl.get("members") or []:
+            if isinstance(m, dict):
+                # Inyectar cluster_index si está en el cluster pero no en el member
+                if "cluster_index" not in m and "cluster_id" in cl:
+                    m = {**m, "cluster_index": cl["cluster_id"]}
+                stores.append(m)
+    return stores
+
+@app.route("/duplicates/check_cluster", methods=["POST"])
+def duplicates_check_cluster():
+    """Detecta posibles duplicados para todos los stores de un cluster.
+    Body: {cluster_id, stores: [{store_id, app_name, app_address, app_latitude, app_longitude, main_chain, cluster_index, scraper_source}, ...]}
+    Si no se envía 'stores', intenta cargarlos del archivo activo en sesión.
+
+    Retorna: {
+      groups: [{
+        reason: 'coord'|'addr'|'both',
+        coord_key: "lat,lng" | null,
+        main_chain: str,
+        score: float,        # solo si addr
+        stores: [{store_id, app_name, app_address, cluster_index, scraper_source}, ...]
+      }, ...]
+    }
+    """
+    data = request.json or {}
+    cluster_id = (data.get("cluster_id") or "").strip()
+    stores_input = data.get("stores")
+    file_name = (data.get("file_name") or session.get("filename","")).strip()
+
+    if not stores_input:
+        # Fallback: cargar del archivo en sesión
+        if not file_name:
+            return jsonify({"error":"falta file_name o stores"}), 400
+        all_stores = _get_loaded_file_stores(file_name)
+        if not all_stores:
+            return jsonify({"error":"no hay stores en sesión"}), 400
+        # Filtrar los que sean del cluster_id pedido
+        stores_input = [s for s in all_stores if str(s.get("cluster_index") or "") == cluster_id]
+    else:
+        # Si nos pasaron stores del cluster, cargamos también los del resto del archivo
+        all_stores = stores_input if not file_name else (_get_loaded_file_stores(file_name) or stores_input)
+
+    # Detectar fallback coords sobre TODO el archivo (no solo el cluster)
+    fallback_coords = _detect_fallback_coords(all_stores)
+
+    # Index por (coord_key, main_chain) sobre TODO el archivo
+    from collections import defaultdict
+    by_coord_chain = defaultdict(list)
+    for s in all_stores:
+        try:
+            lat = float(s.get("app_latitude")); lng = float(s.get("app_longitude"))
+        except (TypeError, ValueError):
+            continue
+        if lat == 0 and lng == 0: continue
+        ckey = (round(lat, 3), round(lng, 3))
+        if ckey in fallback_coords: continue
+        chain = (s.get("main_chain") or "").strip().lower()
+        if not chain: continue
+        by_coord_chain[(ckey, chain)].append(s)
+
+    # Para cada store del cluster, buscar matches en otros clusters
+    groups_out = []
+    seen_keys = set()  # para no duplicar el mismo grupo si varios stores del cluster matchean al mismo grupo
+    for src in stores_input:
+        src_ci = str(src.get("cluster_index") or "")
+        try:
+            src_lat = float(src.get("app_latitude")); src_lng = float(src.get("app_longitude"))
+        except (TypeError, ValueError):
+            continue
+        if src_lat == 0 and src_lng == 0: continue
+        src_chain = (src.get("main_chain") or "").strip().lower()
+        if not src_chain: continue
+        ckey = (round(src_lat, 3), round(src_lng, 3))
+        if ckey in fallback_coords: continue
+        # Buscar grupo
+        members = by_coord_chain.get((ckey, src_chain), [])
+        # Filtrar: distinto cluster_index al actual
+        otros = [m for m in members if str(m.get("cluster_index") or "") != src_ci]
+        if not otros: continue
+        # Evitar grupos duplicados (si varios stores del cluster activo apuntan al mismo grupo)
+        gkey = f"{ckey[0]},{ckey[1]}|{src_chain}"
+        if gkey in seen_keys: continue
+        seen_keys.add(gkey)
+        # Construir el grupo con todos los stores (incluye los del cluster activo)
+        groups_out.append({
+            "reason": "coord",
+            "coord_key": f"{ckey[0]},{ckey[1]}",
+            "main_chain": src_chain,
+            "stores": [{
+                "store_id": str(s.get("store_id") or ""),
+                "app_name": s.get("app_name") or "",
+                "app_address": s.get("app_address") or "",
+                "cluster_index": str(s.get("cluster_index") or ""),
+                "scraper_source": s.get("scraper_source") or "",
+                "is_current_cluster": str(s.get("cluster_index") or "") == src_ci,
+            } for s in members],
+        })
+
+    # Capa 3 (libpostal) — buscar matches por dirección cuando coord no aplica.
+    # Solo si libpostal está disponible. Evitamos doble-contar lo que ya está en Capa 2.
+    addr_groups_out = []
+    if _libpostal_ready():
+        seen_in_coord = set()
+        for g in groups_out:
+            for s in g["stores"]:
+                seen_in_coord.add(str(s["store_id"]))
+        # Index de stores del archivo por chain (sin contar los ya cubiertos por Capa 2)
+        from collections import defaultdict as _dd
+        by_chain = _dd(list)
+        for s in all_stores:
+            sid = str(s.get("store_id") or "")
+            if sid in seen_in_coord: continue
+            chain = (s.get("main_chain") or "").strip().lower()
+            if not chain: continue
+            by_chain[chain].append(s)
+        # Para cada store del cluster, buscar matches por addr dentro de su chain
+        for src in stores_input:
+            sid = str(src.get("store_id") or "")
+            if sid in seen_in_coord: continue
+            src_addr = src.get("app_address") or ""
+            if not src_addr.strip(): continue
+            src_chain = (src.get("main_chain") or "").strip().lower()
+            if not src_chain: continue
+            src_ci = str(src.get("cluster_index") or "")
+            matches = []
+            for s in by_chain.get(src_chain, []):
+                if str(s.get("store_id") or "") == sid: continue
+                if str(s.get("cluster_index") or "") == src_ci: continue
+                cand_addr = s.get("app_address") or ""
+                if not cand_addr.strip(): continue
+                match, score, regla = _addresses_match_libpostal(src_addr, cand_addr)
+                if match and regla in ("nums_match",):  # Solo aceptar matches "fuertes" para evitar falsos positivos
+                    matches.append((s, score))
+            if matches:
+                addr_groups_out.append({
+                    "reason": "addr",
+                    "score": round(max(m[1] for m in matches), 2),
+                    "main_chain": src_chain,
+                    "src_store_id": sid,
+                    "src_app_name": src.get("app_name") or "",
+                    "src_app_address": src_addr,
+                    "src_cluster_index": src_ci,
+                    "stores": [{
+                        "store_id": str(s.get("store_id") or ""),
+                        "app_name": s.get("app_name") or "",
+                        "app_address": s.get("app_address") or "",
+                        "cluster_index": str(s.get("cluster_index") or ""),
+                        "scraper_source": s.get("scraper_source") or "",
+                        "score": round(sc, 2),
+                    } for s, sc in matches],
+                })
+
+    return jsonify({
+        "cluster_id": cluster_id,
+        "groups_coord": groups_out,
+        "groups_addr": addr_groups_out,
+        "fallback_coords_count": len(fallback_coords),
+        "libpostal_available": _libpostal_ready(),
+    })
+
 def progress_stats_dishes():
     """Progreso de revisión de dishes — solo desde memoria interna."""
     files = get_reviewed_files("dishes")
