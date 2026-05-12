@@ -3614,6 +3614,94 @@ def duplicates_check_cluster():
         "semantic_model_available": bool(_model_ready),
     })
 
+@app.route("/duplicates/cluster_fragmentation", methods=["POST"])
+def duplicates_cluster_fragmentation():
+    """Detecta si los stores DENTRO de un cluster pertenecen a varios lugares físicos distintos.
+    A diferencia de /duplicates/check_cluster (que busca duplicados cross-cluster),
+    este analiza fragmentación intra-cluster.
+
+    Body: {cluster_id, stores: [{store_id, app_name, app_address, app_latitude, app_longitude, ...}]}
+
+    Retorna grupos geográficos: cada grupo es un set de stores que comparten coord (a 4 decimales).
+    Si hay >1 grupo, el cluster está fragmentado.
+    """
+    data = request.json or {}
+    cluster_id = (data.get("cluster_id") or "").strip()
+    stores = data.get("stores") or []
+    if not stores:
+        return jsonify({"error":"falta stores"}), 400
+
+    # Cargar TODO el archivo para detectar fallback coords sobre el universo completo
+    file_name = (data.get("file_name") or session.get("filename","")).strip()
+    all_stores = _get_loaded_file_stores(file_name) if file_name else stores
+    if not all_stores:
+        all_stores = stores
+    fallback = _detect_fallback_coords(all_stores)
+
+    from collections import defaultdict as _dd
+    # Agrupar stores del cluster por coord (precisión 4 decimales = ~11m)
+    by_coord = _dd(list)
+    invalid_or_fallback = []
+    for s in stores:
+        try:
+            lat = float(s.get("app_latitude")); lng = float(s.get("app_longitude"))
+        except (TypeError, ValueError):
+            invalid_or_fallback.append({"reason":"invalid", "store": s})
+            continue
+        if lat == 0 and lng == 0:
+            invalid_or_fallback.append({"reason":"zero", "store": s})
+            continue
+        # Detectar fallback usando precisión 3 decimales (igual que en _detect_fallback_coords)
+        ckey_fb = (round(lat, 3), round(lng, 3))
+        if ckey_fb in fallback:
+            invalid_or_fallback.append({"reason":"fallback", "store": s, "coord": f"{ckey_fb[0]},{ckey_fb[1]}"})
+            continue
+        # Agrupar con precisión 4 decimales (~11m), más estricto que 3 decimales
+        ckey = (round(lat, 4), round(lng, 4))
+        by_coord[ckey].append(s)
+
+    # Construir grupos ordenados por tamaño descendente
+    grupos = []
+    for ckey, members in sorted(by_coord.items(), key=lambda x: -len(x[1])):
+        # Calcular dirección representativa: la más larga (suele ser la más completa)
+        addr_rep = ""
+        name_rep = ""
+        if members:
+            addr_rep = max((m.get("app_address") or "" for m in members), key=len, default="")
+            name_rep = max((m.get("app_name") or "" for m in members), key=len, default="")
+        grupos.append({
+            "coord_key": f"{ckey[0]},{ckey[1]}",
+            "lat": ckey[0],
+            "lng": ckey[1],
+            "count": len(members),
+            "representative_name": name_rep,
+            "representative_address": addr_rep,
+            "stores": [{
+                "store_id": str(s.get("store_id") or ""),
+                "item_index": str(s.get("item_index") or ""),
+                "app_name": s.get("app_name") or "",
+                "app_address": s.get("app_address") or "",
+                "scraper_source": s.get("scraper_source") or "",
+                "is_anchor": str(s.get("item_index") or "") == cluster_id,
+            } for s in members],
+        })
+
+    return jsonify({
+        "cluster_id": cluster_id,
+        "is_fragmented": len(grupos) > 1,
+        "num_geo_groups": len(grupos),
+        "groups": grupos,
+        "invalid_or_fallback": [{
+            "reason": x["reason"],
+            "store_id": str(x["store"].get("store_id") or ""),
+            "app_name": x["store"].get("app_name") or "",
+            "app_address": x["store"].get("app_address") or "",
+            "coord": x.get("coord", ""),
+        } for x in invalid_or_fallback],
+        "total_stores": len(stores),
+        "stores_with_valid_coords": sum(g["count"] for g in grupos),
+    })
+
 def progress_stats_dishes():
     """Progreso de revisión de dishes — solo desde memoria interna."""
     files = get_reviewed_files("dishes")
