@@ -3431,8 +3431,17 @@ function filterBdResults(query, cid, sgi, syncMap) {
       if (ci) visibleClusters.add(ci);
       return;
     }
-    const text = el.textContent.toLowerCase();
-    const visible = text.includes(q);
+    // Buscar solo en los chips de stores (data-search-text), no en headers ni IDs
+    const chips = el.querySelectorAll('[data-search-text]');
+    let visible = false;
+    if (chips.length === 0) {
+      // Si no hay chips con data-search-text (caso raro), fallback a textContent
+      visible = el.textContent.toLowerCase().includes(q);
+    } else {
+      for (const chip of chips) {
+        if ((chip.dataset.searchText||'').includes(q)) { visible = true; break; }
+      }
+    }
     el.style.display = visible ? '' : 'none';
     if (visible) {
       const ci = el.dataset.cluster;
@@ -3450,8 +3459,16 @@ function filterBdResultsBlock(query, sgKey) {
   if (!container) return;
   Array.from(container.children).forEach(el => {
     if (!q) { el.style.display=''; return; }
-    const text = el.textContent.toLowerCase();
-    el.style.display = text.includes(q) ? '' : 'none';
+    const chips = el.querySelectorAll('[data-search-text]');
+    let visible = false;
+    if (chips.length === 0) {
+      visible = el.textContent.toLowerCase().includes(q);
+    } else {
+      for (const chip of chips) {
+        if ((chip.dataset.searchText||'').includes(q)) { visible = true; break; }
+      }
+    }
+    el.style.display = visible ? '' : 'none';
   });
 }
 
@@ -3876,6 +3893,7 @@ function buildSgGroupCard(cid, sg, sgi) {
 
         return `<div style="display:flex;flex-direction:column;border:1px solid var(--border2);border-radius:5px;padding:5px 8px;font-size:10px;${chipBg};${extraStyle};margin-bottom:3px"
           data-store-id="${esc(String(m.store_id||''))}"
+          data-search-text="${esc(((m.app_name||'')+' '+(m.app_address||'')).toLowerCase())}"
           ${draggable?`draggable="true" ondragstart="onBdRowDragStart(event,'${dragJson}')" ondragend="event.target.style.opacity='1'"`:""}
           >
           <div style="display:flex;align-items:center;gap:4px">
@@ -3959,7 +3977,8 @@ function buildSgGroupCard(cid, sg, sgi) {
       if (!pendNew.members || !pendNew.members.length) return;
       const pendChips = pendNew.members.map(mi => `
         <div style="display:flex;flex-direction:column;border:1px solid var(--pborder,#c4b5fd);border-radius:5px;padding:5px 8px;font-size:10px;background:var(--pbg,#f5f3ff);margin-bottom:3px"
-             data-store-id="${esc(String(mi.store_id||''))}">
+             data-store-id="${esc(String(mi.store_id||''))}"
+             data-search-text="${esc(((mi.app_name||'')+' '+(mi.app_address||'')).toLowerCase())}">
           <div style="display:flex;align-items:center;gap:4px">
             <span style="font-size:9px;color:var(--purple,#7c3aed)">↳</span>
             <span style="font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">
