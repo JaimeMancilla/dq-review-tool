@@ -3448,8 +3448,12 @@ function filterBdResults(query, cid, sgi, syncMap) {
       if (ci) visibleClusters.add(ci);
     }
   });
-  // Sincronizar con el mapa si está abierto
-  if (syncMap) syncMapFilter(cid, sgi, q ? visibleClusters : null);
+  // Sincronizar con el mapa si está abierto — aislado en try/catch para que
+  // un error en el mapa no afecte el filtro de clusters.
+  if (syncMap) {
+    try { syncMapFilter(cid, sgi, q ? visibleClusters : null); }
+    catch(_e) { /* ignorar errores del mapa */ }
+  }
 }
 
 // Filtrar clusters en resultados BD (panel lateral buildSgBlock)
@@ -6670,12 +6674,17 @@ function syncMapFilter(cid, sgi, visibleClusters) {
   const mapObj = _bdMaps[key];
   if (!mapObj || !mapObj._markers) return;
   mapObj._markers.forEach(m => {
-    if (!visibleClusters) {
-      m.setStyle({opacity:1, fillOpacity:0.85});
-    } else {
-      const visible = visibleClusters.has(m._clusterId);
-      m.setStyle({opacity: visible?1:0.1, fillOpacity: visible?0.85:0.05});
-    }
+    // Guard: no todos los markers tienen setStyle (ej. L.marker vs L.circleMarker).
+    // Sin esto, un error rompe el filtro principal y deja clusters visibles incorrectamente.
+    if (!m || typeof m.setStyle !== 'function') return;
+    try {
+      if (!visibleClusters) {
+        m.setStyle({opacity:1, fillOpacity:0.85});
+      } else {
+        const visible = visibleClusters.has(m._clusterId);
+        m.setStyle({opacity: visible?1:0.1, fillOpacity: visible?0.85:0.05});
+      }
+    } catch(_e) { /* ignorar errores de marker individual */ }
   });
 }
 
