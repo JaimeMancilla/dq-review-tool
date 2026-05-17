@@ -5081,9 +5081,17 @@ function applyProjectionsToBdResults(bd_results, sg_members_for_match) {
 
 // Helper: extraer palabras de marca (minúsculas, ≥3 chars, no stopwords)
 function brandWordsJs(name) {
-  const stop = new Set(["mall","plaza","local","centro","con","del","la","el","los","las","san","santa","store","cafe","express"]);
-  return (name||"").toLowerCase()
-    .replace(/[^a-záéíóúñ0-9 ]/gi, " ")
+  const stop = new Set(["mall","plaza","local","centro","con","del","la","el","los","las","san","santa","store","cafe","express",
+                        // Sub-marcas: tratarlas como stopwords para que no rompan el overlap
+                        // (un store "McDonald's" debe matchear con "McDonald's Desayunos" / "Despierta con McDonald's")
+                        "desayunos","desayuno","despierta","postres","postre","pollos","helados","mcflurry","turbo"]);
+  // Normalizar: lowercase + quitar tildes + colapsar "mc donald" → "mcdonald"
+  let normalized = (name||"").toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // quita tildes/diacríticos
+    .replace(/\bmc\s+donald/g, "mcdonald")              // "mc donald" → "mcdonald"
+    .replace(/\bdonald(?:'?s)?\b/g, "mcdonald")         // "donald" / "donald's" → "mcdonald" (caso "Mc Donald's")
+    .replace(/[^a-zñ0-9 ]/gi, " ");
+  return normalized
     .split(/\s+/)
     .filter(w => w.length >= 3 && !stop.has(w));
 }
